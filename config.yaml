@@ -1,0 +1,73 @@
+server:
+    bind:
+        - udp://0.0.0.0:53
+        - tcp://0.0.0.0:53
+    max_udp_size: 1472
+entry:
+    - ""
+    - ""
+plugin:
+    - tag: ""
+      type: blackhole
+      args:
+          rcode: 2
+    - tag: ""
+      type: ecs
+      args:
+          auto: false
+          force_overwrite: false
+          ipv4: 1.2.3.4
+          ipv6: '2001:dd8:1a::'
+          mask4: 24
+          mask6: 32
+          next: ""
+    - tag: ""
+      type: forward
+      args:
+          deduplicate: false
+          insecure_skip_verify: false
+          next: ""
+          timeout: 10
+          upstream:
+              - addr: https://dns.google/dns-query
+                ip_addr:
+                    - 8.8.8.8
+                    - 8.8.4.4
+              - addr: https://1.1.1.1/dns-query
+                ip_addr:
+                    - 1.1.1.1
+                    - 1.0.0.1
+    - tag: ""
+      type: ipset
+      args:
+          mask4: 24
+          mask6: 32
+          next: ""
+          set_name4: ""
+          set_name6: ""
+    - tag: ""
+      type: redirect_domain
+      args:
+          check_cname: false
+          check_question: true
+          domain:
+              - ""
+              - ""
+          next: ""
+          redirect: ""
+    - tag: ""
+      type: redirect_ip
+      args:
+          ip:
+              - ""
+              - ""
+          next: ""
+          redirect: ""
+    - tag: ""
+      type: redirect_query_type
+      args:
+          next: ""
+          redirect: ""
+          type:
+              - 1
+              - 28

@@ -1,0 +1,19 @@
+<!--
+	有关配置选项的更多信息：https://github.com/kohsuke/winsw/blob/master/doc/xmlConfigFile.md
+-->
+
+<service>
+	<id>mosdns</id>
+	<name>mosdns (powered by WinSW)</name>
+	<description>a plugin DNS server</description>
+
+	<executable>%BASE%\mosdns.exe</executable>
+	<arguments>-c config.yaml</arguments>
+	<workingdirectory>%BASE%</workingdirectory>
+	<log mode="append"></log>
+
+	<onfailure action="restart" delay="10 sec"/>
+	<onfailure action="restart" delay="20 sec"/>
+	<onfailure action="restart" delay="30 sec"/>
+	<resetfailure>1 hour</resetfailure>
+</service>
