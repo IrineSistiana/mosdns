@@ -20,6 +20,7 @@ mosdns 是一个插件化配置的 DNS 转发器/服务器。每个插件实现�
 * [v2fly/v2ray-core](https://github.com/v2fly/v2ray-core): [MIT](https://github.com/v2fly/v2ray-core/blob/master/LICENSE)
 * [vishvananda/netlink](https://github.com/vishvananda/netlink): [Apache License 2.0](https://github.com/vishvananda/netlink/blob/master/LICENSE)
 * [AdguardTeam/dnsproxy](https://github.com/AdguardTeam/dnsproxy): [GPLv3](https://github.com/AdguardTeam/dnsproxy/blob/master/LICENSE)
+* [mitchellh/mapstructure](https://github.com/mitchellh/mapstructure): [MIT](https://github.com/mitchellh/mapstructure/blob/master/LICENSE)
 
 使用源码
 
