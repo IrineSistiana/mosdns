@@ -17,25 +17,37 @@
 
 package handler
 
-import (
-	"context"
-)
+import "context"
 
-type Plugin interface {
-	Tag() string
-	Type() string
-
-	// Do modifies qCtx and returns next plugin tag.
-	Do(ctx context.Context, qCtx *Context) (next string, err error)
+// OneWayPlugin only modifies qCtx
+type OneWayPlugin interface {
+	Modify(ctx context.Context, qCtx *Context) (err error)
 }
 
-type Config struct {
-	// Tag, required
-	Tag string `yaml:"tag"`
+type oneWayPluginWrapper struct {
+	config   *Config
+	doPlugin OneWayPlugin
+	next     string
+}
 
-	// Type, required
-	Type string `yaml:"type"`
+func (p *oneWayPluginWrapper) Tag() string {
+	return p.config.Tag
+}
 
-	// Args, might be required by some plugins
-	Args Args `yaml:"args"`
+func (p *oneWayPluginWrapper) Type() string {
+	return p.config.Type
+}
+
+func (p *oneWayPluginWrapper) Do(ctx context.Context, qCtx *Context) (next string, err error) {
+	err = p.doPlugin.Modify(ctx, qCtx)
+	return p.next, err
+}
+
+// WrapOneWayPlugin returns a oneWayPluginWrapper which implements Plugin.
+func WrapOneWayPlugin(config *Config, doPlugin OneWayPlugin, next string) Plugin {
+	return &oneWayPluginWrapper{
+		config:   config,
+		doPlugin: doPlugin,
+		next:     next,
+	}
 }

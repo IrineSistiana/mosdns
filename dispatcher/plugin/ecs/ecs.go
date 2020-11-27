@@ -88,10 +88,10 @@ func Init(conf *handler.Config) (p handler.Plugin, err error) {
 		}
 	}
 
-	return handler.WrapDoPlugin(conf, ep, args.Next), nil
+	return handler.WrapOneWayPlugin(conf, ep, args.Next), nil
 }
 
-func (e appendECSPlugin) Do(ctx context.Context, qCtx *handler.Context) (err error) {
+func (e appendECSPlugin) Modify(ctx context.Context, qCtx *handler.Context) (err error) {
 	if qCtx == nil || qCtx.Q == nil {
 		return nil
 	}

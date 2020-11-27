@@ -15,25 +15,26 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package blackhole
+package sequence
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/miekg/dns"
 )
 
 func init() {
-	handler.RegInitFunc("blackhole", Init)
+	handler.RegInitFunc("sequence", Init)
 }
 
-type blackhole struct {
-	rCode int
+type sequence struct {
+	tags []string
 }
 
 type Args struct {
-	RCode int `yaml:"rcode"`
+	Sequence []string `yaml:"sequence"`
+	Next     string   `yaml:"next"`
 }
 
 func Init(conf *handler.Config) (p handler.Plugin, err error) {
@@ -43,23 +44,27 @@ func Init(conf *handler.Config) (p handler.Plugin, err error) {
 		return nil, fmt.Errorf("invalid args: %w", err)
 	}
 
-	b := new(blackhole)
-	b.rCode = args.RCode
+	if len(args.Sequence) == 0 {
+		return nil, errors.New("emtpy sequence")
+	}
 
-	return handler.WrapOneWayPlugin(conf, b, ""), nil
+	b := new(sequence)
+	b.tags = args.Sequence
+
+	return handler.WrapOneWayPlugin(conf, b, args.Next), nil
 }
 
-func (b *blackhole) Modify(ctx context.Context, qCtx *handler.Context) (err error) {
-	if qCtx == nil {
-		return nil
-	}
-	if b.rCode != dns.RcodeSuccess && qCtx.Q != nil {
-		r := new(dns.Msg)
-		r.SetReply(qCtx.Q)
-		r.Rcode = b.rCode
-		qCtx.R = r
-	} else {
-		qCtx.R = nil
+func (s *sequence) Modify(ctx context.Context, qCtx *handler.Context) (err error) {
+	for _, tag := range s.tags {
+		p, ok := handler.GetPlugin(tag)
+		if !ok {
+			return handler.NewTagNotDefinedErr(tag)
+		}
+
+		_, err = p.Do(ctx, qCtx)
+		if err != nil {
+			return fmt.Errorf("plugin %s reported an err: %w", tag, err)
+		}
 	}
 	return nil
 }

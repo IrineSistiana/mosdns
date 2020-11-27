@@ -34,8 +34,7 @@ type redirectPlugin struct {
 // NewRedirectPlugin returns a redirectPlugin.
 // redirectPlugin is a plugin that can redirect qCtx to other plugin under certain condition.
 // It should not modify qCtx.
-// It has two pre-set args: `next` and `redirect`.
-// If checker.Match() returns true, the plugin tag from `next` will be returned in redirectPlugin.Next().
+// If checker.Match() returns true, the plugin tag from `next` will be returned in redirectPlugin.Do().
 // Otherwise, `redirect`.
 func NewRedirectPlugin(config *Config, checker Checker, next, redirect string) Plugin {
 	return &redirectPlugin{
@@ -54,11 +53,7 @@ func (c *redirectPlugin) Type() string {
 	return c.config.Type
 }
 
-func (c *redirectPlugin) Do(ctx context.Context, qCtx *Context) (err error) {
-	return nil
-}
-
-func (c *redirectPlugin) Next(ctx context.Context, qCtx *Context) (next string, err error) {
+func (c *redirectPlugin) Do(ctx context.Context, qCtx *Context) (next string, err error) {
 	matched, err := c.checker.Match(ctx, qCtx)
 	if err != nil {
 		return "", err

@@ -17,25 +17,28 @@
 
 package handler
 
-import (
-	"context"
-)
+import "fmt"
 
-type Plugin interface {
-	Tag() string
-	Type() string
-
-	// Do modifies qCtx and returns next plugin tag.
-	Do(ctx context.Context, qCtx *Context) (next string, err error)
+type TypeNotDefinedErr struct {
+	typ string
 }
 
-type Config struct {
-	// Tag, required
-	Tag string `yaml:"tag"`
+func NewTypeNotDefinedErr(typ string) *TypeNotDefinedErr {
+	return &TypeNotDefinedErr{typ: typ}
+}
 
-	// Type, required
-	Type string `yaml:"type"`
+func (t *TypeNotDefinedErr) Error() string {
+	return fmt.Sprintf("plugin type [%s] not not defined", t.typ)
+}
 
-	// Args, might be required by some plugins
-	Args Args `yaml:"args"`
+type TagNotDefinedErr struct {
+	tag string
+}
+
+func NewTagNotDefinedErr(tag string) *TagNotDefinedErr {
+	return &TagNotDefinedErr{tag: tag}
+}
+
+func (t *TagNotDefinedErr) Error() string {
+	return fmt.Sprintf("plugin tag [%s] not not defined", t.tag)
 }

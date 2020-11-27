@@ -44,22 +44,19 @@ const (
 // Dispatcher represents a dns query dispatcher
 type Dispatcher struct {
 	config *config.Config
-
-	pluginReg handler.PluginRegister
 }
 
 // InitDispatcher inits a dispatcher from configuration
 func InitDispatcher(c *config.Config) (*Dispatcher, error) {
 	d := new(Dispatcher)
 	d.config = c
-	d.pluginReg = handler.NewPluginRegister()
 
 	for i, pluginConfig := range c.Plugin {
 		if len(pluginConfig.Tag) == 0 {
 			logger.GetStd().Warnf("plugin at index %d has a empty tag, ignore it.", i)
 			continue
 		}
-		if err := d.pluginReg.RegPlugin(pluginConfig); err != nil {
+		if err := handler.RegPlugin(pluginConfig); err != nil {
 			return nil, fmt.Errorf("failed to register plugin %d-%s: %w", i, pluginConfig.Tag, err)
 		}
 	}
@@ -104,7 +101,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, qCtx *handler.Context) error 
 
 			queryStart := time.Now()
 
-			err := d.pluginReg.Walk(ctx, entryQCtx, entryTag)
+			err := handler.Walk(ctx, entryQCtx, entryTag)
 			rtt := time.Since(queryStart).Milliseconds()
 			if err != nil {
 				if err != context.Canceled && err != context.DeadlineExceeded {

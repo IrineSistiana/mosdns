@@ -26,4 +26,5 @@ import (
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/redirect_domain"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/redirect_ip"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/redirect_query_type"
+	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/sequence"
 )

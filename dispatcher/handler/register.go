@@ -25,86 +25,80 @@ import (
 
 type NewPluginFunc func(c *Config) (p Plugin, err error)
 
-// PluginRegister stores user defined plugin
-type PluginRegister map[string]Plugin
-
 var (
-	// newFuncRegister stores init funcs for all plugin types
-	newFuncRegister = make(map[string]NewPluginFunc)
+	// pluginTypeRegister stores init funcs for all plugin types
+	pluginTypeRegister = make(map[string]NewPluginFunc)
+
+	// pluginRegister stores plugin instance.
+	pluginRegister = make(map[string]Plugin)
 )
 
 // RegInitFunc registers this plugin type.
+// This should only be called in init() of the plugin package.
+// Duplicate plugin types are not allowed.
 func RegInitFunc(pluginType string, initFunc NewPluginFunc) {
-	_, ok := newFuncRegister[pluginType]
+	_, ok := pluginTypeRegister[pluginType]
 	if ok {
 		panic(fmt.Sprintf("duplicate plugin type [%s]", pluginType))
 	}
-	newFuncRegister[pluginType] = initFunc
+	pluginTypeRegister[pluginType] = initFunc
 }
 
-func GetAllSupportPluginTypes() []string {
-	b := make([]string, 0, len(newFuncRegister))
-	for typ := range newFuncRegister {
+// GetPluginTypes returns all registered plugin types.
+func GetPluginTypes() []string {
+	b := make([]string, 0, len(pluginTypeRegister))
+	for typ := range pluginTypeRegister {
 		b = append(b, typ)
 	}
 	return b
 }
 
-func NewPluginRegister() PluginRegister {
-	return make(PluginRegister)
-}
-
-func (reg PluginRegister) RegPlugin(c *Config) (err error) {
-	newPluginFunc, ok := newFuncRegister[c.Type]
+// RegPlugin inits and registers this plugin globally.
+// Duplicate plugin tags are not allowed.
+func RegPlugin(c *Config) (err error) {
+	newPluginFunc, ok := pluginTypeRegister[c.Type]
 	if !ok {
-		return fmt.Errorf("undefinded plugin type [%s]", c.Type)
+		return NewTypeNotDefinedErr(c.Type)
 	}
 
 	p, err := newPluginFunc(c)
 	if err != nil {
 		return fmt.Errorf("failed to init plugin [%s], %w", c.Tag, err)
 	}
-	reg.regPlugin(c.Tag, p)
+
+	_, ok = pluginRegister[c.Tag]
+	if ok {
+		return fmt.Errorf("duplicate plugin tag [%s]", c.Tag)
+	} else {
+		logger.GetStd().Debugf("plugin %s registered", c.Tag)
+	}
+	pluginRegister[c.Tag] = p
+
 	return nil
 }
 
-func (reg PluginRegister) GetPlugin(tag string) (p Plugin, ok bool) {
-	p, ok = reg[tag]
+func GetPlugin(tag string) (p Plugin, ok bool) {
+	p, ok = pluginRegister[tag]
 	return
 }
 
-func (reg PluginRegister) regPlugin(tag string, p Plugin) {
-	_, ok := reg[tag]
-	if ok {
-		logger.GetStd().Warnf("duplicate plugin tag [%s], overwrite it", tag)
-	} else {
-		logger.GetStd().Debugf("plugin %s registered", tag)
-	}
-	reg[tag] = p
-}
-
-func (reg PluginRegister) Walk(ctx context.Context, qCtx *Context, entryTag string) (err error) {
+// Walk walks through plugins. Walk will return if last plugin.Next() returns a empty tag or any error occurs.
+func Walk(ctx context.Context, qCtx *Context, entryTag string) (err error) {
 	nextTag := entryTag
 
 	for {
-		p, ok := reg.GetPlugin(nextTag) // get next plugin
+		p, ok := GetPlugin(nextTag) // get next plugin
 		if !ok {
-			return fmt.Errorf("unregisted plugin [%s]", nextTag)
+			return NewTagNotDefinedErr(nextTag)
 		}
 		logger.GetStd().Debugf("%v: enter plugin %s", qCtx, p.Tag())
 
-		if err := p.Do(ctx, qCtx); err != nil {
+		nextTag, err = p.Do(ctx, qCtx)
+		if err != nil {
 			return fmt.Errorf("plugin %s Do() reports an err: %w", p.Tag(), err)
 		}
-
-		tag, err := p.Next(ctx, qCtx)
-		if err != nil {
-			return fmt.Errorf("plugin %s Next() reports an err: %w", p.Tag(), err)
-		}
-		if len(tag) == 0 { // end of the plugin chan
+		if len(nextTag) == 0 { // end of the plugin chan
 			return nil
 		}
-
-		nextTag = tag
 	}
 }

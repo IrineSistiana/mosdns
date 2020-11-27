@@ -56,10 +56,10 @@ func Init(conf *handler.Config) (p handler.Plugin, err error) {
 	ipsetPlugin.mask4 = uint8(args.Mask4)
 	ipsetPlugin.mask6 = uint8(args.Mask6)
 
-	return handler.WrapDoPlugin(conf, ipsetPlugin, args.Next), nil
+	return handler.WrapOneWayPlugin(conf, ipsetPlugin, args.Next), nil
 }
 
-func (p *ipsetPlugin) Do(ctx context.Context, qCtx *handler.Context) (err error) {
+func (p *ipsetPlugin) Modify(ctx context.Context, qCtx *handler.Context) (err error) {
 	if qCtx == nil || qCtx.R == nil {
 		return errors.New("invalid qCtx, R is nil")
 	}

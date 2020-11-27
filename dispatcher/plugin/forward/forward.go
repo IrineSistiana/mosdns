@@ -108,10 +108,10 @@ func Init(conf *handler.Config) (p handler.Plugin, err error) {
 	}
 	f.deduplicate = args.Deduplicate
 
-	return handler.WrapDoPlugin(conf, f, args.Next), nil
+	return handler.WrapOneWayPlugin(conf, f, args.Next), nil
 }
 
-func (f *forwarder) Do(ctx context.Context, qCtx *handler.Context) (err error) {
+func (f *forwarder) Modify(ctx context.Context, qCtx *handler.Context) (err error) {
 	if qCtx == nil || qCtx.Q == nil {
 		return errors.New("invalid qCtx, Q is nil")
 	}

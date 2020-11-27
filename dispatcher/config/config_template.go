@@ -25,6 +25,7 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/plugin/redirect_domain"
 	"github.com/IrineSistiana/mosdns/dispatcher/plugin/redirect_ip"
 	"github.com/IrineSistiana/mosdns/dispatcher/plugin/redirect_query_type"
+	"github.com/IrineSistiana/mosdns/dispatcher/plugin/sequence"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 )
 
@@ -104,6 +105,14 @@ func GetTemplateConfig() (*Config, error) {
 	if err := c.AddPlugin("", "redirect_query_type", redirect_query_type.Args{
 		Type:     []int{1, 28},
 		Redirect: "",
+		Next:     "",
+	}); err != nil {
+		return nil, err
+	}
+
+	// sequence
+	if err := c.AddPlugin("", "sequence", sequence.Args{
+		Sequence: []string{"", ""},
 		Next:     "",
 	}); err != nil {
 		return nil, err
