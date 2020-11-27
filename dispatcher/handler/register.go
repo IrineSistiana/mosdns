@@ -82,11 +82,14 @@ func GetPlugin(tag string) (p Plugin, ok bool) {
 	return
 }
 
+// IterationLimit is to prevent endless loops.
+const IterationLimit = 50
+
 // Walk walks through plugins. Walk will return if last plugin.Next() returns a empty tag or any error occurs.
 func Walk(ctx context.Context, qCtx *Context, entryTag string) (err error) {
 	nextTag := entryTag
 
-	for {
+	for i := 0; i < IterationLimit; i++ {
 		p, ok := GetPlugin(nextTag) // get next plugin
 		if !ok {
 			return NewTagNotDefinedErr(nextTag)
@@ -101,4 +104,6 @@ func Walk(ctx context.Context, qCtx *Context, entryTag string) (err error) {
 			return nil
 		}
 	}
+
+	return fmt.Errorf("length of plugin execution sequence reached limit %d", IterationLimit)
 }

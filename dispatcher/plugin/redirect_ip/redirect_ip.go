@@ -38,7 +38,7 @@ type Args struct {
 }
 
 type ipChecker struct {
-	matcherGroup *netlist.MatcherGroup
+	matcherGroup netlist.Matcher
 }
 
 func Init(conf *handler.Config) (p handler.Plugin, err error) {

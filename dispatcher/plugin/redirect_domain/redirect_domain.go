@@ -39,7 +39,7 @@ type Args struct {
 }
 
 type checker struct {
-	matcherGroup  *domain.MatcherGroup
+	matcherGroup  domain.Matcher
 	matchQuestion bool
 	matchCNAME    bool
 }
