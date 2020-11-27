@@ -86,8 +86,19 @@ func (d *Dispatcher) ServeDNS(ctx context.Context, qCtx *handler.Context, w serv
 	}
 }
 
-// Dispatch sends q to entries and return its first valid result.
+// Dispatch sends q to entries and return first valid result.
 func (d *Dispatcher) Dispatch(ctx context.Context, qCtx *handler.Context) error {
+	if len(d.config.Entry) == 0 {
+		panic("dispatcher: empty entry")
+	}
+
+	if len(d.config.Entry) == 1 {
+		return d.dispatchSingleEntry(ctx, qCtx)
+	}
+	return d.dispatchMultiEntries(ctx, qCtx)
+}
+
+func (d *Dispatcher) dispatchMultiEntries(ctx context.Context, qCtx *handler.Context) error {
 	resChan := make(chan *dns.Msg, 1)
 	upstreamWG := sync.WaitGroup{}
 	for i := range d.config.Entry {
@@ -97,15 +108,14 @@ func (d *Dispatcher) Dispatch(ctx context.Context, qCtx *handler.Context) error 
 		go func() {
 			defer upstreamWG.Done()
 
-			entryQCtx := qCtx.Copy()
+			entryQCtx := qCtx.Copy() // qCtx cannot be modified in different goroutine. Copy it.
 
 			queryStart := time.Now()
-
 			err := handler.Walk(ctx, entryQCtx, entryTag)
 			rtt := time.Since(queryStart).Milliseconds()
 			if err != nil {
-				if err != context.Canceled && err != context.DeadlineExceeded {
-					logger.GetStd().Warnf("%v: entry %s returned an err after %dms: %v,", qCtx, entryTag, rtt, err)
+				if err != context.Canceled {
+					logger.GetStd().Warnf("%v: entry %s returned an err after %dms: %v", qCtx, entryTag, rtt, err)
 				}
 				return
 			}
@@ -141,6 +151,15 @@ func (d *Dispatcher) Dispatch(ctx context.Context, qCtx *handler.Context) error 
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+func (d *Dispatcher) dispatchSingleEntry(ctx context.Context, qCtx *handler.Context) error {
+	entry := d.config.Entry[0]
+	queryStart := time.Now()
+	err := handler.Walk(ctx, qCtx, entry)
+	rtt := time.Since(queryStart).Milliseconds()
+	logger.GetStd().Debugf("%v: entry %s returned after %dms:", qCtx, entry, rtt)
+	return err
 }
 
 // StartServer starts mosdns. Will always return a non-nil err.
