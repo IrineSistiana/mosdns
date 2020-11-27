@@ -49,6 +49,8 @@ func Init(conf *handler.Config) (p handler.Plugin, err error) {
 	return handler.WrapOneWayPlugin(conf, b, ""), nil
 }
 
+// Modify drops or replaces qCtx.R.
+// It never returns a err.
 func (b *blackhole) Modify(ctx context.Context, qCtx *handler.Context) (err error) {
 	if qCtx == nil {
 		return nil

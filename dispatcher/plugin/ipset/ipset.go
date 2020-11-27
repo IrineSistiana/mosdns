@@ -19,9 +19,9 @@ package ipset
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/dispatcher/logger"
 )
 
 func init() {
@@ -59,6 +59,9 @@ func Init(conf *handler.Config) (p handler.Plugin, err error) {
 	return handler.WrapOneWayPlugin(conf, ipsetPlugin, args.Next), nil
 }
 
+// Modify tries to add ip in qCtx.R to system ipset.
+// If an error occurred, Modify will just log it. It won't stop the exec sequence.
+// Therefore, Modify will never return a err.
 func (p *ipsetPlugin) Modify(ctx context.Context, qCtx *handler.Context) (err error) {
 	if qCtx == nil || qCtx.R == nil {
 		return nil

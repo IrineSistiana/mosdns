@@ -111,6 +111,7 @@ func Init(conf *handler.Config) (p handler.Plugin, err error) {
 	return handler.WrapOneWayPlugin(conf, f, args.Next), nil
 }
 
+// Modify forwards qCtx.Q to upstreams, and sets qCtx.R.
 func (f *forwarder) Modify(ctx context.Context, qCtx *handler.Context) (err error) {
 	if qCtx == nil || qCtx.Q == nil {
 		return errors.New("invalid qCtx, Q is nil")
@@ -129,6 +130,7 @@ func (f *forwarder) Modify(ctx context.Context, qCtx *handler.Context) (err erro
 	qCtx.R = r
 	return nil
 }
+
 func (f *forwarder) forward(q *dns.Msg) (r *dns.Msg, err error) {
 	r, _, err = upstream.ExchangeParallel(f.upstream, q)
 	return r, err

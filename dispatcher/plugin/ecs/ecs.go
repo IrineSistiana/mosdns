@@ -91,6 +91,9 @@ func Init(conf *handler.Config) (p handler.Plugin, err error) {
 	return handler.WrapOneWayPlugin(conf, ep, args.Next), nil
 }
 
+// Modify tries to append ECS to qCtx.Q.
+// If an error occurred, Modify will just log it. It won't stop the exec sequence.
+// Therefore, Modify will never return a err.
 func (e appendECSPlugin) Modify(ctx context.Context, qCtx *handler.Context) (err error) {
 	if qCtx == nil || qCtx.Q == nil {
 		return nil
