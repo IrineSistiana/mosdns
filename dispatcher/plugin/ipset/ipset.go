@@ -61,8 +61,12 @@ func Init(conf *handler.Config) (p handler.Plugin, err error) {
 
 func (p *ipsetPlugin) Modify(ctx context.Context, qCtx *handler.Context) (err error) {
 	if qCtx == nil || qCtx.R == nil {
-		return errors.New("invalid qCtx, R is nil")
+		return nil
 	}
 
-	return p.addIPSet(qCtx.R)
+	er := p.addIPSet(qCtx.R)
+	if er != nil {
+		logger.GetStd().Warnf("ipset: %v", err)
+	}
+	return nil
 }
