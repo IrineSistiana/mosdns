@@ -15,16 +15,25 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package plugin
+package handler
 
-import (
-	// import all plugins
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/blackhole"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/ecs"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/forward"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/ipset"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/domain_matcher"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/ip_matcher"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/qtype_matcher"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/router/sequence"
-)
+import "context"
+
+// Types and funcs in this file are for testing only
+
+type DummyMatcher struct {
+	Matched bool
+	WantErr error
+}
+
+func (d *DummyMatcher) Match(_ context.Context, _ *Context) (matched bool, err error) {
+	return d.Matched, d.WantErr
+}
+
+type DummyFunctional struct {
+	WantErr error
+}
+
+func (d *DummyFunctional) Do(_ context.Context, _ *Context) (err error) {
+	return d.WantErr
+}

@@ -15,7 +15,7 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package redirect_ip
+package ipmatcher
 
 import (
 	"context"
@@ -27,30 +27,30 @@ import (
 	"net"
 )
 
-const PluginType = "redirect_ip"
+const PluginType = "ip_matcher"
 
 func init() {
 	handler.RegInitFunc(PluginType, Init)
 }
 
+var _ handler.Matcher = (*ipMatcher)(nil)
+
 type Args struct {
-	IP       []string `yaml:"ip"`
-	Redirect string   `yaml:"redirect"`
-	Next     string   `yaml:"next"`
+	IP []string `yaml:"ip"`
 }
 
-type ipChecker struct {
+type ipMatcher struct {
 	matcherGroup netlist.Matcher
 }
 
-func Init(conf *handler.Config) (p handler.Plugin, err error) {
+func Init(tag string, argsMap handler.Args) (p handler.Plugin, err error) {
 	args := new(Args)
-	err = conf.Args.WeakDecode(args)
+	err = argsMap.WeakDecode(args)
 	if err != nil {
 		return nil, fmt.Errorf("invalid args: %w", err)
 	}
 
-	c := new(ipChecker)
+	c := new(ipMatcher)
 
 	// init matcherGroup
 	if len(args.IP) == 0 {
@@ -68,10 +68,10 @@ func Init(conf *handler.Config) (p handler.Plugin, err error) {
 
 	c.matcherGroup = netlist.NewMatcherGroup(mg)
 
-	return handler.NewRedirectPlugin(conf, c, args.Next, args.Redirect), nil
+	return handler.WrapMatcherPlugin(tag, PluginType, c), nil
 }
 
-func (c *ipChecker) Match(ctx context.Context, qCtx *handler.Context) (bool, error) {
+func (c *ipMatcher) Match(_ context.Context, qCtx *handler.Context) (bool, error) {
 	if qCtx == nil || qCtx.R == nil || len(qCtx.R.Answer) == 0 {
 		return false, nil
 	}

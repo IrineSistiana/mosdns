@@ -17,16 +17,9 @@
 
 package handler
 
-import (
-	"context"
-)
-
 type Plugin interface {
 	Tag() string
 	Type() string
-
-	// Do modifies qCtx and returns next plugin tag.
-	Do(ctx context.Context, qCtx *Context) (next string, err error)
 }
 
 type Config struct {

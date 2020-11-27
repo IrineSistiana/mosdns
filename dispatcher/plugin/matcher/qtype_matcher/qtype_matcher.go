@@ -15,7 +15,7 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package redirect_query_type
+package qtypematcher
 
 import (
 	"context"
@@ -25,29 +25,29 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/matcher/rr_type"
 )
 
-const PluginType = "redirect_query_type"
+const PluginType = "qtype_matcher"
 
 func init() {
 	handler.RegInitFunc(PluginType, Init)
 }
 
+var _ handler.Matcher = (*qTypeMatcher)(nil)
+
 type Args struct {
-	Type     []int  `yaml:"type"`
-	Redirect string `yaml:"redirect"`
-	Next     string `yaml:"next"`
+	Type []int `yaml:"type"`
 }
 
-type qTypeChecker struct {
+type qTypeMatcher struct {
 	matcher *rr_type.Matcher
 }
 
-func (c *qTypeChecker) Match(ctx context.Context, qCtx *handler.Context) (matched bool, err error) {
+func (c *qTypeMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, err error) {
 	return c.match(qCtx), nil
 }
 
-func Init(conf *handler.Config) (p handler.Plugin, err error) {
+func Init(tag string, argsMap handler.Args) (p handler.Plugin, err error) {
 	args := new(Args)
-	err = conf.Args.WeakDecode(args)
+	err = argsMap.WeakDecode(args)
 	if err != nil {
 		return nil, fmt.Errorf("invalid args: %w", err)
 	}
@@ -65,12 +65,12 @@ func Init(conf *handler.Config) (p handler.Plugin, err error) {
 		return nil, fmt.Errorf("invalid pattens: %w", err)
 	}
 
-	c := new(qTypeChecker)
+	c := new(qTypeMatcher)
 	c.matcher = matcher
-	return handler.NewRedirectPlugin(conf, c, args.Next, args.Redirect), nil
+	return handler.WrapMatcherPlugin(tag, PluginType, c), nil
 }
 
-func (c *qTypeChecker) match(qCtx *handler.Context) bool {
+func (c *qTypeMatcher) match(qCtx *handler.Context) bool {
 	if qCtx == nil || qCtx.Q == nil || len(qCtx.Q.Question) == 0 {
 		return false
 	}

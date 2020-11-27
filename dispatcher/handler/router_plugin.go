@@ -1,5 +1,3 @@
-// +build !linux
-
 //     Copyright (C) 2020, IrineSistiana
 //
 //     This file is part of mosdns.
@@ -17,10 +15,11 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package ipset
+package handler
 
-import (
-	"github.com/miekg/dns"
-)
+import "context"
 
-func (p *ipsetPlugin) addIPSet(r *dns.Msg) error { return nil }
+type RouterPlugin interface {
+	Plugin
+	Do(ctx context.Context, qCtx *Context) (next string, err error)
+}

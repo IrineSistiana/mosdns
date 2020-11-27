@@ -36,6 +36,8 @@ func init() {
 	handler.RegInitFunc(PluginType, Init)
 }
 
+var _ handler.Functional = (*forwarder)(nil)
+
 type forwarder struct {
 	upstream []upstream.Upstream
 
@@ -51,8 +53,6 @@ type Args struct {
 
 	// options for mosdns
 	Deduplicate bool `yaml:"deduplicate"`
-
-	Next string `yaml:"next"`
 }
 
 type Upstream struct {
@@ -60,9 +60,9 @@ type Upstream struct {
 	IPAddr []string `yaml:"ip_addr"`
 }
 
-func Init(conf *handler.Config) (p handler.Plugin, err error) {
+func Init(tag string, argsMap handler.Args) (p handler.Plugin, err error) {
 	args := new(Args)
-	err = conf.Args.WeakDecode(args)
+	err = argsMap.WeakDecode(args)
 	if err != nil {
 		return nil, fmt.Errorf("invalid args: %w", err)
 	}
@@ -110,11 +110,11 @@ func Init(conf *handler.Config) (p handler.Plugin, err error) {
 	}
 	f.deduplicate = args.Deduplicate
 
-	return handler.WrapOneWayPlugin(conf, f, args.Next), nil
+	return handler.WrapFunctionalPlugin(tag, PluginType, f), nil
 }
 
 // Modify forwards qCtx.Q to upstreams, and sets qCtx.R.
-func (f *forwarder) Modify(ctx context.Context, qCtx *handler.Context) (err error) {
+func (f *forwarder) Do(_ context.Context, qCtx *handler.Context) (err error) {
 	if qCtx == nil || qCtx.Q == nil {
 		return errors.New("invalid qCtx, Q is nil")
 	}

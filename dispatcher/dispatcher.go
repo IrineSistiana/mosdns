@@ -84,12 +84,12 @@ func Init(c *config.Config) (*Dispatcher, error) {
 	d := new(Dispatcher)
 	d.config = c
 
-	for i, pluginConfig := range c.Plugin {
+	for i, pluginConfig := range append(c.Plugin.Router, append(c.Plugin.Matcher, c.Plugin.Functional...)...) {
 		if len(pluginConfig.Tag) == 0 {
 			logger.GetStd().Warnf("plugin at index %d has a empty tag, ignore it", i)
 			continue
 		}
-		if err := handler.RegPlugin(pluginConfig); err != nil {
+		if err := handler.InitAndRegPlugin(pluginConfig); err != nil {
 			return nil, fmt.Errorf("failed to register plugin %d-%s: %w", i, pluginConfig.Tag, err)
 		}
 	}
@@ -121,11 +121,11 @@ func (d *Dispatcher) ServeDNS(ctx context.Context, qCtx *handler.Context, w serv
 
 // Dispatch sends q to entries and return first valid result.
 func (d *Dispatcher) Dispatch(ctx context.Context, qCtx *handler.Context) error {
-	if len(d.config.Entry) == 0 {
-		panic("dispatcher: empty entry")
+	if len(d.config.Plugin.Entry) == 0 {
+		return errors.New("empty entry")
 	}
 
-	if len(d.config.Entry) == 1 {
+	if len(d.config.Plugin.Entry) == 1 {
 		return d.dispatchSingleEntry(ctx, qCtx)
 	}
 	return d.dispatchMultiEntries(ctx, qCtx)
@@ -134,8 +134,8 @@ func (d *Dispatcher) Dispatch(ctx context.Context, qCtx *handler.Context) error 
 func (d *Dispatcher) dispatchMultiEntries(ctx context.Context, qCtx *handler.Context) error {
 	resChan := make(chan *dns.Msg, 1)
 	upstreamWG := sync.WaitGroup{}
-	for i := range d.config.Entry {
-		entryTag := d.config.Entry[i]
+	for i := range d.config.Plugin.Entry {
+		entryTag := d.config.Plugin.Entry[i]
 
 		upstreamWG.Add(1)
 		go func() {
@@ -187,7 +187,7 @@ func (d *Dispatcher) dispatchMultiEntries(ctx context.Context, qCtx *handler.Con
 }
 
 func (d *Dispatcher) dispatchSingleEntry(ctx context.Context, qCtx *handler.Context) error {
-	entry := d.config.Entry[0]
+	entry := d.config.Plugin.Entry[0]
 	queryStart := time.Now()
 	err := handler.Walk(ctx, qCtx, entry)
 	rtt := time.Since(queryStart).Milliseconds()

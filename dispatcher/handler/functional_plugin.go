@@ -19,35 +19,35 @@ package handler
 
 import "context"
 
-// OneWayPlugin only modifies qCtx
-type OneWayPlugin interface {
-	Modify(ctx context.Context, qCtx *Context) (err error)
+type FunctionalPlugin interface {
+	Plugin
+	Functional
 }
 
-type oneWayPluginWrapper struct {
-	config   *Config
-	doPlugin OneWayPlugin
-	next     string
+type Functional interface {
+	Do(ctx context.Context, qCtx *Context) (err error)
 }
 
-func (p *oneWayPluginWrapper) Tag() string {
-	return p.config.Tag
+type FunctionalPluginWrapper struct {
+	tag string
+	typ string
+
+	Functional
 }
 
-func (p *oneWayPluginWrapper) Type() string {
-	return p.config.Type
+func (p *FunctionalPluginWrapper) Tag() string {
+	return p.tag
 }
 
-func (p *oneWayPluginWrapper) Do(ctx context.Context, qCtx *Context) (next string, err error) {
-	err = p.doPlugin.Modify(ctx, qCtx)
-	return p.next, err
+func (p *FunctionalPluginWrapper) Type() string {
+	return p.typ
 }
 
-// WrapOneWayPlugin returns a oneWayPluginWrapper which implements Plugin.
-func WrapOneWayPlugin(config *Config, doPlugin OneWayPlugin, next string) Plugin {
-	return &oneWayPluginWrapper{
-		config:   config,
-		doPlugin: doPlugin,
-		next:     next,
+// WrapFunctionalPlugin returns a *FunctionalPluginWrapper which implements Plugin and FunctionalPlugin.
+func WrapFunctionalPlugin(tag, typ string, functional Functional) *FunctionalPluginWrapper {
+	return &FunctionalPluginWrapper{
+		tag:        tag,
+		typ:        typ,
+		Functional: functional,
 	}
 }

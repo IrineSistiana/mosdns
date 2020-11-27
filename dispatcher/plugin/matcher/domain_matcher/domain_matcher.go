@@ -15,7 +15,7 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package redirect_domain
+package domainmatcher
 
 import (
 	"context"
@@ -26,38 +26,38 @@ import (
 	"github.com/miekg/dns"
 )
 
-const PluginType = "redirect_domain"
+const PluginType = "domain_matcher"
 
 func init() {
 	handler.RegInitFunc(PluginType, Init)
 }
 
+var _ handler.Matcher = (*domainMatcher)(nil)
+
 type Args struct {
 	Domain        []string `yaml:"domain"`
 	CheckQuestion bool     `yaml:"check_question"`
 	CheckCNAME    bool     `yaml:"check_cname"`
-	Redirect      string   `yaml:"redirect"`
-	Next          string   `yaml:"next"`
 }
 
-type checker struct {
+type domainMatcher struct {
 	matcherGroup  domain.Matcher
 	matchQuestion bool
 	matchCNAME    bool
 }
 
-func (c *checker) Match(ctx context.Context, qCtx *handler.Context) (matched bool, err error) {
+func (c *domainMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, err error) {
 	return (c.matchQuestion && c.matchQ(qCtx)) || (c.matchCNAME && c.matchC(qCtx)), nil
 }
 
-func Init(conf *handler.Config) (p handler.Plugin, err error) {
+func Init(tag string, argsMap handler.Args) (p handler.Plugin, err error) {
 	args := new(Args)
-	err = conf.Args.WeakDecode(args)
+	err = argsMap.WeakDecode(args)
 	if err != nil {
 		return nil, fmt.Errorf("invalid args: %w", err)
 	}
 
-	c := new(checker)
+	c := new(domainMatcher)
 
 	// init matcher
 	if len(args.Domain) == 0 {
@@ -77,17 +77,17 @@ func Init(conf *handler.Config) (p handler.Plugin, err error) {
 	c.matchCNAME = args.CheckCNAME
 	c.matcherGroup = domain.NewMatcherGroup(mg)
 
-	return handler.NewRedirectPlugin(conf, c, args.Next, args.Redirect), nil
+	return handler.WrapMatcherPlugin(tag, PluginType, c), nil
 }
 
-func (c *checker) matchQ(qCtx *handler.Context) bool {
+func (c *domainMatcher) matchQ(qCtx *handler.Context) bool {
 	if qCtx == nil || qCtx.Q == nil || len(qCtx.Q.Question) == 0 {
 		return false
 	}
 	return c.matcherGroup.Match(qCtx.Q.Question[0].Name)
 }
 
-func (c *checker) matchC(qCtx *handler.Context) bool {
+func (c *domainMatcher) matchC(qCtx *handler.Context) bool {
 	if qCtx == nil || qCtx.R == nil || len(qCtx.R.Answer) == 0 {
 		return false
 	}

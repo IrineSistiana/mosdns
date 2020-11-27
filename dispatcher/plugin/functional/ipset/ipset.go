@@ -30,13 +30,13 @@ func init() {
 	handler.RegInitFunc(PluginType, Init)
 }
 
+var _ handler.Functional = (*ipsetPlugin)(nil)
+
 type Args struct {
 	SetName4 string `yaml:"set_name4"`
 	SetName6 string `yaml:"set_name6"`
 	Mask4    int    `yaml:"mask4"`
 	Mask6    int    `yaml:"mask6"`
-
-	Next string `yaml:"next"`
 }
 
 type ipsetPlugin struct {
@@ -44,9 +44,9 @@ type ipsetPlugin struct {
 	mask4, mask6       uint8
 }
 
-func Init(conf *handler.Config) (p handler.Plugin, err error) {
+func Init(tag string, argsMap handler.Args) (p handler.Plugin, err error) {
 	args := new(Args)
-	err = conf.Args.WeakDecode(args)
+	err = argsMap.WeakDecode(args)
 	if err != nil {
 		return nil, fmt.Errorf("invalid args: %w", err)
 	}
@@ -58,13 +58,13 @@ func Init(conf *handler.Config) (p handler.Plugin, err error) {
 	ipsetPlugin.mask4 = uint8(args.Mask4)
 	ipsetPlugin.mask6 = uint8(args.Mask6)
 
-	return handler.WrapOneWayPlugin(conf, ipsetPlugin, args.Next), nil
+	return handler.WrapFunctionalPlugin(tag, PluginType, ipsetPlugin), nil
 }
 
 // Modify tries to add ip in qCtx.R to system ipset.
 // If an error occurred, Modify will just log it. It won't stop the exec sequence.
 // Therefore, Modify will never return a err.
-func (p *ipsetPlugin) Modify(ctx context.Context, qCtx *handler.Context) (err error) {
+func (p *ipsetPlugin) Do(_ context.Context, qCtx *handler.Context) (err error) {
 	if qCtx == nil || qCtx.R == nil {
 		return nil
 	}

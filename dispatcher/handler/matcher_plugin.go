@@ -15,16 +15,41 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package plugin
+package handler
 
 import (
-	// import all plugins
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/blackhole"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/ecs"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/forward"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/ipset"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/domain_matcher"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/ip_matcher"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/qtype_matcher"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/router/sequence"
+	"context"
 )
+
+type MatcherPlugin interface {
+	Plugin
+	Matcher
+}
+
+type Matcher interface {
+	Match(ctx context.Context, qCtx *Context) (matched bool, err error)
+}
+
+type MatcherPluginWrapper struct {
+	tag string
+	typ string
+
+	Matcher
+}
+
+// WrapMatcherPlugin returns a *MatcherPluginWrapper which implements Plugin and MatcherPlugin.
+func WrapMatcherPlugin(tag, typ string, matcher Matcher) *MatcherPluginWrapper {
+	return &MatcherPluginWrapper{
+		tag:     tag,
+		typ:     typ,
+		Matcher: matcher,
+	}
+}
+
+func (c *MatcherPluginWrapper) Tag() string {
+	return c.tag
+}
+
+func (c *MatcherPluginWrapper) Type() string {
+	return c.typ
+}

@@ -1,3 +1,5 @@
+// +build !linux
+
 //     Copyright (C) 2020, IrineSistiana
 //
 //     This file is part of mosdns.
@@ -15,16 +17,10 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package plugin
+package ipset
 
 import (
-	// import all plugins
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/blackhole"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/ecs"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/forward"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/ipset"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/domain_matcher"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/ip_matcher"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/qtype_matcher"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/router/sequence"
+	"github.com/miekg/dns"
 )
+
+func (p *ipsetPlugin) addIPSet(_ *dns.Msg) error { return nil }

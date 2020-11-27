@@ -40,7 +40,8 @@ func TestWalk(t *testing.T) {
 		entryTag string
 		wantErr  bool
 	}{
-		{"normal exec sequence", "p1", false},
+		{"normal exec sequence 1", "p1", false},
+		{"normal exec sequence 2", "end1", false},
 		{"endless loop exec sequence", "e1", true},
 		{"err exec sequence", "err1", true},
 	}
@@ -49,6 +50,8 @@ func TestWalk(t *testing.T) {
 	pluginRegister["p1"] = &dummyPlugin{next: "p2"}
 	pluginRegister["p2"] = &dummyPlugin{next: "p3"}
 	pluginRegister["p3"] = &dummyPlugin{next: ""} // the end
+
+	pluginRegister["end1"] = &dummyPlugin{next: StopSignTag} // the end
 
 	// add a endless loop exec sequence
 	pluginRegister["e1"] = &dummyPlugin{next: "e2"}

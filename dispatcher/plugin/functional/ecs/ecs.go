@@ -32,6 +32,8 @@ func init() {
 	handler.RegInitFunc(PluginType, Init)
 }
 
+var _ handler.Functional = (*ecsPlugin)(nil)
+
 type Args struct {
 	// Automatically append client address as ecs.
 	// If this is true, pre-set addresses will not be used.
@@ -47,23 +49,21 @@ type Args struct {
 	// pre-set address
 	IPv4 string `yaml:"ipv4"`
 	IPv6 string `yaml:"ipv6"`
-
-	Next string `yaml:"next"`
 }
 
-type appendECSPlugin struct {
+type ecsPlugin struct {
 	args       *Args
 	ipv4, ipv6 *dns.EDNS0_SUBNET
 }
 
-func Init(conf *handler.Config) (p handler.Plugin, err error) {
+func Init(tag string, argsMap handler.Args) (p handler.Plugin, err error) {
 	args := new(Args)
-	err = conf.Args.WeakDecode(args)
+	err = argsMap.WeakDecode(args)
 	if err != nil {
 		return nil, fmt.Errorf("invalid args: %w", err)
 	}
 
-	ep := new(appendECSPlugin)
+	ep := new(ecsPlugin)
 	ep.args = args
 
 	if len(args.IPv4) != 0 {
@@ -90,13 +90,13 @@ func Init(conf *handler.Config) (p handler.Plugin, err error) {
 		}
 	}
 
-	return handler.WrapOneWayPlugin(conf, ep, args.Next), nil
+	return handler.WrapFunctionalPlugin(tag, PluginType, ep), nil
 }
 
 // Modify tries to append ECS to qCtx.Q.
 // If an error occurred, Modify will just log it. It won't stop the exec sequence.
 // Therefore, Modify will never return a err.
-func (e appendECSPlugin) Modify(ctx context.Context, qCtx *handler.Context) (err error) {
+func (e ecsPlugin) Do(_ context.Context, qCtx *handler.Context) (err error) {
 	if qCtx == nil || qCtx.Q == nil {
 		return nil
 	}

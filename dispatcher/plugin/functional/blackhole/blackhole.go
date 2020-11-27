@@ -30,6 +30,8 @@ func init() {
 	handler.RegInitFunc(PluginType, Init)
 }
 
+var _ handler.Functional = (*blackhole)(nil)
+
 type blackhole struct {
 	rCode int
 }
@@ -38,9 +40,9 @@ type Args struct {
 	RCode int `yaml:"rcode"`
 }
 
-func Init(conf *handler.Config) (p handler.Plugin, err error) {
+func Init(tag string, argsMap handler.Args) (p handler.Plugin, err error) {
 	args := new(Args)
-	err = conf.Args.WeakDecode(args)
+	err = argsMap.WeakDecode(args)
 	if err != nil {
 		return nil, fmt.Errorf("invalid args: %w", err)
 	}
@@ -48,12 +50,12 @@ func Init(conf *handler.Config) (p handler.Plugin, err error) {
 	b := new(blackhole)
 	b.rCode = args.RCode
 
-	return handler.WrapOneWayPlugin(conf, b, ""), nil
+	return handler.WrapFunctionalPlugin(tag, PluginType, b), nil
 }
 
 // Modify drops or replaces qCtx.R.
 // It never returns a err.
-func (b *blackhole) Modify(ctx context.Context, qCtx *handler.Context) (err error) {
+func (b *blackhole) Do(_ context.Context, qCtx *handler.Context) (err error) {
 	if qCtx == nil {
 		return nil
 	}
