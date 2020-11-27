@@ -30,8 +30,10 @@ import (
 	"time"
 )
 
+const PluginType = "forward"
+
 func init() {
-	handler.RegInitFunc("forward", Init)
+	handler.RegInitFunc(PluginType, Init)
 }
 
 type forwarder struct {

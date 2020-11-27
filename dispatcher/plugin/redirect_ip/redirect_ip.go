@@ -27,8 +27,10 @@ import (
 	"net"
 )
 
+const PluginType = "redirect_ip"
+
 func init() {
-	handler.RegInitFunc("redirect_ip", Init)
+	handler.RegInitFunc(PluginType, Init)
 }
 
 type Args struct {

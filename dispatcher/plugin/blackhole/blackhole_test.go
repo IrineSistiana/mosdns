@@ -27,7 +27,7 @@ func Test_blackhole_Do(t *testing.T) {
 			}
 			qCtx := new(handler.Context)
 			q := new(dns.Msg)
-			q.SetQuestion("exmaple.com", dns.TypeA)
+			q.SetQuestion("example.com", dns.TypeA)
 			r := new(dns.Msg)
 			r.SetReply(q)
 			qCtx.Q = q
@@ -39,7 +39,7 @@ func Test_blackhole_Do(t *testing.T) {
 			}
 
 			if !tt.wantResponse && qCtx.R != nil {
-				t.Error("response should be droped")
+				t.Error("response should be dropped")
 			}
 
 			if tt.wantResponse {

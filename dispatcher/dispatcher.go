@@ -26,8 +26,12 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin"
 	"github.com/IrineSistiana/mosdns/dispatcher/server"
+	"github.com/sirupsen/logrus"
+	"io"
 	"io/ioutil"
 	"net"
+	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -46,14 +50,43 @@ type Dispatcher struct {
 	config *config.Config
 }
 
-// InitDispatcher inits a dispatcher from configuration
-func InitDispatcher(c *config.Config) (*Dispatcher, error) {
+// Init inits a dispatcher from configuration
+func Init(c *config.Config) (*Dispatcher, error) {
+	// init logger
+	if len(c.Log.Level) != 0 {
+		level, err := logrus.ParseLevel(c.Log.Level)
+		if err != nil {
+			return nil, err
+		}
+		logger.GetStd().SetLevel(level)
+	}
+	if len(c.Log.File) != 0 {
+		f, err := os.OpenFile(c.Log.File, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0755)
+		if err != nil {
+			return nil, fmt.Errorf("can not open log file %s: %w", c.Log.File, err)
+		}
+		logger.GetStd().Infof("use log file %s", c.Log.File)
+		logWriter := io.MultiWriter(os.Stdout, f)
+		logger.GetStd().SetOutput(logWriter)
+	}
+	if logger.GetStd().IsLevelEnabled(logrus.DebugLevel) {
+		logger.GetStd().SetReportCaller(true)
+		go func() {
+			m := new(runtime.MemStats)
+			for {
+				time.Sleep(time.Second * 15)
+				runtime.ReadMemStats(m)
+				logger.GetStd().Debugf("HeapObjects: %d NumGC: %d PauseTotalNs: %d, NumGoroutine: %d", m.HeapObjects, m.NumGC, m.PauseTotalNs, runtime.NumGoroutine())
+			}
+		}()
+	}
+
 	d := new(Dispatcher)
 	d.config = c
 
 	for i, pluginConfig := range c.Plugin {
 		if len(pluginConfig.Tag) == 0 {
-			logger.GetStd().Warnf("plugin at index %d has a empty tag, ignore it.", i)
+			logger.GetStd().Warnf("plugin at index %d has a empty tag, ignore it", i)
 			continue
 		}
 		if err := handler.RegPlugin(pluginConfig); err != nil {
@@ -187,7 +220,7 @@ func (d *Dispatcher) StartServer() error {
 				return err
 			}
 			defer l.Close()
-			logger.GetStd().Infof("StartServer: tcp server started at %s", l.Addr())
+			logger.GetStd().Infof("tcp server started at %s", l.Addr())
 
 			serverConf := server.Config{
 				Listener: l,
@@ -200,7 +233,7 @@ func (d *Dispatcher) StartServer() error {
 				return err
 			}
 			defer l.Close()
-			logger.GetStd().Infof("StartServer: udp server started at %s", l.LocalAddr())
+			logger.GetStd().Infof("udp server started at %s", l.LocalAddr())
 			serverConf := server.Config{
 				PacketConn:        l,
 				MaxUDPPayloadSize: d.config.Server.MaxUDPSize,

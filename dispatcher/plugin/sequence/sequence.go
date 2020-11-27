@@ -24,8 +24,10 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 )
 
+const PluginType = "sequence"
+
 func init() {
-	handler.RegInitFunc("sequence", Init)
+	handler.RegInitFunc(PluginType, Init)
 }
 
 type sequence struct {

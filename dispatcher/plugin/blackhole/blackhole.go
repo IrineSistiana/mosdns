@@ -24,8 +24,10 @@ import (
 	"github.com/miekg/dns"
 )
 
+const PluginType = "blackhole"
+
 func init() {
-	handler.RegInitFunc("blackhole", Init)
+	handler.RegInitFunc(PluginType, Init)
 }
 
 type blackhole struct {

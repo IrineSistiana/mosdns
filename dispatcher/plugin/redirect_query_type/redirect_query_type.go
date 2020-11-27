@@ -25,8 +25,10 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/matcher/rr_type"
 )
 
+const PluginType = "redirect_query_type"
+
 func init() {
-	handler.RegInitFunc("redirect_query_type", Init)
+	handler.RegInitFunc(PluginType, Init)
 }
 
 type Args struct {

@@ -24,8 +24,10 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/logger"
 )
 
+const PluginType = "ipset"
+
 func init() {
-	handler.RegInitFunc("ipset", Init)
+	handler.RegInitFunc(PluginType, Init)
 }
 
 type Args struct {
@@ -69,7 +71,7 @@ func (p *ipsetPlugin) Modify(ctx context.Context, qCtx *handler.Context) (err er
 
 	er := p.addIPSet(qCtx.R)
 	if er != nil {
-		logger.GetStd().Warnf("ipset: %v", err)
+		logger.GetStd().Warn(err)
 	}
 	return nil
 }

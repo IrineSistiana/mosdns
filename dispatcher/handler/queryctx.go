@@ -44,9 +44,9 @@ func (ctx *Context) Copy() *Context {
 }
 
 func (ctx *Context) String() string {
-	var question *dns.Question
-	if ctx.Q != nil && len(ctx.Q.Question) > 0 {
-		question = &ctx.Q.Question[0]
+	var question []dns.Question
+	if ctx.Q != nil {
+		question = ctx.Q.Question
 	}
 
 	return fmt.Sprintf("%v, from: %v", question, ctx.From)

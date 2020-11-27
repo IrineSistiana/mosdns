@@ -26,6 +26,11 @@ import (
 
 // Config is config
 type Config struct {
+	Log struct {
+		Level string `yaml:"level"`
+		File  string `yaml:"file"`
+	} `yaml:"log"`
+
 	Server struct {
 		Bind       []string `yaml:"bind"`
 		MaxUDPSize int      `yaml:"max_udp_size"`

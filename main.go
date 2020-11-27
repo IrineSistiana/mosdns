@@ -21,7 +21,6 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/dispatcher/logger"
 	"github.com/IrineSistiana/mosdns/dispatcher/matcher/domain"
 	"github.com/IrineSistiana/mosdns/dispatcher/matcher/netlist"
 	"net"
@@ -53,10 +52,6 @@ var (
 	dir                 = flag.String("dir", "", "[path] change working directory to here")
 	dirFollowExecutable = flag.Bool("dir2exe", false, "change working directory to the executable that started the current process")
 
-	debug = flag.Bool("debug", false, "more log")
-	quiet = flag.Bool("quiet", false, "no log")
-
-	cpu         = flag.Int("cpu", runtime.NumCPU(), "the maximum number of CPUs that can be executing simultaneously")
 	showVersion = flag.Bool("v", false, "show version info")
 
 	probeDoTTimeout = flag.String("probe-dot-timeout", "", "[ip:port] probe dot server's idle timeout")
@@ -66,6 +61,7 @@ var (
 	benchDomainListFile = flag.String("bench-domain-list", "", "[path] benchmark domain search using this file")
 
 	//DEBUG ONLY
+	cpu       = flag.Int("cpu", runtime.NumCPU(), "the maximum number of CPUs that can be executing simultaneously")
 	pprofAddr = flag.String("pprof", "", "[ip:port] DEBUG ONLY, hook http/pprof at this address")
 )
 
@@ -149,17 +145,6 @@ func main() {
 	logrus.Infof("main: mosdns ver: %s", version)
 	logrus.Infof("main: arch: %s os: %s", runtime.GOARCH, runtime.GOOS)
 
-	// set logger level
-	switch {
-	case *quiet:
-		logger.GetStd().SetLevel(logrus.ErrorLevel)
-	case *debug:
-		logger.GetStd().SetLevel(logrus.DebugLevel)
-		go printStatus(time.Second * 10)
-	default:
-		logger.GetStd().SetLevel(logrus.InfoLevel)
-	}
-
 	// try to change working dir to os.Executable() or *dir
 	var wd string
 	if *dirFollowExecutable {
@@ -191,7 +176,7 @@ func main() {
 		logrus.Fatalf("main: can not load config file, %v", err)
 	}
 
-	d, err := dispatcher.InitDispatcher(c)
+	d, err := dispatcher.Init(c)
 	if err != nil {
 		logrus.Fatalf("main: failed to init dispatcher: %v", err)
 	}
@@ -199,15 +184,6 @@ func main() {
 	err = d.StartServer()
 	if err != nil {
 		logrus.Fatalf("main: server exited with err: %v", err)
-	}
-}
-
-func printStatus(d time.Duration) {
-	m := new(runtime.MemStats)
-	for {
-		time.Sleep(d)
-		runtime.ReadMemStats(m)
-		logrus.Infof("printStatus: HeapObjects: %d NumGC: %d PauseTotalNs: %d, NumGoroutine: %d", m.HeapObjects, m.NumGC, m.PauseTotalNs, runtime.NumGoroutine())
 	}
 }
 

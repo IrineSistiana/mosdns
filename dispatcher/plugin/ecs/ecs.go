@@ -26,8 +26,10 @@ import (
 	"net"
 )
 
+const PluginType = "ecs"
+
 func init() {
-	handler.RegInitFunc("ecs", Init)
+	handler.RegInitFunc(PluginType, Init)
 }
 
 type Args struct {
@@ -104,7 +106,7 @@ func (e appendECSPlugin) Modify(ctx context.Context, qCtx *handler.Context) (err
 			s := qCtx.From.String()
 			ip := net.ParseIP(s)
 			if ip == nil {
-				logger.GetStd().Warnf("ecs: internal err: address [%s] can not be parsed as ip", s)
+				logger.GetStd().Warnf("internal err: address [%s] can not be parsed as ip", s)
 				return nil
 			}
 
@@ -115,7 +117,7 @@ func (e appendECSPlugin) Modify(ctx context.Context, qCtx *handler.Context) (err
 				if ip6 := ip.To16(); ip6 != nil { // is ipv6
 					ecs = newEDNS0Subnet(ip, e.args.Mask6, true)
 				} else { // non
-					logger.GetStd().Warnf("ecs: internal err: address [%s] is not a valid ip address", s)
+					logger.GetStd().Warnf("internal err: address [%s] is not a valid ip address", s)
 					return nil
 				}
 			}

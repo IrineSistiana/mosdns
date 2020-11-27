@@ -26,8 +26,10 @@ import (
 	"github.com/miekg/dns"
 )
 
+const PluginType = "redirect_domain"
+
 func init() {
-	handler.RegInitFunc("redirect_domain", Init)
+	handler.RegInitFunc(PluginType, Init)
 }
 
 type Args struct {
