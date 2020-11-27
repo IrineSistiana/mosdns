@@ -53,6 +53,12 @@ def go_build():
     except subprocess.CalledProcessError as e:
         logger.error(f'get git tag failed: {e.args}')
 
+    try:
+        subprocess.check_call('go run ../ -gen config-template.yaml', shell=True, env=os.environ)
+    except Exception:
+        logger.exception('failed to generate config template')
+        raise
+
     for env in envs:
         os_env = os.environ.copy()  # new env
 
@@ -82,7 +88,7 @@ def go_build():
                                  compresslevel=5) as zf:
                 zf.write(bin_filename)
                 zf.write('../README.md', 'README.md')
-                zf.write('../config.yaml', 'config.yaml')
+                zf.write('./config-template.yaml', 'config-template.yaml')
                 zf.write('../LICENSE', 'LICENSE')
                 if os_env['GOOS'] == 'windows':
                     zf.write('../scripts/windows/mosdns-winsw.xml', 'mosdns-winsw.xml')
