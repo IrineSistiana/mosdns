@@ -96,7 +96,7 @@ func GetTemplateConfig() (*Config, error) {
 	if err := AddPlugin(&c.Plugin.Router, "", sequence.PluginType, &sequence.Args{
 		Sequence: []*sequence.Block{{
 			If:       "",
-			Exec:     "",
+			Exec:     []string{"", ""},
 			Sequence: []*sequence.Block{{}, {}},
 			Goto:     "",
 		}, {}},

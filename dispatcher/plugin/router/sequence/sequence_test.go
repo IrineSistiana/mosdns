@@ -16,8 +16,8 @@ func Test_switchPlugin_Do(t *testing.T) {
 	matched := "matched"
 	matchErr := "match_err"
 
-	exec := "exec"
-	execErr := "exec_err"
+	exec := []string{"exec"}
+	execErr := []string{"exec_err"}
 
 	var tests = []struct {
 		name     string
@@ -155,7 +155,7 @@ func Test_switchPlugin_Do(t *testing.T) {
 	)))
 
 	// do something
-	mustSuccess(handler.RegPlugin(handler.WrapFunctionalPlugin(exec, "",
+	mustSuccess(handler.RegPlugin(handler.WrapFunctionalPlugin(exec[0], "",
 		&handler.DummyFunctional{WantErr: nil},
 	)))
 
@@ -168,7 +168,7 @@ func Test_switchPlugin_Do(t *testing.T) {
 	mustSuccess(handler.RegPlugin(handler.WrapMatcherPlugin(matchErr, "",
 		&handler.DummyMatcher{Matched: false, WantErr: mErr},
 	)))
-	mustSuccess(handler.RegPlugin(handler.WrapFunctionalPlugin(execErr, "",
+	mustSuccess(handler.RegPlugin(handler.WrapFunctionalPlugin(execErr[0], "",
 		&handler.DummyFunctional{WantErr: eErr},
 	)))
 

@@ -46,7 +46,7 @@ type Args struct {
 
 type Block struct {
 	If       string   `yaml:"if"`
-	Exec     string   `yaml:"exec"`
+	Exec     []string `yaml:"exec"`
 	Sequence []*Block `yaml:"sequence"`
 	Goto     string   `yaml:"goto"`
 }
@@ -70,9 +70,11 @@ func walk(ctx context.Context, qCtx *handler.Context, i []*Block) (next string, 
 		}
 
 		if len(block.Exec) != 0 {
-			err = getPluginAndExec(ctx, qCtx, block.Exec)
-			if err != nil {
-				return "", fmt.Errorf("plugin %s reported an err: %w", block.Exec, err)
+			for _, tag := range block.Exec {
+				err = getPluginAndExec(ctx, qCtx, tag)
+				if err != nil {
+					return "", fmt.Errorf("plugin %s reported an err: %w", block.Exec, err)
+				}
 			}
 		}
 
