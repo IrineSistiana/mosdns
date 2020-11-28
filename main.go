@@ -71,7 +71,7 @@ func main() {
 		osSignals := make(chan os.Signal, 1)
 		signal.Notify(osSignals, os.Interrupt, os.Kill, syscall.SIGTERM)
 		s := <-osSignals
-		logrus.Infof("main: received signal: %v, program exited", s)
+		logrus.Infof("received signal: %v, bye", s)
 		os.Exit(0)
 	}()
 
@@ -132,9 +132,9 @@ func main() {
 	if len(*genConfigTo) != 0 {
 		err := config.GenConfig(*genConfigTo)
 		if err != nil {
-			logrus.Fatalf("main: can not generate config template, %v", err)
+			logrus.Fatalf("can not generate config template, %v", err)
 		} else {
-			logrus.Info("main: config template generated")
+			logrus.Info("config template generated")
 		}
 		os.Exit(0)
 	}
@@ -142,15 +142,15 @@ func main() {
 	// main program starts here
 
 	// show summary
-	logrus.Infof("main: mosdns ver: %s", version)
-	logrus.Infof("main: arch: %s os: %s", runtime.GOARCH, runtime.GOOS)
+	logrus.Infof("mosdns ver: %s", version)
+	logrus.Infof("arch: %s, os: %s, go: %s", runtime.GOARCH, runtime.GOOS, runtime.Version())
 
 	// try to change working dir to os.Executable() or *dir
 	var wd string
 	if *dirFollowExecutable {
 		ex, err := os.Executable()
 		if err != nil {
-			logrus.Fatalf("main: failed to get executable path: %v", err)
+			logrus.Fatalf("failed to get executable path: %v", err)
 		}
 		wd = filepath.Dir(ex)
 	} else {
@@ -161,29 +161,29 @@ func main() {
 	if len(wd) != 0 {
 		err := os.Chdir(wd)
 		if err != nil {
-			logrus.Fatalf("main: failed to change the current working directory: %v", err)
+			logrus.Fatalf("failed to change the current working directory: %v", err)
 		}
-		logrus.Infof("main: current working directory: %s", wd)
+		logrus.Infof("current working directory: %s", wd)
 	}
 
 	//checking
 	if len(*configPath) == 0 {
-		logrus.Fatal("main: need a config file")
+		logrus.Fatal("need a config file")
 	}
 
 	c, err := config.LoadConfig(*configPath)
 	if err != nil {
-		logrus.Fatalf("main: can not load config file, %v", err)
+		logrus.Fatalf("can not load config file, %v", err)
 	}
 
 	d, err := dispatcher.Init(c)
 	if err != nil {
-		logrus.Fatalf("main: failed to init dispatcher: %v", err)
+		logrus.Fatalf("failed to init dispatcher: %v", err)
 	}
 
 	err = d.StartServer()
 	if err != nil {
-		logrus.Fatalf("main: server exited with err: %v", err)
+		logrus.Fatalf("server exited with err: %v", err)
 	}
 }
 
