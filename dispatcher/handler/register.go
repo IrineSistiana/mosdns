@@ -32,7 +32,7 @@ var (
 
 	functionalPluginRegister = make(map[string]FunctionalPlugin)
 	matcherPluginRegister    = make(map[string]MatcherPlugin)
-	sequencePluginRegister   = make(map[string]RouterPlugin)
+	routerPluginRegister     = make(map[string]RouterPlugin)
 )
 
 // RegInitFunc registers this plugin type.
@@ -85,7 +85,7 @@ func RegPlugin(p Plugin) error {
 	case MatcherPlugin:
 		matcherPluginRegister[p.Tag()] = e
 	case RouterPlugin:
-		sequencePluginRegister[p.Tag()] = e
+		routerPluginRegister[p.Tag()] = e
 	default:
 		return fmt.Errorf("unexpected plugin interface type %s", reflect.TypeOf(p).Name())
 	}
@@ -103,7 +103,7 @@ func GetMatcherPlugin(tag string) (p MatcherPlugin, ok bool) {
 }
 
 func GetRouterPlugin(tag string) (p RouterPlugin, ok bool) {
-	p, ok = sequencePluginRegister[tag]
+	p, ok = routerPluginRegister[tag]
 	return
 }
 
