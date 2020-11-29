@@ -58,7 +58,7 @@ func NewListFromReader(reader io.Reader, continueOnInvalidString bool) (*List, e
 		ipNet, err := ParseCIDR(line)
 		if err != nil {
 			if continueOnInvalidString {
-				logger.GetStd().Warnf("NewListFromReader: invalid CIDR format %s in line %d", line, lineCounter)
+				logger.Entry().Warnf("NewListFromReader: invalid CIDR format %s in line %d", line, lineCounter)
 				continue
 			} else {
 				return nil, fmt.Errorf("invalid CIDR format %s in line %d", line, lineCounter)

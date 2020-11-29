@@ -19,7 +19,6 @@ package blackhole
 
 import (
 	"context"
-	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/miekg/dns"
 )
@@ -44,7 +43,7 @@ func Init(tag string, argsMap handler.Args) (p handler.Plugin, err error) {
 	args := new(Args)
 	err = argsMap.WeakDecode(args)
 	if err != nil {
-		return nil, fmt.Errorf("invalid args: %w", err)
+		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
 	}
 
 	b := new(blackhole)

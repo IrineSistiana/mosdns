@@ -70,7 +70,7 @@ func (s *tcpServer) ListenAndServe(h Handler) error {
 		if err != nil {
 			er, ok := err.(net.Error)
 			if ok && er.Temporary() {
-				logger.GetStd().Warnf("tcp server: listener: temporary err: %v", err)
+				logger.Entry().Warnf("tcp server: listener: temporary err: %v", err)
 				time.Sleep(time.Millisecond * 100)
 				continue
 			} else {

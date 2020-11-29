@@ -60,7 +60,7 @@ func Init(tag string, argsMap handler.Args) (p handler.Plugin, err error) {
 	args := new(Args)
 	err = argsMap.WeakDecode(args)
 	if err != nil {
-		return nil, fmt.Errorf("invalid args: %w", err)
+		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
 	}
 
 	ep := new(ecsPlugin)
@@ -106,7 +106,7 @@ func (e ecsPlugin) Do(_ context.Context, qCtx *handler.Context) (err error) {
 			s := qCtx.From.String()
 			ip := net.ParseIP(s)
 			if ip == nil {
-				logger.GetStd().Warnf("internal err: address [%s] can not be parsed as ip", s)
+				logger.Entry().Warnf("internal err: address [%s] can not be parsed as ip", s)
 				return nil
 			}
 
@@ -117,7 +117,7 @@ func (e ecsPlugin) Do(_ context.Context, qCtx *handler.Context) (err error) {
 				if ip6 := ip.To16(); ip6 != nil { // is ipv6
 					ecs = newEDNS0Subnet(ip, e.args.Mask6, true)
 				} else { // non
-					logger.GetStd().Warnf("internal err: address [%s] is not a valid ip address", s)
+					logger.Entry().Warnf("internal err: address [%s] is not a valid ip address", s)
 					return nil
 				}
 			}

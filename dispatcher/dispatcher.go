@@ -58,25 +58,25 @@ func Init(c *config.Config) (*Dispatcher, error) {
 		if err != nil {
 			return nil, err
 		}
-		logger.GetStd().SetLevel(level)
+		logger.GetLogger().SetLevel(level)
 	}
 	if len(c.Log.File) != 0 {
 		f, err := os.OpenFile(c.Log.File, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0755)
 		if err != nil {
 			return nil, fmt.Errorf("can not open log file %s: %w", c.Log.File, err)
 		}
-		logger.GetStd().Infof("use log file %s", c.Log.File)
+		logger.Entry().Infof("use log file %s", c.Log.File)
 		logWriter := io.MultiWriter(os.Stdout, f)
-		logger.GetStd().SetOutput(logWriter)
+		logger.GetLogger().SetOutput(logWriter)
 	}
-	if logger.GetStd().IsLevelEnabled(logrus.DebugLevel) {
-		logger.GetStd().SetReportCaller(true)
+	if logger.GetLogger().IsLevelEnabled(logrus.DebugLevel) {
+		logger.GetLogger().SetReportCaller(true)
 		go func() {
 			m := new(runtime.MemStats)
 			for {
 				time.Sleep(time.Second * 15)
 				runtime.ReadMemStats(m)
-				logger.GetStd().Debugf("HeapObjects: %d NumGC: %d PauseTotalNs: %d, NumGoroutine: %d", m.HeapObjects, m.NumGC, m.PauseTotalNs, runtime.NumGoroutine())
+				logger.Entry().Debugf("HeapObjects: %d NumGC: %d PauseTotalNs: %d, NumGoroutine: %d", m.HeapObjects, m.NumGC, m.PauseTotalNs, runtime.NumGoroutine())
 			}
 		}()
 	}
@@ -86,7 +86,7 @@ func Init(c *config.Config) (*Dispatcher, error) {
 
 	for i, pluginConfig := range append(c.Plugin.Router, append(c.Plugin.Matcher, c.Plugin.Functional...)...) {
 		if len(pluginConfig.Tag) == 0 {
-			logger.GetStd().Warnf("plugin at index %d has a empty tag, ignore it", i)
+			logger.Entry().Warnf("plugin at index %d has a empty tag, ignore it", i)
 			continue
 		}
 		if err := handler.InitAndRegPlugin(pluginConfig); err != nil {
@@ -104,7 +104,7 @@ func (d *Dispatcher) ServeDNS(ctx context.Context, qCtx *handler.Context, w serv
 
 	var r *dns.Msg
 	if err != nil {
-		logger.GetStd().Warnf("query failed: %v", err)
+		logger.Entry().Warnf("query failed: %v", err)
 		r = new(dns.Msg)
 		r.SetReply(qCtx.Q)
 		r.Rcode = dns.RcodeServerFailure
@@ -114,7 +114,7 @@ func (d *Dispatcher) ServeDNS(ctx context.Context, qCtx *handler.Context, w serv
 
 	if r != nil {
 		if _, err := w.Write(r); err != nil {
-			logger.GetStd().Warnf("failed to response client: %v", err)
+			logger.Entry().Warnf("failed to response client: %v", err)
 		}
 	}
 }
@@ -148,13 +148,13 @@ func (d *Dispatcher) dispatchMultiEntries(ctx context.Context, qCtx *handler.Con
 			rtt := time.Since(queryStart).Milliseconds()
 			if err != nil {
 				if err != context.Canceled {
-					logger.GetStd().Warnf("%v: entry %s returned an err after %dms: %v", qCtx, entryTag, rtt, err)
+					qCtx.Logf(logrus.WarnLevel, "entry %s returned an err after %dms: %v", entryTag, rtt, err)
 				}
 				return
 			}
 
 			if entryQCtx.R != nil {
-				logger.GetStd().Debugf("%v: reply from entry %s accepted, rtt: %dms", qCtx, entryTag, rtt)
+				qCtx.Logf(logrus.DebugLevel, "reply from entry %s accepted, rtt: %dms", entryTag, rtt)
 				select {
 				case resChan <- entryQCtx.R:
 				default:
@@ -191,7 +191,7 @@ func (d *Dispatcher) dispatchSingleEntry(ctx context.Context, qCtx *handler.Cont
 	queryStart := time.Now()
 	err := handler.Walk(ctx, qCtx, entry)
 	rtt := time.Since(queryStart).Milliseconds()
-	logger.GetStd().Debugf("%v: entry %s returned after %dms:", qCtx, entry, rtt)
+	qCtx.Logf(logrus.DebugLevel, "entry %s returned after %dms:", entry, rtt)
 	return err
 }
 
@@ -220,7 +220,7 @@ func (d *Dispatcher) StartServer() error {
 				return err
 			}
 			defer l.Close()
-			logger.GetStd().Infof("tcp server started at %s", l.Addr())
+			logger.Entry().Infof("tcp server started at %s", l.Addr())
 
 			serverConf := server.Config{
 				Listener: l,
@@ -233,7 +233,7 @@ func (d *Dispatcher) StartServer() error {
 				return err
 			}
 			defer l.Close()
-			logger.GetStd().Infof("udp server started at %s", l.LocalAddr())
+			logger.Entry().Infof("udp server started at %s", l.LocalAddr())
 			serverConf := server.Config{
 				PacketConn:        l,
 				MaxUDPPayloadSize: d.config.Server.MaxUDPSize,

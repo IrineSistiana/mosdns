@@ -20,9 +20,8 @@ package sequence
 import (
 	"context"
 	"errors"
-	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/logger"
+	"github.com/sirupsen/logrus"
 	"strings"
 )
 
@@ -66,7 +65,7 @@ func walk(ctx context.Context, qCtx *handler.Context, i []*Block) (next string, 
 			}
 			matched, err := getPluginAndMatch(ctx, qCtx, tag)
 			if err != nil {
-				return "", fmt.Errorf("plugin %s reported an err: %w", tag, err)
+				return "", handler.NewErrFromTemplate(handler.ETPluginErr, tag, err)
 			}
 
 			If = matched != reverse
@@ -85,7 +84,7 @@ func walk(ctx context.Context, qCtx *handler.Context, i []*Block) (next string, 
 			}
 			err = getPluginAndExec(ctx, qCtx, tag)
 			if err != nil {
-				return "", fmt.Errorf("plugin %s reported an err: %w", block.Exec, err)
+				return "", handler.NewErrFromTemplate(handler.ETPluginErr, block.Exec, err)
 			}
 		}
 
@@ -111,7 +110,7 @@ func Init(tag string, argsMap handler.Args) (p handler.Plugin, err error) {
 	args := new(Args)
 	err = argsMap.WeakDecode(args)
 	if err != nil {
-		return nil, fmt.Errorf("invalid args: %w", err)
+		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
 	}
 
 	if len(args.Sequence) == 0 {
@@ -145,19 +144,19 @@ func (s *sequence) Do(ctx context.Context, qCtx *handler.Context) (next string, 
 }
 
 func getPluginAndExec(ctx context.Context, qCtx *handler.Context, tag string) (err error) {
-	logger.GetStd().Debugf("%v: exec plugin %s", qCtx, tag)
+	qCtx.Logf(logrus.DebugLevel, "exec plugin %s", tag)
 	p, ok := handler.GetFunctionalPlugin(tag)
 	if !ok {
-		return handler.NewTagNotDefinedErr(tag)
+		return handler.NewErrFromTemplate(handler.ETTagNotDefined, tag)
 	}
 	return p.Do(ctx, qCtx)
 }
 
 func getPluginAndMatch(ctx context.Context, qCtx *handler.Context, tag string) (ok bool, err error) {
-	logger.GetStd().Debugf("%v: exec plugin %s", qCtx, tag)
+	qCtx.Logf(logrus.DebugLevel, "exec plugin %s", tag)
 	m, ok := handler.GetMatcherPlugin(tag)
 	if !ok {
-		return false, handler.NewTagNotDefinedErr(tag)
+		return false, handler.NewErrFromTemplate(handler.ETTagNotDefined, tag)
 	}
 
 	return m.Match(ctx, qCtx)

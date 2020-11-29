@@ -17,28 +17,27 @@
 
 package handler
 
-import "fmt"
+import (
+	"fmt"
+)
 
-type TypeNotDefinedErr struct {
-	typ string
+type Error struct {
+	err string
 }
 
-func NewTypeNotDefinedErr(typ string) *TypeNotDefinedErr {
-	return &TypeNotDefinedErr{typ: typ}
+func (e *Error) Error() string {
+	return e.err
 }
 
-func (t *TypeNotDefinedErr) Error() string {
-	return fmt.Sprintf("plugin type [%s] not not defined", t.typ)
+type ErrTemplate string
+
+func NewErrFromTemplate(t ErrTemplate, args ...interface{}) error {
+	return fmt.Errorf(string(t), args...)
 }
 
-type TagNotDefinedErr struct {
-	tag string
-}
-
-func NewTagNotDefinedErr(tag string) *TagNotDefinedErr {
-	return &TagNotDefinedErr{tag: tag}
-}
-
-func (t *TagNotDefinedErr) Error() string {
-	return fmt.Sprintf("plugin tag [%s] not not defined", t.tag)
-}
+const (
+	ETInvalidArgs    = "invalid args: %w"
+	ETPluginErr      = "plugin %s reported an err: %w"
+	ETTypeNotDefined = "plugin type %s not not defined"
+	ETTagNotDefined  = "plugin tag %s not not defined"
+)

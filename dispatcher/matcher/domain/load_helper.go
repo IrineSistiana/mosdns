@@ -98,7 +98,7 @@ func NewDomainListMatcherFormReader(r io.Reader, continueOnInvalidString bool) (
 		fqdn := dns.Fqdn(line)
 		if _, ok := dns.IsDomainName(fqdn); !ok {
 			if continueOnInvalidString {
-				logger.GetStd().Warnf("NewMatcherFormReader: invalid domain [%s] at line %d", line, lineCounter)
+				logger.Entry().Warnf("NewMatcherFormReader: invalid domain [%s] at line %d", line, lineCounter)
 			} else {
 				return nil, fmt.Errorf("invalid domain [%s] at line %d", line, lineCounter)
 			}

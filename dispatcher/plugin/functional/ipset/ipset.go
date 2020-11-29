@@ -19,7 +19,6 @@ package ipset
 
 import (
 	"context"
-	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/logger"
 )
@@ -48,7 +47,7 @@ func Init(tag string, argsMap handler.Args) (p handler.Plugin, err error) {
 	args := new(Args)
 	err = argsMap.WeakDecode(args)
 	if err != nil {
-		return nil, fmt.Errorf("invalid args: %w", err)
+		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
 	}
 
 	ipsetPlugin := new(ipsetPlugin)
@@ -71,7 +70,7 @@ func (p *ipsetPlugin) Do(_ context.Context, qCtx *handler.Context) (err error) {
 
 	er := p.addIPSet(qCtx.R)
 	if er != nil {
-		logger.GetStd().Warn(err)
+		logger.Entry().Warn(err)
 	}
 	return nil
 }

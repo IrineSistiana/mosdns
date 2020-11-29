@@ -77,7 +77,7 @@ func (s *udpServer) ListenAndServe(h Handler) error {
 			netErr, ok := err.(net.Error)
 			if ok { // is a net err
 				if netErr.Temporary() {
-					logger.GetStd().Warnf("udp server: listener temporary err: %v", err)
+					logger.Entry().Warnf("udp server: listener temporary err: %v", err)
 					time.Sleep(time.Millisecond * 100)
 					continue
 				} else {

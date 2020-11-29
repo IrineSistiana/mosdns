@@ -37,3 +37,21 @@ type DummyFunctional struct {
 func (d *DummyFunctional) Do(_ context.Context, _ *Context) (err error) {
 	return d.WantErr
 }
+
+type DummyRouterPlugin struct {
+	TagStr   string
+	WantNext string
+	WantErr  error
+}
+
+func (d *DummyRouterPlugin) Tag() string {
+	return d.TagStr
+}
+
+func (d *DummyRouterPlugin) Type() string {
+	return "dummy_router_plugin"
+}
+
+func (d *DummyRouterPlugin) Do(_ context.Context, _ *Context) (next string, err error) {
+	return d.WantNext, d.WantErr
+}

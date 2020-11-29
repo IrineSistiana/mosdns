@@ -20,7 +20,7 @@ package handler
 import (
 	"context"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/dispatcher/logger"
+	"github.com/sirupsen/logrus"
 	"reflect"
 )
 
@@ -69,7 +69,7 @@ func InitAndRegPlugin(c *Config) (err error) {
 func NewPlugin(c *Config) (p Plugin, err error) {
 	newPluginFunc, ok := pluginTypeRegister[c.Type]
 	if !ok {
-		return nil, NewTypeNotDefinedErr(c.Type)
+		return nil, NewErrFromTemplate(ETTypeNotDefined, c.Type)
 	}
 
 	return newPluginFunc(c.Tag, c.Args)
@@ -92,6 +92,19 @@ func RegPlugin(p Plugin) error {
 	return nil
 }
 
+func GetPlugin(tag string) (p Plugin, ok bool) {
+	if p, ok = functionalPluginRegister[tag]; ok {
+		return
+	}
+	if p, ok = matcherPluginRegister[tag]; ok {
+		return
+	}
+	if p, ok = routerPluginRegister[tag]; ok {
+		return
+	}
+	return
+}
+
 func GetFunctionalPlugin(tag string) (p FunctionalPlugin, ok bool) {
 	p, ok = functionalPluginRegister[tag]
 	return
@@ -105,6 +118,13 @@ func GetMatcherPlugin(tag string) (p MatcherPlugin, ok bool) {
 func GetRouterPlugin(tag string) (p RouterPlugin, ok bool) {
 	p, ok = routerPluginRegister[tag]
 	return
+}
+
+// PurgePluginRegister should only be used in test.
+func PurgePluginRegister() {
+	functionalPluginRegister = make(map[string]FunctionalPlugin)
+	matcherPluginRegister = make(map[string]MatcherPlugin)
+	routerPluginRegister = make(map[string]RouterPlugin)
 }
 
 const (
@@ -125,9 +145,9 @@ func Walk(ctx context.Context, qCtx *Context, entryTag string) (err error) {
 	for i := 0; i < IterationLimit; i++ {
 		p, ok := GetRouterPlugin(nextTag) // get next plugin
 		if !ok {
-			return NewTagNotDefinedErr(nextTag)
+			return NewErrFromTemplate(ETTagNotDefined, nextTag)
 		}
-		logger.GetStd().Debugf("%v: exec plugin %s", qCtx, p.Tag())
+		qCtx.Logf(logrus.DebugLevel, "exec plugin %s", p.Tag())
 
 		nextTag, err = p.Do(ctx, qCtx)
 		if err != nil {

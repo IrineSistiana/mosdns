@@ -8,6 +8,8 @@ import (
 )
 
 func Test_switchPlugin_Do(t *testing.T) {
+	handler.PurgePluginRegister()
+	defer handler.PurgePluginRegister()
 
 	mErr := errors.New("")
 	eErr := errors.New("")

@@ -23,9 +23,14 @@ import (
 )
 
 var (
-	std = logrus.StandardLogger()
+	std   = logrus.StandardLogger()
+	entry = logrus.NewEntry(std)
 )
 
-func GetStd() *logrus.Logger {
+func Entry() *logrus.Entry {
+	return entry
+}
+
+func GetLogger() *logrus.Logger {
 	return std
 }

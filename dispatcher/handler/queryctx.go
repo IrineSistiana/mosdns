@@ -19,7 +19,9 @@ package handler
 
 import (
 	"fmt"
+	"github.com/IrineSistiana/mosdns/dispatcher/logger"
 	"github.com/miekg/dns"
+	"github.com/sirupsen/logrus"
 	"net"
 )
 
@@ -50,4 +52,10 @@ func (ctx *Context) String() string {
 	}
 
 	return fmt.Sprintf("%v, from: %v", question, ctx.From)
+}
+
+func (ctx *Context) Logf(level logrus.Level, format string, args ...interface{}) {
+	if logger.GetLogger().IsLevelEnabled(level) {
+		logger.Entry().Log(level, fmt.Sprintf("%v: ", ctx), fmt.Sprintf(format, args...))
+	}
 }
