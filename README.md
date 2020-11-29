@@ -10,6 +10,35 @@ mosdns 是一个插件化配置的 DNS 转发器/服务器。每个插件实现�
 
 ---
 
+每个插件都对应一个 `tag`。每个 `tag` 都代表一个插件。插件由用户设定。有的插件能执行特定操作，有的插件能匹配请求的特征。有的插件能将其他插件连接起来。
+
+mosdns 的配置文件格式使用 yaml。并且使用了类似 `if do else do` 的方式连接插件。
+
+以下是一个能根据域名和 IP 进行分流的配置示例(片段):
+
+```yaml
+args:
+    sequence:
+        -   if:                         # 筛选出
+                - '!match_qtype_A_AAAA' # 非 A AAAA 的请求。(qtype_matcher 插件)
+                - match_local_domain    # 或已知的本地域名的请求。(domain_matcher 插件)
+            exec:
+                - forward_local         # 转发至本地服务器。(forward 插件)
+            goto: end                   # 结束。
+
+        -   exec:                       # 其余请求(不是已知的本地域名)。
+                - forward_local         # 转发至本地服务器。
+            sequence:
+                -   if:                     # 筛选出
+                        - match_local_ip    # 结果是本地 IP 的应答。(ip_matcher 插件)
+                    goto: end               # 结束。
+
+                                            # 其余请求(既不是已知的本地域名，应答也不含本地 IP)。
+                -   exec:
+                        - forward_remote    # 转发至远程服务器。
+                    goto: end               # 结束。
+```
+
 ## Open Source Components / Libraries / Reference
 
 依赖
