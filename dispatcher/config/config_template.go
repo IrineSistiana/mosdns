@@ -61,6 +61,7 @@ func GetTemplateConfig() (*Config, error) {
 		},
 		Timeout:            10,
 		InsecureSkipVerify: false,
+		Bootstrap:          []string{"", ""},
 		Deduplicate:        false,
 	}); err != nil {
 		return nil, err

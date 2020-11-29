@@ -50,6 +50,7 @@ type Args struct {
 	Upstream           []Upstream `yaml:"upstream"`
 	Timeout            int        `yaml:"timeout"`
 	InsecureSkipVerify bool       `yaml:"insecure_skip_verify"`
+	Bootstrap          []string   `yaml:"bootstrap"`
 
 	// options for mosdns
 	Deduplicate bool `yaml:"deduplicate"`
@@ -73,9 +74,6 @@ func Init(tag string, argsMap handler.Args) (p handler.Plugin, err error) {
 		if len(u.Addr) == 0 {
 			return nil, errors.New("missing upstream address")
 		}
-		if len(u.IPAddr) == 0 {
-			return nil, errors.New("missing upstream ip address")
-		}
 
 		serverIPAddrs := make([]net.IP, 0, len(u.IPAddr))
 		for _, s := range u.IPAddr {
@@ -87,6 +85,7 @@ func Init(tag string, argsMap handler.Args) (p handler.Plugin, err error) {
 		}
 
 		opt := upstream.Options{}
+		opt.Bootstrap = args.Bootstrap
 		opt.ServerIPAddrs = serverIPAddrs
 
 		if args.Timeout <= 0 {
