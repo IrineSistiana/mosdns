@@ -45,7 +45,7 @@ type Args struct {
 }
 
 type Block struct {
-	If       string   `yaml:"if"`
+	If       []string `yaml:"if"`
 	Exec     []string `yaml:"exec"`
 	Sequence []*Block `yaml:"sequence"`
 	Goto     string   `yaml:"goto"`
@@ -53,31 +53,43 @@ type Block struct {
 
 func walk(ctx context.Context, qCtx *handler.Context, i []*Block) (next string, err error) {
 	for _, block := range i {
-		if len(block.If) != 0 {
-			ifTag := block.If
-			reverse := false
-			if strings.HasPrefix(ifTag, "!") {
-				reverse = true
-				ifTag = strings.TrimPrefix(ifTag, "!")
-			}
-			ok, err := getPluginAndMatch(ctx, qCtx, ifTag)
-			if err != nil {
-				return "", fmt.Errorf("plugin %s reported an err: %w", block.If, err)
-			}
-			if ok == reverse { // block has an if case but returns false. Skip this block.
+
+		// if
+		If := true
+		for _, tag := range block.If {
+			if len(tag) == 0 {
 				continue
 			}
+			reverse := false
+			if reverse = strings.HasPrefix(tag, "!"); reverse {
+				tag = strings.TrimPrefix(tag, "!")
+			}
+			matched, err := getPluginAndMatch(ctx, qCtx, tag)
+			if err != nil {
+				return "", fmt.Errorf("plugin %s reported an err: %w", tag, err)
+			}
+
+			If = matched != reverse
+			if If == true {
+				break // if one of the case is true, skip others.
+			}
+		}
+		if If == false {
+			continue // if case returns false, skip this block.
 		}
 
-		if len(block.Exec) != 0 {
-			for _, tag := range block.Exec {
-				err = getPluginAndExec(ctx, qCtx, tag)
-				if err != nil {
-					return "", fmt.Errorf("plugin %s reported an err: %w", block.Exec, err)
-				}
+		// exec
+		for _, tag := range block.Exec {
+			if len(tag) == 0 {
+				continue
+			}
+			err = getPluginAndExec(ctx, qCtx, tag)
+			if err != nil {
+				return "", fmt.Errorf("plugin %s reported an err: %w", block.Exec, err)
 			}
 		}
 
+		// sequence
 		next, err = walk(ctx, qCtx, block.Sequence) // exec its sub block
 		if err != nil {
 			return "", err
@@ -86,6 +98,7 @@ func walk(ctx context.Context, qCtx *handler.Context, i []*Block) (next string, 
 			return next, nil
 		}
 
+		// goto
 		if len(block.Goto) != 0 { // if block has a goto, return it
 			return block.Goto, nil
 		}

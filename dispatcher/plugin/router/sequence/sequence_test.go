@@ -28,89 +28,59 @@ func Test_switchPlugin_Do(t *testing.T) {
 		{name: "try to reach next 1", args: &Args{
 			Sequence: []*Block{
 				{
-					If:   matched,
+					If:   []string{matched},
 					Exec: exec,
 					Sequence: []*Block{{
-						If:       matched,
+						If:       []string{"", "", "!" + matched},
 						Exec:     exec,
 						Sequence: nil,
-						Goto:     "",
+						Goto:     "goto1",
 					}},
 					Goto: "",
 				},
 			},
 			Next: "no_rd",
 		}, wantNext: "no_rd", wantErr: nil},
+
 		{name: "try to reach goto 1", args: &Args{
 			Sequence: []*Block{
 				{
-					If:   matched,
+					If:   []string{notMatched, "!" + matched, matched, matchErr}, // should be true and no err
 					Exec: exec,
 					Sequence: []*Block{{
-						If:       "",
-						Exec:     exec,
-						Sequence: nil,
-						Goto:     "goto",
+						If:   []string{"", ""}, // should be true
+						Exec: exec,
+						Sequence: []*Block{{
+							If:   []string{}, // should be true
+							Exec: nil,
+							Sequence: []*Block{{
+								If:       []string{"", "", notMatched},
+								Exec:     nil,
+								Sequence: nil,
+								Goto:     "goto1",
+							}},
+							Goto: "", // no redirect
+						}},
+						Goto: "goto2",
 					}},
-					Goto: "",
-				},
-			},
-			Next: "no_rd",
-		}, wantNext: "goto", wantErr: nil},
-		{name: "try to reach goto 2", args: &Args{
-			Sequence: []*Block{
-				{
-					If:   matched,
-					Exec: exec,
-					Sequence: []*Block{{
-						If:       notMatched, // not matched
-						Exec:     execErr,    // should not reach this exec
-						Sequence: nil,
-						Goto:     "goto1", // should not reach this end
-					}, {
-						If:       matched,
-						Exec:     exec,
-						Sequence: nil,
-						Goto:     "goto2",
-					}},
-					Goto: "",
+					Goto: "goto3",
 				},
 			},
 			Next: "no_rd",
 		}, wantNext: "goto2", wantErr: nil},
-		{name: "try to reach goto 3", args: &Args{
-			Sequence: []*Block{
-				{
-					If:   "!" + notMatched, // matched
-					Exec: exec,
-					Sequence: []*Block{{
-						If:       "!" + matched, // not matched
-						Exec:     execErr,       // should not reach this exec
-						Sequence: nil,
-						Goto:     "goto1", // should not reach this end
-					}, {
-						If:       matched,
-						Exec:     exec,
-						Sequence: nil,
-						Goto:     "goto2",
-					}},
-					Goto: "",
-				},
-			},
-			Next: "no_rd",
-		}, wantNext: "goto2", wantErr: nil},
+
 		{name: "matcher err", args: &Args{
 			Sequence: []*Block{
 				{
-					If:   matched,
+					If:   []string{matched},
 					Exec: exec,
 					Sequence: []*Block{{
-						If:       matchErr,
+						If:       []string{matchErr},
 						Exec:     execErr,
 						Sequence: nil,
 						Goto:     "goto1",
 					}, {
-						If:       matched,
+						If:       []string{matched},
 						Exec:     exec,
 						Sequence: nil,
 						Goto:     "goto2",
@@ -123,15 +93,15 @@ func Test_switchPlugin_Do(t *testing.T) {
 		{name: "exec err", args: &Args{
 			Sequence: []*Block{
 				{
-					If:   matched,
+					If:   []string{matched},
 					Exec: exec,
 					Sequence: []*Block{{
-						If:       matched,
+						If:       []string{matched},
 						Exec:     execErr,
 						Sequence: nil,
 						Goto:     "goto1",
 					}, {
-						If:       matched,
+						If:       []string{matched},
 						Exec:     exec,
 						Sequence: nil,
 						Goto:     "goto2",
