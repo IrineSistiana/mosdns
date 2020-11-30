@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"github.com/sirupsen/logrus"
 	"reflect"
+	"regexp"
+	"sync"
 )
 
 type NewPluginFunc func(tag string, args Args) (p Plugin, err error)
@@ -30,10 +32,141 @@ var (
 	// pluginTypeRegister stores init funcs for all plugin types
 	pluginTypeRegister = make(map[string]NewPluginFunc)
 
-	functionalPluginRegister = make(map[string]FunctionalPlugin)
-	matcherPluginRegister    = make(map[string]MatcherPlugin)
-	routerPluginRegister     = make(map[string]RouterPlugin)
+	pluginTagRegister = newPluginRegister()
+
+	entryTagRegister = &entryRegister{}
 )
+
+type entryRegister struct {
+	sync.RWMutex
+	e []string
+}
+
+func (r *entryRegister) reg(entry ...string) {
+	r.Lock()
+	r.e = append(r.e[0:len(r.e):len(r.e)], entry...) // will always allocate a new memory
+	r.Unlock()
+}
+
+func (r *entryRegister) get() (e []string) {
+	r.RLock()
+	e = r.e
+	r.RUnlock()
+	return
+}
+
+func (r *entryRegister) purge() {
+	r.Lock()
+	r.e = nil
+	r.Unlock()
+	return
+}
+
+func (r *entryRegister) del(entryRegexp string) (deleted []string, err error) {
+	expr, err := regexp.Compile(entryRegexp)
+	if err != nil {
+		return nil, err
+	}
+
+	remain := make([]string, 0, len(r.e))
+	r.RLock()
+	for _, entry := range r.e {
+		if expr.MatchString(entry) { // del it
+			deleted = append(deleted, entry)
+			continue
+		}
+		remain = append(remain, entry)
+	}
+	r.RUnlock()
+
+	r.Lock()
+	r.e = remain
+	r.Unlock()
+
+	return deleted, nil
+}
+
+type pluginRegister struct {
+	fpLocker, mpLocker, rpLocker sync.RWMutex
+	fpRegister                   map[string]FunctionalPlugin
+	mpRegister                   map[string]MatcherPlugin
+	rpRegister                   map[string]RouterPlugin
+}
+
+func newPluginRegister() *pluginRegister {
+	return &pluginRegister{
+		fpRegister: make(map[string]FunctionalPlugin),
+		mpRegister: make(map[string]MatcherPlugin),
+		rpRegister: make(map[string]RouterPlugin),
+	}
+}
+
+func (r *pluginRegister) regPlugin(p Plugin) error {
+	switch e := p.(type) {
+	case FunctionalPlugin:
+		r.fpLocker.Lock()
+		r.fpRegister[p.Tag()] = e
+		r.fpLocker.Unlock()
+	case MatcherPlugin:
+		r.mpLocker.Lock()
+		r.mpRegister[p.Tag()] = e
+		r.mpLocker.Unlock()
+	case RouterPlugin:
+		r.rpLocker.Lock()
+		r.rpRegister[p.Tag()] = e
+		r.rpLocker.Unlock()
+	default:
+		return fmt.Errorf("unexpected plugin interface type %s", reflect.TypeOf(p).Name())
+	}
+	return nil
+}
+
+func (r *pluginRegister) getFunctionalPlugin(tag string) (p FunctionalPlugin, ok bool) {
+	r.fpLocker.RLock()
+	p, ok = r.fpRegister[tag]
+	r.fpLocker.RUnlock()
+	return
+}
+func (r *pluginRegister) getMatcherPlugin(tag string) (p MatcherPlugin, ok bool) {
+	r.mpLocker.RLock()
+	p, ok = r.mpRegister[tag]
+	r.mpLocker.RUnlock()
+	return
+}
+
+func (r *pluginRegister) getRouterPlugin(tag string) (p RouterPlugin, ok bool) {
+	r.rpLocker.RLock()
+	p, ok = r.rpRegister[tag]
+	r.rpLocker.RUnlock()
+	return
+}
+
+func (r *pluginRegister) getPlugin(tag string) (p Plugin, ok bool) {
+	if p, ok = r.getFunctionalPlugin(tag); ok {
+		return
+	}
+	if p, ok = r.getMatcherPlugin(tag); ok {
+		return
+	}
+	if p, ok = r.getRouterPlugin(tag); ok {
+		return
+	}
+	return
+}
+
+func (r *pluginRegister) purge() {
+	r.fpLocker.Lock()
+	r.fpRegister = make(map[string]FunctionalPlugin)
+	r.fpLocker.Unlock()
+
+	r.rpLocker.Lock()
+	r.rpRegister = make(map[string]RouterPlugin)
+	r.rpLocker.Unlock()
+
+	r.mpLocker.Lock()
+	r.mpRegister = make(map[string]MatcherPlugin)
+	r.mpLocker.Unlock()
+}
 
 // RegInitFunc registers this plugin type.
 // This should only be called in init() of the plugin package.
@@ -79,52 +212,48 @@ func NewPlugin(c *Config) (p Plugin, err error) {
 // Duplicate Plugin tag will be overwritten.
 // Plugin must be a FunctionalPlugin, MatcherPlugin or RouterPlugin.
 func RegPlugin(p Plugin) error {
-	switch e := p.(type) {
-	case FunctionalPlugin:
-		functionalPluginRegister[p.Tag()] = e
-	case MatcherPlugin:
-		matcherPluginRegister[p.Tag()] = e
-	case RouterPlugin:
-		routerPluginRegister[p.Tag()] = e
-	default:
-		return fmt.Errorf("unexpected plugin interface type %s", reflect.TypeOf(p).Name())
-	}
-	return nil
+	return pluginTagRegister.regPlugin(p)
 }
 
 func GetPlugin(tag string) (p Plugin, ok bool) {
-	if p, ok = functionalPluginRegister[tag]; ok {
-		return
-	}
-	if p, ok = matcherPluginRegister[tag]; ok {
-		return
-	}
-	if p, ok = routerPluginRegister[tag]; ok {
-		return
-	}
-	return
+	return pluginTagRegister.getPlugin(tag)
 }
 
 func GetFunctionalPlugin(tag string) (p FunctionalPlugin, ok bool) {
-	p, ok = functionalPluginRegister[tag]
-	return
+	return pluginTagRegister.getFunctionalPlugin(tag)
 }
 
 func GetMatcherPlugin(tag string) (p MatcherPlugin, ok bool) {
-	p, ok = matcherPluginRegister[tag]
-	return
+	return pluginTagRegister.getMatcherPlugin(tag)
 }
 
 func GetRouterPlugin(tag string) (p RouterPlugin, ok bool) {
-	p, ok = routerPluginRegister[tag]
-	return
+	return pluginTagRegister.getRouterPlugin(tag)
 }
 
 // PurgePluginRegister should only be used in test.
 func PurgePluginRegister() {
-	functionalPluginRegister = make(map[string]FunctionalPlugin)
-	matcherPluginRegister = make(map[string]MatcherPlugin)
-	routerPluginRegister = make(map[string]RouterPlugin)
+	pluginTagRegister.purge()
+}
+
+func RegEntry(entry ...string) {
+	entryTagRegister.reg(entry...)
+}
+
+func DelEntry(entryRegexp string) (deleted []string, err error) {
+	return entryTagRegister.del(entryRegexp)
+}
+
+func GetEntry() []string {
+	return entryTagRegister.get()
+}
+
+func PurgeEntry() {
+	entryTagRegister.purge()
+}
+
+func Dispatch(ctx context.Context, qCtx *Context) error {
+	return entryTagRegister.dispatch(ctx, qCtx)
 }
 
 const (
@@ -143,6 +272,11 @@ func Walk(ctx context.Context, qCtx *Context, entryTag string) (err error) {
 	nextTag := entryTag
 
 	for i := 0; i < IterationLimit; i++ {
+		// check ctx
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		p, ok := GetRouterPlugin(nextTag) // get next plugin
 		if !ok {
 			return NewErrFromTemplate(ETTagNotDefined, nextTag)

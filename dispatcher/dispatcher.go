@@ -20,7 +20,6 @@ package dispatcher
 import (
 	"context"
 	"crypto/x509"
-	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/config"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
@@ -33,7 +32,6 @@ import (
 	"os"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/IrineSistiana/mosdns/dispatcher/logger"
@@ -93,6 +91,9 @@ func Init(c *config.Config) (*Dispatcher, error) {
 			return nil, fmt.Errorf("failed to register plugin %d-%s: %w", i, pluginConfig.Tag, err)
 		}
 	}
+
+	handler.RegEntry(d.config.Plugin.Entry...)
+
 	return d, nil
 }
 
@@ -100,11 +101,11 @@ func (d *Dispatcher) ServeDNS(ctx context.Context, qCtx *handler.Context, w serv
 	queryCtx, cancel := context.WithTimeout(ctx, queryTimeout)
 	defer cancel()
 
-	err := d.Dispatch(queryCtx, qCtx)
+	err := handler.Dispatch(queryCtx, qCtx)
 
 	var r *dns.Msg
 	if err != nil {
-		logger.Entry().Warnf("query failed: %v", err)
+		qCtx.Logf(logrus.WarnLevel, "query failed: %v", err)
 		r = new(dns.Msg)
 		r.SetReply(qCtx.Q)
 		r.Rcode = dns.RcodeServerFailure
@@ -114,85 +115,9 @@ func (d *Dispatcher) ServeDNS(ctx context.Context, qCtx *handler.Context, w serv
 
 	if r != nil {
 		if _, err := w.Write(r); err != nil {
-			logger.Entry().Warnf("failed to response client: %v", err)
+			logger.Entry().Warnf("failed to respond client: %v", err)
 		}
 	}
-}
-
-// Dispatch sends q to entries and return first valid result.
-func (d *Dispatcher) Dispatch(ctx context.Context, qCtx *handler.Context) error {
-	if len(d.config.Plugin.Entry) == 0 {
-		return errors.New("empty entry")
-	}
-
-	if len(d.config.Plugin.Entry) == 1 {
-		return d.dispatchSingleEntry(ctx, qCtx)
-	}
-	return d.dispatchMultiEntries(ctx, qCtx)
-}
-
-func (d *Dispatcher) dispatchMultiEntries(ctx context.Context, qCtx *handler.Context) error {
-	resChan := make(chan *dns.Msg, 1)
-	upstreamWG := sync.WaitGroup{}
-	for i := range d.config.Plugin.Entry {
-		entryTag := d.config.Plugin.Entry[i]
-
-		upstreamWG.Add(1)
-		go func() {
-			defer upstreamWG.Done()
-
-			entryQCtx := qCtx.Copy() // qCtx cannot be modified in different goroutine. Copy it.
-
-			queryStart := time.Now()
-			err := handler.Walk(ctx, entryQCtx, entryTag)
-			rtt := time.Since(queryStart).Milliseconds()
-			if err != nil {
-				if err != context.Canceled {
-					qCtx.Logf(logrus.WarnLevel, "entry %s returned an err after %dms: %v", entryTag, rtt, err)
-				}
-				return
-			}
-
-			if entryQCtx.R != nil {
-				qCtx.Logf(logrus.DebugLevel, "reply from entry %s accepted, rtt: %dms", entryTag, rtt)
-				select {
-				case resChan <- entryQCtx.R:
-				default:
-				}
-			}
-		}()
-	}
-
-	entriesFailedNotificationChan := make(chan struct{}, 0)
-	// this go routine notifies the Dispatch if all entries are failed
-	go func() {
-		// all entries are returned
-		upstreamWG.Wait()
-		// avoid below select{} choose entriesFailedNotificationChan
-		// if both resChan and entriesFailedNotificationChan are selectable
-		if len(resChan) == 0 {
-			close(entriesFailedNotificationChan)
-		}
-	}()
-
-	select {
-	case m := <-resChan:
-		qCtx.R = m
-		return nil
-	case <-entriesFailedNotificationChan:
-		return errors.New("all entries failed")
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-func (d *Dispatcher) dispatchSingleEntry(ctx context.Context, qCtx *handler.Context) error {
-	entry := d.config.Plugin.Entry[0]
-	queryStart := time.Now()
-	err := handler.Walk(ctx, qCtx, entry)
-	rtt := time.Since(queryStart).Milliseconds()
-	qCtx.Logf(logrus.DebugLevel, "entry %s returned after %dms:", entry, rtt)
-	return err
 }
 
 // StartServer starts mosdns. Will always return a non-nil err.
