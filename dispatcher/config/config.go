@@ -41,7 +41,8 @@ type Config struct {
 		Router     []*handler.Config `yaml:"router"`
 		Matcher    []*handler.Config `yaml:"matcher"`
 		Functional []*handler.Config `yaml:"functional"`
-	}
+		Plugin     []*handler.Config `yaml:"plugin,omitempty"`
+	} `yaml:"plugin"`
 }
 
 // LoadConfig loads a yaml config from path p.

@@ -18,14 +18,7 @@
 package config
 
 import (
-	"github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/blackhole"
-	"github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/ecs"
-	"github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/forward"
-	"github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/ipset"
-	"github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/domain_matcher"
-	"github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/ip_matcher"
-	"github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/qtype_matcher"
-	"github.com/IrineSistiana/mosdns/dispatcher/plugin/router/sequence"
+	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 )
 
@@ -41,69 +34,15 @@ func GetTemplateConfig() (*Config, error) {
 
 	c.Plugin.Entry = []string{"", ""}
 
-	// blackhole
-	if err := AddPlugin(&c.Plugin.Functional, "", blackhole.PluginType, &blackhole.Args{
-		RCode: 2,
-	}); err != nil {
-		return nil, err
-	}
-
-	// ecs
-	if err := AddPlugin(&c.Plugin.Functional, "", "ecs", &ecs.Args{}); err != nil {
-		return nil, err
-	}
-
-	// forward
-	if err := AddPlugin(&c.Plugin.Functional, "", forward.PluginType, &forward.Args{
-		Upstream: []forward.Upstream{
-			{"", []string{"", ""}},
-			{"", []string{"", ""}},
-		},
-		Timeout:            10,
-		InsecureSkipVerify: false,
-		Bootstrap:          []string{"", ""},
-		Deduplicate:        false,
-	}); err != nil {
-		return nil, err
-	}
-
-	// ipset
-	if err := AddPlugin(&c.Plugin.Functional, "", ipset.PluginType, &ipset.Args{}); err != nil {
-		return nil, err
-	}
-
-	// domain_matcher
-	if err := AddPlugin(&c.Plugin.Matcher, "", domainmatcher.PluginType, &domainmatcher.Args{
-		Domain: []string{"", ""},
-	}); err != nil {
-		return nil, err
-	}
-
-	// ip_matcher
-	if err := AddPlugin(&c.Plugin.Matcher, "", ipmatcher.PluginType, &ipmatcher.Args{
-		IP: []string{"", ""},
-	}); err != nil {
-		return nil, err
-	}
-
-	// qtype_matcher
-	if err := AddPlugin(&c.Plugin.Matcher, "", qtypematcher.PluginType, &qtypematcher.Args{
-		Type: []int{1, 28},
-	}); err != nil {
-		return nil, err
-	}
-
-	// sequence
-	if err := AddPlugin(&c.Plugin.Router, "", sequence.PluginType, &sequence.Args{
-		Sequence: []*sequence.Block{{
-			If:       []string{"", ""},
-			Exec:     []string{"", ""},
-			Sequence: []*sequence.Block{{}, {}},
-			Goto:     "",
-		}, {}},
-		Next: "",
-	}); err != nil {
-		return nil, err
+	// init template args
+	for _, typ := range handler.GetPluginTypes() {
+		args, ok := handler.GetTemArgs(typ)
+		if !ok {
+			continue
+		}
+		if err := AddPlugin(&c.Plugin.Plugin, "", typ, args); err != nil {
+			return nil, err
+		}
 	}
 	return c, nil
 }

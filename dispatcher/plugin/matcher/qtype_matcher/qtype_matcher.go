@@ -29,6 +29,7 @@ const PluginType = "qtype_matcher"
 
 func init() {
 	handler.RegInitFunc(PluginType, Init)
+	handler.SetTemArgs(PluginType, &Args{Type: []int{1, 28}})
 }
 
 var _ handler.Matcher = (*qTypeMatcher)(nil)

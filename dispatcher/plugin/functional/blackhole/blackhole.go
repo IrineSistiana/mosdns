@@ -27,6 +27,7 @@ const PluginType = "blackhole"
 
 func init() {
 	handler.RegInitFunc(PluginType, Init)
+	handler.SetTemArgs(PluginType, &Args{})
 }
 
 var _ handler.Functional = (*blackhole)(nil)

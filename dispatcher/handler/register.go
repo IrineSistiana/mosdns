@@ -32,10 +32,22 @@ var (
 	// pluginTypeRegister stores init funcs for all plugin types
 	pluginTypeRegister = make(map[string]NewPluginFunc)
 
+	// templateArgsRegister stores plugin template args. It's optional.
+	templateArgsRegister = make(map[string]interface{})
+
 	pluginTagRegister = newPluginRegister()
 
 	entryTagRegister = &entryRegister{}
 )
+
+func SetTemArgs(typ string, args interface{}) {
+	templateArgsRegister[typ] = args
+}
+
+func GetTemArgs(typ string) (args interface{}, ok bool) {
+	args, ok = templateArgsRegister[typ]
+	return
+}
 
 type entryRegister struct {
 	sync.RWMutex
