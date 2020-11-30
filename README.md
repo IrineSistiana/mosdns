@@ -10,11 +10,25 @@ mosdns 是一个插件化配置的 DNS 转发器/服务器。每个插件实现�
 
 ---
 
-有的插件能执行特定操作，有的插件能匹配请求的特征。有的插件能将其他插件连接起来。每个插件都有一个由用户定义的唯一的 `tag`。
+目前支持的插件有:
 
-mosdns 支持使用类似 `if do else do` 的逻辑来连接插件。使用由用户定义的 `tag` 来引用插件。使配置更灵活简洁易理解。
+- 功能性插件:
+    - blackhole: 丢弃应答或返回拒绝性应答(屏蔽请求)。
+    - ecs: 为请求添加 ECS。可以添加预设 IP，也可以根据客户端地址自动添加。
+    - forward: 将请求送至服务器并获取应答。由 [Adhome guard 的 dnsproxy 模块](https://github.com/AdguardTeam/dnsproxy) 驱动。支持 `AdguardHome` 支持的所有协议。
+    - ipset: 添加应答中的 IP 到系统的 ipset 表。支持 `mask` 属性，可大幅减少表长度。
+- 匹配器插件:
+    - domain_matcher: 可以匹配请求和 CNAME 中的域名。支持从 v2ray 的 `geosite.dat` 文件加载数据。
+    - ip_matcher: 匹配应答中的 IP。支持从 v2ray 的 `geoip.dat` 文件加载数据。
+    - qtype_matcher: 匹配请求的类型。
+- 路由插件:
+    - sequence: 将插件连接起来。让插件按顺序执行，并且可动态调整执行顺序。
 
-比如，下面这个配置(片段)实现了根据域名和 IP 进行链式分流的策略。
+用户需要为每个插件起一个唯一的名字 `tag`。mosdns 使用 `tag` 来引用插件。
+
+`sequence` 路由插件是 mosdns 的关键部分。使用类似 `if do else do` 的逻辑来连接其他插件。非常灵活，并且配置直观易理解。
+
+比如，下面这个配置(片段)能实现根据域名和 IP 进行链式分流的策略。
 
 ```yaml
 args:
