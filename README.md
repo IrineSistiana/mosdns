@@ -15,7 +15,7 @@ mosdns 是一个插件化配置的 DNS 转发器/服务器。每个插件实现�
 - 功能性插件:
     - blackhole: 丢弃应答或返回拒绝性应答(屏蔽请求)。
     - ecs: 为请求添加 ECS。可以添加预设 IP，也可以根据客户端地址自动添加。
-    - forward: 将请求送至服务器并获取应答。由 [Adhome guard 的 dnsproxy 模块](https://github.com/AdguardTeam/dnsproxy) 驱动。支持 `AdguardHome` 支持的所有协议。
+    - forward: 将请求送至服务器并获取应答。由 [AdGuardHome 的 dnsproxy 模块](https://github.com/AdguardTeam/dnsproxy) 驱动。支持 `AdguardHome` 支持的所有协议。
     - ipset: 添加应答中的 IP 到系统的 ipset 表。支持 `mask` 属性，可大幅减少表长度。
 - 匹配器插件:
     - domain_matcher: 可以匹配请求和 CNAME 中的域名。支持从 v2ray 的 `geosite.dat` 文件加载数据。
