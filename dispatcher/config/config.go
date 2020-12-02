@@ -41,7 +41,7 @@ type Config struct {
 		Router     []*handler.Config `yaml:"router"`
 		Matcher    []*handler.Config `yaml:"matcher"`
 		Functional []*handler.Config `yaml:"functional"`
-		Plugin     []*handler.Config `yaml:"plugin,omitempty"`
+		Plugin     []*handler.Config `yaml:"plugin"`
 	} `yaml:"plugin"`
 }
 
@@ -77,12 +77,13 @@ func (c *Config) Save(p string) error {
 	}
 	defer f.Close()
 
-	b, err := yaml.Marshal(c)
+	encoder := yaml.NewEncoder(f)
+	encoder.SetIndent(2)
+	defer encoder.Close()
+	err = encoder.Encode(c)
 	if err != nil {
 		return err
 	}
-
-	_, err = f.Write(b)
 
 	return err
 }
