@@ -17,9 +17,52 @@
 
 package handler
 
-import "context"
+import (
+	"context"
+	"fmt"
+	"github.com/sirupsen/logrus"
+)
 
 type RouterPlugin interface {
 	Plugin
 	Do(ctx context.Context, qCtx *Context) (next string, err error)
+}
+
+const (
+	// IterationLimit is to prevent endless loops.
+	IterationLimit = 50
+
+	// StopSignTag: See Walk().
+	StopSignTag = "end"
+)
+
+// Walk walks into this RouterPlugin. Walk will stop and return when
+// last RouterPlugin.Do() returns:
+// 1. An empty tag or StopSignTag.
+// 2. An error.
+func Walk(ctx context.Context, qCtx *Context, entryTag string) (err error) {
+	nextTag := entryTag
+
+	for i := 0; i < IterationLimit; i++ {
+		// check ctx
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		p, ok := GetRouterPlugin(nextTag) // get next plugin
+		if !ok {
+			return NewErrFromTemplate(ETTagNotDefined, nextTag)
+		}
+		qCtx.Logf(logrus.DebugLevel, "exec plugin %s", p.Tag())
+
+		nextTag, err = p.Do(ctx, qCtx)
+		if err != nil {
+			return fmt.Errorf("plugin %s reports an err: %w", p.Tag(), err)
+		}
+		if len(nextTag) == 0 || nextTag == StopSignTag { // end of the plugin chan
+			return nil
+		}
+	}
+
+	return fmt.Errorf("length of plugin execution sequence reached limit %d", IterationLimit)
 }
