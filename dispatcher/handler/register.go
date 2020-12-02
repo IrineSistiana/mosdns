@@ -20,7 +20,6 @@ package handler
 import (
 	"context"
 	"fmt"
-	"github.com/sirupsen/logrus"
 	"reflect"
 	"regexp"
 	"sync"
@@ -99,34 +98,22 @@ func (r *entryRegister) del(entryRegexp string) (deleted []string, err error) {
 }
 
 type pluginRegister struct {
-	fpLocker, mpLocker, rpLocker sync.RWMutex
-	fpRegister                   map[string]FunctionalPlugin
-	mpRegister                   map[string]MatcherPlugin
-	rpRegister                   map[string]RouterPlugin
+	sync.RWMutex
+	register map[string]Plugin
 }
 
 func newPluginRegister() *pluginRegister {
 	return &pluginRegister{
-		fpRegister: make(map[string]FunctionalPlugin),
-		mpRegister: make(map[string]MatcherPlugin),
-		rpRegister: make(map[string]RouterPlugin),
+		register: make(map[string]Plugin),
 	}
 }
 
 func (r *pluginRegister) regPlugin(p Plugin) error {
-	switch e := p.(type) {
-	case FunctionalPlugin:
-		r.fpLocker.Lock()
-		r.fpRegister[p.Tag()] = e
-		r.fpLocker.Unlock()
-	case MatcherPlugin:
-		r.mpLocker.Lock()
-		r.mpRegister[p.Tag()] = e
-		r.mpLocker.Unlock()
-	case RouterPlugin:
-		r.rpLocker.Lock()
-		r.rpRegister[p.Tag()] = e
-		r.rpLocker.Unlock()
+	switch p.(type) {
+	case FunctionalPlugin, MatcherPlugin, RouterPlugin:
+		r.Lock()
+		r.register[p.Tag()] = p
+		r.Unlock()
 	default:
 		return fmt.Errorf("unexpected plugin interface type %s", reflect.TypeOf(p).Name())
 	}
@@ -134,50 +121,49 @@ func (r *pluginRegister) regPlugin(p Plugin) error {
 }
 
 func (r *pluginRegister) getFunctionalPlugin(tag string) (p FunctionalPlugin, ok bool) {
-	r.fpLocker.RLock()
-	p, ok = r.fpRegister[tag]
-	r.fpLocker.RUnlock()
+	r.RLock()
+	defer r.RUnlock()
+	if gp, ok := r.register[tag]; ok {
+		if p, ok := gp.(FunctionalPlugin); ok {
+			return p, true
+		}
+	}
+
 	return
 }
 func (r *pluginRegister) getMatcherPlugin(tag string) (p MatcherPlugin, ok bool) {
-	r.mpLocker.RLock()
-	p, ok = r.mpRegister[tag]
-	r.mpLocker.RUnlock()
+	r.RLock()
+	defer r.RUnlock()
+	if gp, ok := r.register[tag]; ok {
+		if p, ok := gp.(MatcherPlugin); ok {
+			return p, true
+		}
+	}
 	return
 }
 
 func (r *pluginRegister) getRouterPlugin(tag string) (p RouterPlugin, ok bool) {
-	r.rpLocker.RLock()
-	p, ok = r.rpRegister[tag]
-	r.rpLocker.RUnlock()
+	r.RLock()
+	defer r.RUnlock()
+	if gp, ok := r.register[tag]; ok {
+		if p, ok := gp.(RouterPlugin); ok {
+			return p, true
+		}
+	}
 	return
 }
 
 func (r *pluginRegister) getPlugin(tag string) (p Plugin, ok bool) {
-	if p, ok = r.getFunctionalPlugin(tag); ok {
-		return
-	}
-	if p, ok = r.getMatcherPlugin(tag); ok {
-		return
-	}
-	if p, ok = r.getRouterPlugin(tag); ok {
-		return
-	}
+	r.RLock()
+	defer r.RUnlock()
+	p, ok = r.register[tag]
 	return
 }
 
 func (r *pluginRegister) purge() {
-	r.fpLocker.Lock()
-	r.fpRegister = make(map[string]FunctionalPlugin)
-	r.fpLocker.Unlock()
-
-	r.rpLocker.Lock()
-	r.rpRegister = make(map[string]RouterPlugin)
-	r.rpLocker.Unlock()
-
-	r.mpLocker.Lock()
-	r.mpRegister = make(map[string]MatcherPlugin)
-	r.mpLocker.Unlock()
+	r.Lock()
+	r.register = make(map[string]Plugin)
+	r.Unlock()
 }
 
 // RegInitFunc registers this plugin type.
@@ -266,43 +252,4 @@ func PurgeEntry() {
 
 func Dispatch(ctx context.Context, qCtx *Context) error {
 	return entryTagRegister.dispatch(ctx, qCtx)
-}
-
-const (
-	// IterationLimit is to prevent endless loops.
-	IterationLimit = 50
-
-	// StopSignTag: See Walk().
-	StopSignTag = "end"
-)
-
-// Walk walks into this RouterPlugin. Walk will stop and return when
-// last RouterPlugin.Do() returns:
-// 1. An empty tag or StopSignTag.
-// 2. An error.
-func Walk(ctx context.Context, qCtx *Context, entryTag string) (err error) {
-	nextTag := entryTag
-
-	for i := 0; i < IterationLimit; i++ {
-		// check ctx
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-
-		p, ok := GetRouterPlugin(nextTag) // get next plugin
-		if !ok {
-			return NewErrFromTemplate(ETTagNotDefined, nextTag)
-		}
-		qCtx.Logf(logrus.DebugLevel, "exec plugin %s", p.Tag())
-
-		nextTag, err = p.Do(ctx, qCtx)
-		if err != nil {
-			return fmt.Errorf("plugin %s reports an err: %w", p.Tag(), err)
-		}
-		if len(nextTag) == 0 || nextTag == StopSignTag { // end of the plugin chan
-			return nil
-		}
-	}
-
-	return fmt.Errorf("length of plugin execution sequence reached limit %d", IterationLimit)
 }

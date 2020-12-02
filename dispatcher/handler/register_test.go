@@ -36,48 +36,6 @@ func (d *dummySequencePlugin) Do(_ context.Context, _ *Context) (next string, er
 	return
 }
 
-func TestWalk(t *testing.T) {
-	PurgePluginRegister()
-	defer PurgePluginRegister()
-
-	tests := []struct {
-		name     string
-		entryTag string
-		wantErr  bool
-	}{
-		{"normal exec sequence 1", "p1", false},
-		{"normal exec sequence 2", "end1", false},
-		{"endless loop exec sequence", "e1", true},
-		{"err exec sequence", "err1", true},
-	}
-
-	// add a normal exec sequence
-	pluginTagRegister.rpRegister["p1"] = &dummySequencePlugin{next: "p2"}
-	pluginTagRegister.rpRegister["p2"] = &dummySequencePlugin{next: "p3"}
-	pluginTagRegister.rpRegister["p3"] = &dummySequencePlugin{next: ""} // the end
-
-	pluginTagRegister.rpRegister["end1"] = &dummySequencePlugin{next: StopSignTag} // the end
-
-	// add a endless loop exec sequence
-	pluginTagRegister.rpRegister["e1"] = &dummySequencePlugin{next: "e2"}
-	pluginTagRegister.rpRegister["e2"] = &dummySequencePlugin{next: "e3"}
-	pluginTagRegister.rpRegister["e3"] = &dummySequencePlugin{next: "e1"} // endless loop
-
-	// add a exec sequence which raise an err
-	pluginTagRegister.rpRegister["err1"] = &dummySequencePlugin{next: "err2"}
-	pluginTagRegister.rpRegister["err2"] = &dummySequencePlugin{next: "err3", hasErr: true}
-	pluginTagRegister.rpRegister["err3"] = &dummySequencePlugin{next: "", shouldNoTBeReached: true}
-
-	ctx := context.Background()
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := Walk(ctx, nil, tt.entryTag); (err != nil) != tt.wantErr {
-				t.Errorf("Walk() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
-	}
-}
-
 func mustSuccess(t *testing.T, err error) {
 	if err != nil {
 		t.Fatal(err)
@@ -276,8 +234,12 @@ func BenchmarkHandler(b *testing.B) {
 		for pb.Next() {
 			err := Dispatch(context.Background(), nil)
 			if err != nil {
-				b.Fatal(err)
+				panic(err.Error())
 			}
 		}
 	})
+
+	r := pluginTagRegister
+	r.Lock()
+	r.Unlock()
 }
