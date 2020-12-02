@@ -51,9 +51,9 @@ func (c *domainMatcher) Match(_ context.Context, qCtx *handler.Context) (matched
 	return (c.matchQuestion && c.matchQ(qCtx)) || (c.matchCNAME && c.matchC(qCtx)), nil
 }
 
-func Init(tag string, argsMap handler.Args) (p handler.Plugin, err error) {
+func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err error) {
 	args := new(Args)
-	err = argsMap.WeakDecode(args)
+	err = handler.WeakDecode(argsMap, args)
 	if err != nil {
 		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
 	}

@@ -40,9 +40,9 @@ type Args struct {
 	RCode int `yaml:"rcode"`
 }
 
-func Init(tag string, argsMap handler.Args) (p handler.Plugin, err error) {
+func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err error) {
 	args := new(Args)
-	err = argsMap.WeakDecode(args)
+	err = handler.WeakDecode(argsMap, args)
 	if err != nil {
 		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
 	}

@@ -25,7 +25,7 @@ import (
 	"sync"
 )
 
-type NewPluginFunc func(tag string, args Args) (p Plugin, err error)
+type NewPluginFunc func(tag string, args map[string]interface{}) (p Plugin, err error)
 
 var (
 	// pluginTypeRegister stores init funcs for all plugin types

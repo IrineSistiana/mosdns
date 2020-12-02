@@ -18,8 +18,8 @@ func Test_switchPlugin_Do(t *testing.T) {
 	matched := "matched"
 	matchErr := "match_err"
 
-	exec := []string{"exec"}
-	execErr := []string{"exec_err"}
+	exec := "exec"
+	execErr := "exec_err"
 
 	var tests = []struct {
 		name     string
@@ -28,43 +28,33 @@ func Test_switchPlugin_Do(t *testing.T) {
 		wantErr  error
 	}{
 		{name: "try to reach next 1", args: &Args{
-			Sequence: []*Block{
-				{
-					If:   []string{matched},
-					Exec: exec,
-					Sequence: []*Block{{
-						If:       []string{"", "", "!" + matched},
-						Exec:     exec,
-						Sequence: nil,
-						Goto:     "goto1",
-					}},
-					Goto: "",
+			Exec: []interface{}{exec, exec,
+				&IfBlock{
+					If:   []string{"!" + matched, notMatched},
+					Exec: []interface{}{execErr},
+					Goto: "goto",
 				},
 			},
 			Next: "no_rd",
 		}, wantNext: "no_rd", wantErr: nil},
 
 		{name: "try to reach goto 1", args: &Args{
-			Sequence: []*Block{
-				{
-					If:   []string{notMatched, "!" + matched, matched, matchErr}, // should be true and no err
-					Exec: exec,
-					Sequence: []*Block{{
-						If:   []string{"", ""}, // should be true
-						Exec: exec,
-						Sequence: []*Block{{
-							If:   []string{}, // should be true
-							Exec: nil,
-							Sequence: []*Block{{
-								If:       []string{"", "", notMatched},
-								Exec:     nil,
-								Sequence: nil,
-								Goto:     "goto1",
-							}},
-							Goto: "", // no redirect
-						}},
-						Goto: "goto2",
-					}},
+			Exec: []interface{}{exec, exec,
+				&IfBlock{
+					If:   []string{"!" + matched, notMatched}, // not matched
+					Exec: []interface{}{execErr},
+					Goto: "goto1",
+				},
+				&IfBlock{
+					If: []string{"!" + matched, matched, matchErr}, // matched, no err
+					Exec: []interface{}{
+						exec,
+						&IfBlock{
+							If:   []string{"!" + matched, notMatched, matched}, // matched
+							Exec: []interface{}{exec},
+							Goto: "goto2", // reached here
+						},
+					},
 					Goto: "goto3",
 				},
 			},
@@ -72,43 +62,21 @@ func Test_switchPlugin_Do(t *testing.T) {
 		}, wantNext: "goto2", wantErr: nil},
 
 		{name: "matcher err", args: &Args{
-			Sequence: []*Block{
-				{
-					If:   []string{matched},
-					Exec: exec,
-					Sequence: []*Block{{
-						If:       []string{matchErr},
-						Exec:     execErr,
-						Sequence: nil,
-						Goto:     "goto1",
-					}, {
-						If:       []string{matched},
-						Exec:     exec,
-						Sequence: nil,
-						Goto:     "goto2",
-					}},
-					Goto: "",
+			Exec: []interface{}{exec, exec,
+				&IfBlock{
+					If:   []string{"!" + matched, notMatched, matchErr},
+					Exec: []interface{}{exec},
+					Goto: "goto",
 				},
 			},
 			Next: "no_rd",
 		}, wantNext: "", wantErr: mErr},
 		{name: "exec err", args: &Args{
-			Sequence: []*Block{
-				{
-					If:   []string{matched},
-					Exec: exec,
-					Sequence: []*Block{{
-						If:       []string{matched},
-						Exec:     execErr,
-						Sequence: nil,
-						Goto:     "goto1",
-					}, {
-						If:       []string{matched},
-						Exec:     exec,
-						Sequence: nil,
-						Goto:     "goto2",
-					}},
-					Goto: "",
+			Exec: []interface{}{exec, exec,
+				&IfBlock{
+					If:   []string{"!" + matched, matched},
+					Exec: []interface{}{execErr},
+					Goto: "goto",
 				},
 			},
 			Next: "no_rd",
@@ -127,7 +95,7 @@ func Test_switchPlugin_Do(t *testing.T) {
 	)))
 
 	// do something
-	mustSuccess(handler.RegPlugin(handler.WrapFunctionalPlugin(exec[0], "",
+	mustSuccess(handler.RegPlugin(handler.WrapFunctionalPlugin(exec, "",
 		&handler.DummyFunctional{WantErr: nil},
 	)))
 
@@ -140,13 +108,13 @@ func Test_switchPlugin_Do(t *testing.T) {
 	mustSuccess(handler.RegPlugin(handler.WrapMatcherPlugin(matchErr, "",
 		&handler.DummyMatcher{Matched: false, WantErr: mErr},
 	)))
-	mustSuccess(handler.RegPlugin(handler.WrapFunctionalPlugin(execErr[0], "",
+	mustSuccess(handler.RegPlugin(handler.WrapFunctionalPlugin(execErr, "",
 		&handler.DummyFunctional{WantErr: eErr},
 	)))
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &sequence{
+			s := &sequencePlugin{
 				args: tt.args,
 			}
 			gotNext, err := s.Do(context.Background(), nil)
@@ -160,4 +128,8 @@ func Test_switchPlugin_Do(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_yaml(t *testing.T) {
+
 }

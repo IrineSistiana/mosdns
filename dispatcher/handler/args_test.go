@@ -12,7 +12,7 @@ type TestArgsStruct struct {
 
 func TestArgs_WeakDecode(t *testing.T) {
 	testObj := new(TestArgsStruct)
-	testArgs := Args{
+	testArgs := map[string]interface{}{
 		"1": "test",
 		"2": []int{1, 2, 3},
 	}
@@ -21,7 +21,7 @@ func TestArgs_WeakDecode(t *testing.T) {
 		B: []int{1, 2, 3},
 	}
 
-	err := testArgs.WeakDecode(testObj)
+	err := WeakDecode(testArgs, testObj)
 	if err != nil {
 		t.Fatal(err)
 	}

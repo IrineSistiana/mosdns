@@ -21,10 +21,7 @@ import (
 	"github.com/mitchellh/mapstructure"
 )
 
-// Args contains plugin arguments.
-type Args map[string]interface{}
-
-func (a Args) WeakDecode(output interface{}) error {
+func WeakDecode(in map[string]interface{}, output interface{}) error {
 	config := &mapstructure.DecoderConfig{
 		Metadata:         nil,
 		Result:           output,
@@ -37,5 +34,5 @@ func (a Args) WeakDecode(output interface{}) error {
 		return err
 	}
 
-	return decoder.Decode(a)
+	return decoder.Decode(in)
 }

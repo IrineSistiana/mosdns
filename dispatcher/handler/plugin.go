@@ -30,5 +30,5 @@ type Config struct {
 	Type string `yaml:"type"`
 
 	// Args, might be required by some plugins
-	Args Args `yaml:"args"`
+	Args map[string]interface{} `yaml:"args"`
 }

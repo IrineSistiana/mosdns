@@ -102,13 +102,13 @@ func AddPlugin(pluginGroup *[]*handler.Config, tag, typ string, args interface{}
 	return nil
 }
 
-func objToGeneral(in interface{}) (out handler.Args, err error) {
+func objToGeneral(in interface{}) (out map[string]interface{}, err error) {
 	b, err := yaml.Marshal(in)
 	if err != nil {
 		return nil, err
 	}
 
-	out = make(handler.Args)
+	out = make(map[string]interface{})
 	err = yaml.Unmarshal(b, out)
 	if err != nil {
 		return nil, err
