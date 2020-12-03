@@ -82,7 +82,11 @@ func Init(c *config.Config) (*Dispatcher, error) {
 	d := new(Dispatcher)
 	d.config = c
 
-	for i, pluginConfig := range append(c.Plugin.Router, append(c.Plugin.Matcher, c.Plugin.Functional...)...) {
+	plugins := c.Plugin.Plugin
+	plugins = append(plugins, c.Plugin.Router...)
+	plugins = append(plugins, c.Plugin.Functional...)
+	plugins = append(plugins, c.Plugin.Matcher...)
+	for i, pluginConfig := range plugins {
 		if len(pluginConfig.Tag) == 0 {
 			logger.Entry().Warnf("plugin at index %d has a empty tag, ignore it", i)
 			continue
@@ -90,6 +94,7 @@ func Init(c *config.Config) (*Dispatcher, error) {
 		if err := handler.InitAndRegPlugin(pluginConfig); err != nil {
 			return nil, fmt.Errorf("failed to register plugin %d-%s: %w", i, pluginConfig.Tag, err)
 		}
+		logger.Entry().Debugf("plugin %s loaded", pluginConfig.Tag)
 	}
 
 	handler.RegEntry(d.config.Plugin.Entry...)

@@ -38,6 +38,6 @@ func NewErrFromTemplate(t ErrTemplate, args ...interface{}) error {
 const (
 	ETInvalidArgs    = "invalid args: %w"
 	ETPluginErr      = "plugin %s reported an err: %w"
-	ETTypeNotDefined = "plugin type %s not not defined"
-	ETTagNotDefined  = "plugin tag %s not not defined"
+	ETTypeNotDefined = "plugin type %s not defined"
+	ETTagNotDefined  = "plugin tag %s not defined"
 )
