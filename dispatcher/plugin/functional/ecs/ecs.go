@@ -104,8 +104,12 @@ func (e ecsPlugin) Do(_ context.Context, qCtx *handler.Context) (err error) {
 
 	if checkMsgHasECS(qCtx.Q) == false || e.args.ForceOverwrite {
 		if e.args.Auto {
-			s := qCtx.From.String()
-			ip := net.ParseIP(s)
+			addr := qCtx.From.String()
+			ipStr, _, _ := net.SplitHostPort(addr)
+			if len(ipStr) == 0 {
+				return
+			}
+			ip := net.ParseIP(ipStr)
 			if ip == nil {
 				qCtx.Logf(logrus.WarnLevel, "client address [%s] can not be parsed as ip", addr)
 				return nil
