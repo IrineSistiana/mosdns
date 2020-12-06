@@ -85,6 +85,10 @@ type IfBlock struct {
 
 func walk(ctx context.Context, qCtx *handler.Context, sequence []interface{}) (next string, err error) {
 	for _, i := range sequence {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+
 		switch e := i.(type) {
 		case string: // is a tag
 			if len(e) != 0 {
