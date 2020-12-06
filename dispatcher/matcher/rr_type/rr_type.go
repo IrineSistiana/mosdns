@@ -22,14 +22,13 @@ type Matcher struct {
 }
 
 // NewMatcher inits a new RR type matcher.
-// Patten can be int or string.
-func NewMatcher(types []uint16) (*Matcher, error) {
+func NewMatcher(types []uint16) *Matcher {
 	matcher := &Matcher{e: make(map[uint16]struct{})}
 
 	for _, typ := range types {
 		matcher.e[typ] = struct{}{}
 	}
-	return matcher, nil
+	return matcher
 }
 
 func (m *Matcher) Match(t uint16) bool {

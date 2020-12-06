@@ -20,22 +20,25 @@ package qtypematcher
 import (
 	"context"
 	"errors"
-	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/matcher/rr_type"
+	"github.com/miekg/dns"
 )
 
 const PluginType = "qtype_matcher"
 
 func init() {
 	handler.RegInitFunc(PluginType, Init)
-	handler.SetTemArgs(PluginType, &Args{Type: []int{1, 28}})
+	handler.SetTemArgs(PluginType, &Args{Type: []uint16{1, 28}})
+
+	handler.MustRegPlugin(handler.WrapMatcherPlugin("_qtype_A_AAAA", PluginType,
+		&qTypeMatcher{matcher: rr_type.NewMatcher([]uint16{dns.TypeA, dns.TypeAAAA})}))
 }
 
 var _ handler.Matcher = (*qTypeMatcher)(nil)
 
 type Args struct {
-	Type []int `yaml:"type"`
+	Type []uint16 `yaml:"type"`
 }
 
 type qTypeMatcher struct {
@@ -57,17 +60,8 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		return nil, errors.New("no type is specified")
 	}
 
-	types := make([]uint16, 0, len(args.Type))
-	for _, i := range args.Type {
-		types = append(types, uint16(i))
-	}
-	matcher, err := rr_type.NewMatcher(types)
-	if err != nil {
-		return nil, fmt.Errorf("invalid pattens: %w", err)
-	}
-
 	c := new(qTypeMatcher)
-	c.matcher = matcher
+	c.matcher = rr_type.NewMatcher(args.Type)
 	return handler.WrapMatcherPlugin(tag, PluginType, c), nil
 }
 
