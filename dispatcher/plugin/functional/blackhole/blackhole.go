@@ -27,7 +27,6 @@ const PluginType = "blackhole"
 
 func init() {
 	handler.RegInitFunc(PluginType, Init)
-	handler.SetTemArgs(PluginType, &Args{})
 
 	handler.MustRegPlugin(handler.WrapFunctionalPlugin("_drop_response", PluginType, &blackhole{rCode: 0}))
 	handler.MustRegPlugin(handler.WrapFunctionalPlugin("_block_servfail", PluginType, &blackhole{rCode: dns.RcodeServerFailure}))

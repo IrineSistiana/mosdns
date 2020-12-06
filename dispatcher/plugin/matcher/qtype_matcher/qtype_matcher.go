@@ -29,7 +29,6 @@ const PluginType = "qtype_matcher"
 
 func init() {
 	handler.RegInitFunc(PluginType, Init)
-	handler.SetTemArgs(PluginType, &Args{Type: []uint16{1, 28}})
 
 	handler.MustRegPlugin(handler.WrapMatcherPlugin("_qtype_A_AAAA", PluginType,
 		&qTypeMatcher{matcher: rr_type.NewMatcher([]uint16{dns.TypeA, dns.TypeAAAA})}))

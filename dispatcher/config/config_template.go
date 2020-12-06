@@ -33,16 +33,7 @@ func GetTemplateConfig() (*Config, error) {
 	c.Server.MaxUDPSize = utils.IPv4UdpMaxPayload
 
 	c.Plugin.Entry = []string{"", ""}
+	c.Plugin.Plugin = append(c.Plugin.Plugin, &handler.Config{})
 
-	// init template args
-	for _, typ := range handler.GetPluginTypes() {
-		args, ok := handler.GetTemArgs(typ)
-		if !ok {
-			continue
-		}
-		if err := AddPlugin(&c.Plugin.Plugin, "", typ, args); err != nil {
-			return nil, err
-		}
-	}
 	return c, nil
 }

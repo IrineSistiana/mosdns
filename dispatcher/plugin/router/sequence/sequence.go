@@ -31,13 +31,6 @@ const PluginType = "sequence"
 
 func init() {
 	handler.RegInitFunc(PluginType, Init)
-	handler.SetTemArgs(PluginType, &Args{Exec: []interface{}{"", "",
-		&IfBlock{
-			If:   []string{"", ""},
-			Exec: nil,
-			Goto: "",
-		},
-	}})
 }
 
 var _ handler.RouterPlugin = (*sequencePlugin)(nil)

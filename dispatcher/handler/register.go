@@ -28,25 +28,13 @@ import (
 type NewPluginFunc func(tag string, args map[string]interface{}) (p Plugin, err error)
 
 var (
-	// pluginTypeRegister stores init funcs for all plugin types
-	pluginTypeRegister = make(map[string]NewPluginFunc)
-
-	// templateArgsRegister stores plugin template args. It's optional.
-	templateArgsRegister = make(map[string]interface{})
+	// configurablePluginTypeRegister stores init funcs for certain plugin types
+	configurablePluginTypeRegister = make(map[string]NewPluginFunc)
 
 	pluginTagRegister = newPluginRegister()
 
 	entryTagRegister = &entryRegister{}
 )
-
-func SetTemArgs(typ string, args interface{}) {
-	templateArgsRegister[typ] = args
-}
-
-func GetTemArgs(typ string) (args interface{}, ok bool) {
-	args, ok = templateArgsRegister[typ]
-	return
-}
 
 type entryRegister struct {
 	sync.RWMutex
@@ -177,17 +165,17 @@ func (r *pluginRegister) purge() {
 // This should only be called in init() of the plugin package.
 // Duplicate plugin types are not allowed.
 func RegInitFunc(pluginType string, initFunc NewPluginFunc) {
-	_, ok := pluginTypeRegister[pluginType]
+	_, ok := configurablePluginTypeRegister[pluginType]
 	if ok {
 		panic(fmt.Sprintf("duplicate plugin type [%s]", pluginType))
 	}
-	pluginTypeRegister[pluginType] = initFunc
+	configurablePluginTypeRegister[pluginType] = initFunc
 }
 
-// GetPluginTypes returns all registered plugin types.
-func GetPluginTypes() []string {
-	b := make([]string, 0, len(pluginTypeRegister))
-	for typ := range pluginTypeRegister {
+// GetConfigurablePluginTypes returns all plugin types which are configurable.
+func GetConfigurablePluginTypes() []string {
+	b := make([]string, 0, len(configurablePluginTypeRegister))
+	for typ := range configurablePluginTypeRegister {
 		b = append(b, typ)
 	}
 	return b
@@ -205,7 +193,7 @@ func InitAndRegPlugin(c *Config) (err error) {
 }
 
 func NewPlugin(c *Config) (p Plugin, err error) {
-	newPluginFunc, ok := pluginTypeRegister[c.Type]
+	newPluginFunc, ok := configurablePluginTypeRegister[c.Type]
 	if !ok {
 		return nil, NewErrFromTemplate(ETTypeNotDefined, c.Type)
 	}

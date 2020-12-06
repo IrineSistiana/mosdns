@@ -31,7 +31,6 @@ const PluginType = "ip_matcher"
 
 func init() {
 	handler.RegInitFunc(PluginType, Init)
-	handler.SetTemArgs(PluginType, &Args{IP: []string{"", ""}})
 }
 
 var _ handler.Matcher = (*ipMatcher)(nil)

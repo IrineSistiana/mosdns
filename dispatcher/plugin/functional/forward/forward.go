@@ -34,20 +34,6 @@ const PluginType = "forward"
 
 func init() {
 	handler.RegInitFunc(PluginType, Init)
-	handler.SetTemArgs(
-		PluginType,
-		&Args{
-			Upstream: []Upstream{
-				{Addr: "https://dns.google/dns-query", IPAddr: []string{"8.8.8.8", "8.8.4.4", "2001:4860:4860::8888", "2001:4860:4860::8844"}},
-				{Addr: "https://cloudflare-dns.com/dns-query"},
-			},
-			Bootstrap:          []string{"https://223.5.5.5/dns-query", "https://1.1.1.1/dns-query"},
-			Timeout:            10,
-			InsecureSkipVerify: false,
-			Deduplicate:        false,
-		},
-	)
-
 }
 
 var _ handler.Functional = (*forwarder)(nil)

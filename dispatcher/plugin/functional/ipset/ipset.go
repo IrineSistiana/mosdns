@@ -27,7 +27,6 @@ const PluginType = "ipset"
 
 func init() {
 	handler.RegInitFunc(PluginType, Init)
-	handler.SetTemArgs(PluginType, &Args{Mask4: 24, Mask6: 32})
 }
 
 var _ handler.Functional = (*ipsetPlugin)(nil)

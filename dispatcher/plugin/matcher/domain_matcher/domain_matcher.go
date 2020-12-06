@@ -30,7 +30,6 @@ const PluginType = "domain_matcher"
 
 func init() {
 	handler.RegInitFunc(PluginType, Init)
-	handler.SetTemArgs(PluginType, &Args{Domain: []string{"", ""}})
 }
 
 var _ handler.Matcher = (*domainMatcher)(nil)
