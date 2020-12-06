@@ -21,8 +21,8 @@ import (
 	"context"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/logger"
 	"github.com/miekg/dns"
+	"github.com/sirupsen/logrus"
 	"net"
 )
 
@@ -94,9 +94,9 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 	return handler.WrapFunctionalPlugin(tag, PluginType, ep), nil
 }
 
-// Modify tries to append ECS to qCtx.Q.
-// If an error occurred, Modify will just log it. It won't stop the exec sequence.
-// Therefore, Modify will never return a err.
+// Do tries to append ECS to qCtx.Q.
+// If an error occurred, Do will just log it.
+// Therefore, Do will never return a err.
 func (e ecsPlugin) Do(_ context.Context, qCtx *handler.Context) (err error) {
 	if qCtx == nil || qCtx.Q == nil {
 		return nil
@@ -107,7 +107,7 @@ func (e ecsPlugin) Do(_ context.Context, qCtx *handler.Context) (err error) {
 			s := qCtx.From.String()
 			ip := net.ParseIP(s)
 			if ip == nil {
-				logger.Entry().Warnf("internal err: address [%s] can not be parsed as ip", s)
+				qCtx.Logf(logrus.WarnLevel, "client address [%s] can not be parsed as ip", addr)
 				return nil
 			}
 
@@ -118,7 +118,7 @@ func (e ecsPlugin) Do(_ context.Context, qCtx *handler.Context) (err error) {
 				if ip6 := ip.To16(); ip6 != nil { // is ipv6
 					ecs = newEDNS0Subnet(ip, e.args.Mask6, true)
 				} else { // non
-					logger.Entry().Warnf("internal err: address [%s] is not a valid ip address", s)
+					qCtx.Logf(logrus.WarnLevel, "internal err: client address [%s] is not a valid ip address", addr)
 					return nil
 				}
 			}

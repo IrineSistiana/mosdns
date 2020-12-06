@@ -126,22 +126,34 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 	return handler.WrapFunctionalPlugin(tag, PluginType, f), nil
 }
 
-// Modify forwards qCtx.Q to upstreams, and sets qCtx.R.
+// Do forwards qCtx.Q to upstreams, and sets qCtx.R.
+// If qCtx.Q is nil, or upstreams failed, qCtx.R will be a simple response
+// with RCODE = 2.
 func (f *forwarder) Do(_ context.Context, qCtx *handler.Context) (err error) {
-	if qCtx == nil || qCtx.Q == nil {
-		return errors.New("invalid qCtx, Q is nil")
+	if qCtx == nil {
+		return
 	}
 
 	var r *dns.Msg
+	if qCtx.Q == nil {
+		goto whenErr
+	}
+
 	if f.deduplicate {
 		r, err = f.forwardSingleFlight(qCtx.Q)
 	} else {
 		r, err = f.forward(qCtx.Q)
 	}
 
-	if err != nil {
-		return err
+	if err == nil {
+		qCtx.R = r
+		return nil
 	}
+
+whenErr:
+	r = new(dns.Msg)
+	r.SetReply(qCtx.Q)
+	r.Rcode = dns.RcodeServerFailure
 	qCtx.R = r
 	return nil
 }

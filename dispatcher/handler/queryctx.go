@@ -33,6 +33,10 @@ type Context struct {
 }
 
 func (ctx *Context) Copy() *Context {
+	if ctx == nil {
+		return nil
+	}
+
 	newCtx := new(Context)
 	if ctx.Q != nil {
 		newCtx.Q = ctx.Q.Copy()
@@ -46,6 +50,10 @@ func (ctx *Context) Copy() *Context {
 }
 
 func (ctx *Context) String() string {
+	if ctx == nil {
+		return "<nil>"
+	}
+
 	var question []dns.Question
 	if ctx.Q != nil {
 		question = ctx.Q.Question

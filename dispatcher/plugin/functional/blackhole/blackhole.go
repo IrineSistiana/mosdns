@@ -53,7 +53,7 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 	return handler.WrapFunctionalPlugin(tag, PluginType, b), nil
 }
 
-// Modify drops or replaces qCtx.R.
+// Do drops or replaces qCtx.R with a simple denial response.
 // It never returns a err.
 func (b *blackhole) Do(_ context.Context, qCtx *handler.Context) (err error) {
 	if qCtx == nil {

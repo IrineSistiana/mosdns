@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/logger"
 	"github.com/sirupsen/logrus"
 	"reflect"
 	"strings"
@@ -138,7 +137,7 @@ func walk(ctx context.Context, qCtx *handler.Context, sequence []interface{}) (n
 			}
 
 		default:
-			logger.Entry().Warnf("internal err: unexpected sequence element type: %s", reflect.TypeOf(e).Name())
+			qCtx.Logf(logrus.WarnLevel, "internal err: unexpected sequence element type: %s", reflect.TypeOf(e).String())
 		}
 
 	}
@@ -197,11 +196,11 @@ func getPluginAndExec(ctx context.Context, qCtx *handler.Context, tag string) (e
 }
 
 func getPluginAndMatch(ctx context.Context, qCtx *handler.Context, tag string) (ok bool, err error) {
-	qCtx.Logf(logrus.DebugLevel, "exec plugin %s", tag)
 	m, ok := handler.GetMatcherPlugin(tag)
 	if !ok {
 		return false, handler.NewErrFromTemplate(handler.ETTagNotDefined, tag)
 	}
-
-	return m.Match(ctx, qCtx)
+	ok, err = m.Match(ctx, qCtx)
+	qCtx.Logf(logrus.DebugLevel, "exec plugin %s, returned: %v", tag, ok)
+	return
 }

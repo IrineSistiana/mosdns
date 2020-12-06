@@ -20,7 +20,7 @@ package ipset
 import (
 	"context"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/logger"
+	"github.com/sirupsen/logrus"
 )
 
 const PluginType = "ipset"
@@ -61,9 +61,9 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 	return handler.WrapFunctionalPlugin(tag, PluginType, ipsetPlugin), nil
 }
 
-// Modify tries to add ip in qCtx.R to system ipset.
-// If an error occurred, Modify will just log it. It won't stop the exec sequence.
-// Therefore, Modify will never return a err.
+// Do tries to add all qCtx.R IPs to system ipset.
+// If an error occurred, Do will just log it.
+// Therefore, Do will never return an err.
 func (p *ipsetPlugin) Do(_ context.Context, qCtx *handler.Context) (err error) {
 	if qCtx == nil || qCtx.R == nil {
 		return nil
@@ -71,7 +71,7 @@ func (p *ipsetPlugin) Do(_ context.Context, qCtx *handler.Context) (err error) {
 
 	er := p.addIPSet(qCtx.R)
 	if er != nil {
-		logger.Entry().Warn(err)
+		qCtx.Logf(logrus.WarnLevel, "failed to add response IP to ipset: %v", er)
 	}
 	return nil
 }
