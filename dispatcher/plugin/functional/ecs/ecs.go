@@ -31,6 +31,8 @@ const PluginType = "ecs"
 func init() {
 	handler.RegInitFunc(PluginType, Init)
 	handler.SetTemArgs(PluginType, &Args{Mask4: 24, Mask6: 32})
+
+	handler.MustRegPlugin(handler.WrapFunctionalPlugin("_auto_ecs", PluginType, &ecsPlugin{args: &Args{Auto: true}}))
 }
 
 var _ handler.Functional = (*ecsPlugin)(nil)
