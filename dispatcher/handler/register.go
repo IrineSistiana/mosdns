@@ -108,18 +108,21 @@ func newPluginRegister() *pluginRegister {
 	}
 }
 
-func (r *pluginRegister) regPlugin(p Plugin, panicIfErr bool) error {
+func (r *pluginRegister) regPlugin(p Plugin, overwrite bool) error {
 	switch p.(type) {
 	case FunctionalPlugin, MatcherPlugin, RouterPlugin:
 		r.Lock()
-		r.register[p.Tag()] = p
-		r.Unlock()
-	default:
-		err := fmt.Errorf("unexpected plugin interface type %s", reflect.TypeOf(p).String())
-		if panicIfErr {
-			panic(err.Error())
+		defer r.Unlock()
+
+		if !overwrite {
+			if _, ok := r.register[p.Tag()]; ok {
+				return fmt.Errorf("plugin %s has been registered", p.Tag())
+			}
 		}
-		return err
+		r.register[p.Tag()] = p
+
+	default:
+		return fmt.Errorf("unexpected plugin interface type %s", reflect.TypeOf(p).String())
 	}
 	return nil
 }
@@ -211,14 +214,26 @@ func NewPlugin(c *Config) (p Plugin, err error) {
 }
 
 // RegPlugin registers this Plugin globally.
-// Duplicate Plugin tag will be overwritten.
+// Duplicate Plugin tag will cause an error.
 // Plugin must be a FunctionalPlugin, MatcherPlugin or RouterPlugin.
 func RegPlugin(p Plugin) error {
 	return pluginTagRegister.regPlugin(p, false)
 }
 
+// RegPlugin registers this Plugin globally.
+// Duplicate Plugin tag will be overwritten.
+// Plugin must be a FunctionalPlugin, MatcherPlugin or RouterPlugin.
+func RegPluginOverwrite(p Plugin) error {
+	return pluginTagRegister.regPlugin(p, true)
+}
+
+// MustRegPlugin: see RegPlugin.
+// MustRegPlugin will panic if err.
 func MustRegPlugin(p Plugin) {
-	pluginTagRegister.regPlugin(p, true)
+	err := pluginTagRegister.regPlugin(p, false)
+	if err != nil {
+		panic(err.Error())
+	}
 }
 
 func GetPlugin(tag string) (p Plugin, ok bool) {
