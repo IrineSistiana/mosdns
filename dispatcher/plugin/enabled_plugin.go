@@ -26,5 +26,6 @@ import (
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/domain_matcher"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/ip_matcher"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/qtype_matcher"
+	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/simple_matcher"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/router/sequence"
 )
