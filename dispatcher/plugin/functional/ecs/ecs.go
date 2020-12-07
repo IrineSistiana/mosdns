@@ -32,7 +32,7 @@ const PluginType = "ecs"
 func init() {
 	handler.RegInitFunc(PluginType, Init)
 
-	handler.MustRegPlugin(handler.WrapFunctionalPlugin("_auto_ecs", PluginType, &ecsPlugin{args: &Args{Auto: true}}))
+	handler.MustRegPlugin(handler.WrapFunctionalPlugin("_no_ecs", PluginType, &noECS{}))
 }
 
 var _ handler.Functional = (*ecsPlugin)(nil)
@@ -140,4 +140,22 @@ func checkQueryType(m *dns.Msg, typ uint16) bool {
 		return true
 	}
 	return false
+}
+
+type noECS struct{}
+
+var _ handler.Functional = (*noECS)(nil)
+
+func (n noECS) Do(_ context.Context, qCtx *handler.Context) (_ error) {
+	if qCtx == nil {
+		return nil
+	}
+
+	if qCtx.Q != nil {
+		removeECS(qCtx.Q)
+	}
+	if qCtx.R != nil {
+		removeECS(qCtx.R)
+	}
+	return
 }

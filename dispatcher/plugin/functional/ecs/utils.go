@@ -38,6 +38,24 @@ func checkMsgHasECS(m *dns.Msg) bool {
 	return false
 }
 
+func removeECS(m *dns.Msg) (removed bool) {
+	opt := m.IsEdns0()
+	if opt == nil { // no opt, no ecs
+		return false
+	}
+
+	for i := range opt.Option {
+		if opt.Option[i].Option() == dns.EDNS0SUBNET {
+			if i < len(opt.Option) {
+				opt.Option = append(opt.Option[:i], opt.Option[i+1:]...)
+			}
+			opt.Option = opt.Option[:len(opt.Option)-1]
+			removed = true
+		}
+	}
+	return removed
+}
+
 func setECS(m *dns.Msg, ecs *dns.EDNS0_SUBNET) *dns.Msg {
 	opt := m.IsEdns0()
 	if opt == nil { // no opt, we need a new opt
