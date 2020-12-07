@@ -31,14 +31,11 @@ type RouterPlugin interface {
 const (
 	// IterationLimit is to prevent endless loops.
 	IterationLimit = 50
-
-	// StopSignTag: See Walk().
-	StopSignTag = "end"
 )
 
 // Walk walks into this RouterPlugin. Walk will stop and return when
 // last RouterPlugin.Do() returns:
-// 1. An empty tag or StopSignTag.
+// 1. An empty tag.
 // 2. An error.
 func Walk(ctx context.Context, qCtx *Context, entryTag string) (err error) {
 	nextTag := entryTag
@@ -59,7 +56,7 @@ func Walk(ctx context.Context, qCtx *Context, entryTag string) (err error) {
 		if err != nil {
 			return fmt.Errorf("plugin %s reports an err: %w", p.Tag(), err)
 		}
-		if len(nextTag) == 0 || nextTag == StopSignTag { // end of the plugin chan
+		if len(nextTag) == 0 { // end of the plugin chan
 			return nil
 		}
 	}

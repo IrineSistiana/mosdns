@@ -31,6 +31,8 @@ const PluginType = "sequence"
 
 func init() {
 	handler.RegInitFunc(PluginType, Init)
+
+	handler.MustRegPlugin(&sequencePlugin{tag: "_end"})
 }
 
 var _ handler.RouterPlugin = (*sequencePlugin)(nil)
@@ -169,6 +171,10 @@ func (s *sequencePlugin) Type() string {
 }
 
 func (s *sequencePlugin) Do(ctx context.Context, qCtx *handler.Context) (next string, err error) {
+	if s.args == nil {
+		return "", nil
+	}
+
 	next, err = walk(ctx, qCtx, s.args.Exec)
 	if err != nil {
 		return "", err
