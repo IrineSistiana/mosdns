@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
 	"net"
@@ -104,18 +105,12 @@ func (e ecsPlugin) Do(_ context.Context, qCtx *handler.Context) (err error) {
 	}
 
 	if checkMsgHasECS(qCtx.Q) == false || e.args.ForceOverwrite {
-		if e.args.Auto {
-			addr := qCtx.From.String()
-			ipStr, _, _ := net.SplitHostPort(addr)
-			if len(ipStr) == 0 {
-				return
-			}
-			ip := net.ParseIP(ipStr)
-			if ip == nil {
-				qCtx.Logf(logrus.WarnLevel, "client address [%s] can not be parsed as ip", addr)
+		if e.args.Auto && qCtx.From != nil {
+			ip, err := utils.GetIPFromAddr(qCtx.From)
+			if err != nil {
+				qCtx.Logf(logrus.WarnLevel, "internal err: can not get ip address from qCtx.From [%s]", qCtx.From)
 				return nil
 			}
-
 			var ecs *dns.EDNS0_SUBNET
 			if ip4 := ip.To4(); ip4 != nil { // is ipv4
 				ecs = newEDNS0Subnet(ip, e.args.Mask4, false)
@@ -123,7 +118,7 @@ func (e ecsPlugin) Do(_ context.Context, qCtx *handler.Context) (err error) {
 				if ip6 := ip.To16(); ip6 != nil { // is ipv6
 					ecs = newEDNS0Subnet(ip, e.args.Mask6, true)
 				} else { // non
-					qCtx.Logf(logrus.WarnLevel, "internal err: client address [%s] is not a valid ip address", addr)
+					qCtx.Logf(logrus.WarnLevel, "internal err: client address [%s] is not a valid ip address", qCtx.From)
 					return nil
 				}
 			}
