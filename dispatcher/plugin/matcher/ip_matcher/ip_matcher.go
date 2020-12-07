@@ -23,7 +23,9 @@ import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/matcher/netlist"
+	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
+	"github.com/sirupsen/logrus"
 	"net"
 )
 
@@ -36,10 +38,13 @@ func init() {
 var _ handler.Matcher = (*ipMatcher)(nil)
 
 type Args struct {
-	IP []string `yaml:"ip"`
+	MatchResponse bool     `yaml:"match_response"`
+	MatchClient   bool     `yaml:"match_client"`
+	IP            []string `yaml:"ip"`
 }
 
 type ipMatcher struct {
+	args         *Args
 	matcherGroup netlist.Matcher
 }
 
@@ -51,6 +56,7 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 	}
 
 	c := new(ipMatcher)
+	c.args = args
 
 	// init matcherGroup
 	if len(args.IP) == 0 {
@@ -72,13 +78,35 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 }
 
 func (c *ipMatcher) Match(_ context.Context, qCtx *handler.Context) (bool, error) {
-	if qCtx == nil || qCtx.R == nil || len(qCtx.R.Answer) == 0 {
+	if qCtx == nil {
 		return false, nil
 	}
 
-	for i := range qCtx.R.Answer {
+	if c.args.MatchResponse && qCtx.R != nil {
+		ok := c.matchResponse(qCtx.R.Answer)
+		if ok {
+			return true, nil
+		}
+	}
+
+	if c.args.MatchClient && qCtx.From != nil {
+		ip, err := utils.GetIPFromAddr(qCtx.From)
+		if err != nil {
+			qCtx.Logf(logrus.WarnLevel, "internal err: can not get ip address from qCtx.From [%s]", qCtx.From)
+		} else {
+			if c.matcherGroup.Match(ip) {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
+}
+
+func (c *ipMatcher) matchResponse(a []dns.RR) bool {
+	for i := range a {
 		var ip net.IP
-		switch rr := qCtx.R.Answer[i].(type) {
+		switch rr := a[i].(type) {
 		case *dns.A:
 			ip = rr.A
 		case *dns.AAAA:
@@ -88,8 +116,8 @@ func (c *ipMatcher) Match(_ context.Context, qCtx *handler.Context) (bool, error
 		}
 
 		if c.matcherGroup.Match(ip) {
-			return true, nil
+			return true
 		}
 	}
-	return false, nil
+	return false
 }
