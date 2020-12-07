@@ -25,6 +25,7 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/singleflight"
 	"net"
 	"time"
@@ -120,26 +121,26 @@ func (f *forwarder) Do(_ context.Context, qCtx *handler.Context) (err error) {
 		return
 	}
 
-	var r *dns.Msg
 	if qCtx.Q == nil {
-		goto whenErr
+		return errors.New("invalid qCtx, qCtx.Q is nil")
 	}
 
+	var r *dns.Msg
 	if f.deduplicate {
 		r, err = f.forwardSingleFlight(qCtx.Q)
 	} else {
 		r, err = f.forward(qCtx.Q)
 	}
 
-	if err == nil {
+	if err != nil {
+		qCtx.Logf(logrus.WarnLevel, "upstream failed: %v", err)
+		r = new(dns.Msg)
+		r.SetReply(qCtx.Q)
+		r.Rcode = dns.RcodeServerFailure
 		qCtx.R = r
 		return nil
 	}
 
-whenErr:
-	r = new(dns.Msg)
-	r.SetReply(qCtx.Q)
-	r.Rcode = dns.RcodeServerFailure
 	qCtx.R = r
 	return nil
 }
