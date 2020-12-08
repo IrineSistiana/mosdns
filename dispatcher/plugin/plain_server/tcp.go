@@ -15,7 +15,7 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package server
+package plainserver
 
 import (
 	"context"
@@ -33,22 +33,6 @@ const (
 	serverTCPWriteTimeout = time.Second
 )
 
-type tcpServer struct {
-	l       net.Listener
-	timeout time.Duration
-}
-
-func NewTCPServer(c *Config) Server {
-	s := new(tcpServer)
-	s.l = c.Listener
-	if c.Timeout > 0 {
-		s.timeout = c.Timeout
-	} else {
-		s.timeout = serverTCPReadTimeout
-	}
-	return s
-}
-
 type tcpResponseWriter struct {
 	c net.Conn
 }
@@ -60,12 +44,12 @@ func (t *tcpResponseWriter) Write(m *dns.Msg) (n int, err error) {
 	return utils.WriteMsgToTCP(t.c, m)
 }
 
-func (s *tcpServer) ListenAndServe(h Handler) error {
+func listenAndServeTCP(l net.Listener, h handler.ServerHandler) error {
 	listenerCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	for {
-		c, err := s.l.Accept()
+		c, err := l.Accept()
 
 		if err != nil {
 			er, ok := err.(net.Error)
@@ -74,7 +58,7 @@ func (s *tcpServer) ListenAndServe(h Handler) error {
 				time.Sleep(time.Millisecond * 100)
 				continue
 			} else {
-				return fmt.Errorf("listener: %s", err)
+				return fmt.Errorf("listener: %w", err)
 			}
 		}
 

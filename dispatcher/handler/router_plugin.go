@@ -41,6 +41,9 @@ func Walk(ctx context.Context, qCtx *Context, entryTag string) (err error) {
 	nextTag := entryTag
 
 	for i := 0; i < IterationLimit; i++ {
+		if len(nextTag) == 0 { // end of the plugin chan
+			return nil
+		}
 		// check ctx
 		if err := ctx.Err(); err != nil {
 			return err
@@ -55,9 +58,6 @@ func Walk(ctx context.Context, qCtx *Context, entryTag string) (err error) {
 		nextTag, err = p.Do(ctx, qCtx)
 		if err != nil {
 			return fmt.Errorf("plugin %s reports an err: %w", p.Tag(), err)
-		}
-		if len(nextTag) == 0 { // end of the plugin chan
-			return nil
 		}
 	}
 

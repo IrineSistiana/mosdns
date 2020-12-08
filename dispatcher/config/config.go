@@ -31,18 +31,7 @@ type Config struct {
 		File  string `yaml:"file"`
 	} `yaml:"log"`
 
-	Server struct {
-		Bind       []string `yaml:"bind"`
-		MaxUDPSize int      `yaml:"max_udp_size"`
-	} `yaml:"server"`
-
-	Plugin struct {
-		Entry      []string          `yaml:"entry"`
-		Router     []*handler.Config `yaml:"router"`
-		Matcher    []*handler.Config `yaml:"matcher"`
-		Functional []*handler.Config `yaml:"functional"`
-		Plugin     []*handler.Config `yaml:"plugin"`
-	} `yaml:"plugin"`
+	Plugin []*handler.Config `yaml:"plugin"`
 }
 
 // LoadConfig loads a yaml config from path p.
@@ -88,13 +77,13 @@ func (c *Config) Save(p string) error {
 	return err
 }
 
-func AddPlugin(pluginGroup *[]*handler.Config, tag, typ string, args interface{}) error {
+func (c *Config) AddPlugin(tag, typ string, args interface{}) error {
 	out, err := objToGeneral(args)
 	if err != nil {
 		return err
 	}
 
-	*pluginGroup = append(*pluginGroup, &handler.Config{
+	c.Plugin = append(c.Plugin, &handler.Config{
 		Tag:  tag,
 		Type: typ,
 		Args: out,

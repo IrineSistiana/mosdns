@@ -176,15 +176,12 @@ func main() {
 		logrus.Fatalf("can not load config file, %v", err)
 	}
 
-	d, err := dispatcher.Init(c)
+	err = dispatcher.Init(c)
 	if err != nil {
 		logrus.Fatalf("failed to init dispatcher: %v", err)
 	}
 
-	err = d.StartServer()
-	if err != nil {
-		logrus.Fatalf("server exited with err: %v", err)
-	}
+	select {}
 }
 
 func probTCPTimeout(addr string, isTLS bool) error {

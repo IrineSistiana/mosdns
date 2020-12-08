@@ -15,33 +15,51 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package server
+package plainserver
 
 import (
 	"context"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"net"
+	"github.com/miekg/dns"
+	"testing"
 	"time"
 )
 
-type Server interface {
-	ListenAndServe(h Handler) error
+type testEchoHandler struct{}
+
+func (t *testEchoHandler) ServeDNS(_ context.Context, qCtx *handler.Context, w handler.ResponseWriter) {
+	_, err := w.Write(qCtx.Q)
+	if err != nil {
+		panic(err.Error())
+	}
 }
 
-type Handler interface {
-	ServeDNS(ctx context.Context, qCtx *handler.Context, w ResponseWriter)
+func newDummyMsg() *dns.Msg {
+	m := new(dns.Msg)
+	m.SetQuestion("example.com.", dns.TypeA)
+	return m
 }
 
-type Config struct {
-	// listener for tcp server
-	Listener net.Listener
+func checkDummyMsg(t *testing.T, m *dns.Msg) {
+	if len(m.Question) != 1 || m.Question[0].Name != "example.com." {
+		t.Fatal("dummy msg assertion failed")
+	}
+}
 
-	// socket for udp server
-	PacketConn net.PacketConn
+func testServer(t *testing.T, c *dns.Conn) {
+	for i := 0; i < 50; i++ {
+		q := newDummyMsg()
+		err := c.WriteMsg(q)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	// tcp idle timeout
-	Timeout time.Duration
+		c.SetReadDeadline(time.Now().Add(time.Second))
+		r, err := c.ReadMsg()
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	// udp read buffer size
-	MaxUDPPayloadSize int
+		checkDummyMsg(t, r)
+	}
 }

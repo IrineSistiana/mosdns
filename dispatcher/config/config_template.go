@@ -17,23 +17,7 @@
 
 package config
 
-import (
-	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/utils"
-)
-
 func GetTemplateConfig() (*Config, error) {
 	c := new(Config)
-	c.Server.Bind = []string{
-		"udp://127.0.0.1:53",
-		"tcp://127.0.0.1:53",
-		"udp://[::1]:53",
-		"tcp://[::1]:53",
-	}
-	c.Server.MaxUDPSize = utils.IPv4UdpMaxPayload
-
-	c.Plugin.Entry = []string{"", ""}
-	c.Plugin.Plugin = append(c.Plugin.Plugin, &handler.Config{})
-
 	return c, nil
 }

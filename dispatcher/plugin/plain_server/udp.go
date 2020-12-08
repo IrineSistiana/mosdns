@@ -15,7 +15,7 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package server
+package plainserver
 
 import (
 	"context"
@@ -27,11 +27,6 @@ import (
 	"net"
 	"time"
 )
-
-type udpServer struct {
-	socket      net.PacketConn
-	readBufSize int
-}
 
 type udpResponseWriter struct {
 	c  net.PacketConn
@@ -50,29 +45,12 @@ func (u *udpResponseWriter) Write(m *dns.Msg) (n int, err error) {
 	return utils.WriteUDPMsgTo(m, u.c, u.to)
 }
 
-func NewUDPServer(c *Config) Server {
-	s := new(udpServer)
-
-	switch {
-	case c.MaxUDPPayloadSize < dns.MinMsgSize:
-		s.readBufSize = dns.MinMsgSize
-	case c.MaxUDPPayloadSize > dns.MaxMsgSize:
-		s.readBufSize = dns.MaxMsgSize
-	default:
-		s.readBufSize = c.MaxUDPPayloadSize
-	}
-
-	s.socket = c.PacketConn
-
-	return s
-}
-
-func (s *udpServer) ListenAndServe(h Handler) error {
+func listenAndServeUDP(c net.PacketConn, h handler.ServerHandler) error {
 	listenerCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	for {
-		q, from, _, err := utils.ReadUDPMsgFrom(s.socket, s.readBufSize)
+		q, from, _, err := utils.ReadUDPMsgFrom(c, utils.IPv4UdpMaxPayload)
 		if err != nil {
 			netErr, ok := err.(net.Error)
 			if ok { // is a net err
@@ -88,7 +66,7 @@ func (s *udpServer) ListenAndServe(h Handler) error {
 			}
 		}
 		w := &udpResponseWriter{
-			c:  s.socket,
+			c:  c,
 			to: from,
 		}
 		qCtx := &handler.Context{

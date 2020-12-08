@@ -15,7 +15,7 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package server
+package plainserver
 
 import (
 	"github.com/miekg/dns"
@@ -23,25 +23,20 @@ import (
 	"testing"
 )
 
-func TestUdpServer_ListenAndServe(t *testing.T) {
-	l, err := net.ListenPacket("udp", "127.0.0.1:0")
+func TestTcpServer_ListenAndServe(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer l.Close()
 
-	s := &udpServer{
-		socket:      l,
-		readBufSize: dns.MinMsgSize,
-	}
+	go listenAndServeTCP(l, &testEchoHandler{})
 
-	go s.ListenAndServe(&testEchoHandler{})
-
-	c, err := net.Dial("udp", l.LocalAddr().String())
+	c, err := net.Dial("tcp", l.Addr().String())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	defer l.Close()
 
 	testServer(t, &dns.Conn{
 		Conn: c,

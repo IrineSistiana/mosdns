@@ -18,10 +18,7 @@
 package handler
 
 import (
-	"context"
 	"fmt"
-	"reflect"
-	"regexp"
 	"sync"
 )
 
@@ -32,58 +29,7 @@ var (
 	configurablePluginTypeRegister = make(map[string]NewPluginFunc)
 
 	pluginTagRegister = newPluginRegister()
-
-	entryTagRegister = &entryRegister{}
 )
-
-type entryRegister struct {
-	sync.RWMutex
-	e []string
-}
-
-func (r *entryRegister) reg(entry ...string) {
-	r.Lock()
-	r.e = append(r.e[0:len(r.e):len(r.e)], entry...) // will always allocate a new memory
-	r.Unlock()
-}
-
-func (r *entryRegister) get() (e []string) {
-	r.RLock()
-	e = r.e
-	r.RUnlock()
-	return
-}
-
-func (r *entryRegister) purge() {
-	r.Lock()
-	r.e = nil
-	r.Unlock()
-	return
-}
-
-func (r *entryRegister) del(entryRegexp string) (deleted []string, err error) {
-	expr, err := regexp.Compile(entryRegexp)
-	if err != nil {
-		return nil, err
-	}
-
-	remain := make([]string, 0, len(r.e))
-	r.RLock()
-	for _, entry := range r.e {
-		if expr.MatchString(entry) { // del it
-			deleted = append(deleted, entry)
-			continue
-		}
-		remain = append(remain, entry)
-	}
-	r.RUnlock()
-
-	r.Lock()
-	r.e = remain
-	r.Unlock()
-
-	return deleted, nil
-}
 
 type pluginRegister struct {
 	sync.RWMutex
@@ -97,21 +43,16 @@ func newPluginRegister() *pluginRegister {
 }
 
 func (r *pluginRegister) regPlugin(p Plugin, overwrite bool) error {
-	switch p.(type) {
-	case FunctionalPlugin, MatcherPlugin, RouterPlugin:
-		r.Lock()
-		defer r.Unlock()
+	r.Lock()
+	defer r.Unlock()
 
-		if !overwrite {
-			if _, ok := r.register[p.Tag()]; ok {
-				return fmt.Errorf("plugin %s has been registered", p.Tag())
-			}
+	if !overwrite {
+		if _, ok := r.register[p.Tag()]; ok {
+			return fmt.Errorf("plugin %s has been registered", p.Tag())
 		}
-		r.register[p.Tag()] = p
-
-	default:
-		return fmt.Errorf("unexpected plugin interface type %s", reflect.TypeOf(p).String())
 	}
+	r.register[p.Tag()] = p
+
 	return nil
 }
 
@@ -203,14 +144,12 @@ func NewPlugin(c *Config) (p Plugin, err error) {
 
 // RegPlugin registers this Plugin globally.
 // Duplicate Plugin tag will cause an error.
-// Plugin must be a FunctionalPlugin, MatcherPlugin or RouterPlugin.
 func RegPlugin(p Plugin) error {
 	return pluginTagRegister.regPlugin(p, false)
 }
 
 // RegPlugin registers this Plugin globally.
 // Duplicate Plugin tag will be overwritten.
-// Plugin must be a FunctionalPlugin, MatcherPlugin or RouterPlugin.
 func RegPluginOverwrite(p Plugin) error {
 	return pluginTagRegister.regPlugin(p, true)
 }
@@ -243,24 +182,4 @@ func GetRouterPlugin(tag string) (p RouterPlugin, ok bool) {
 // PurgePluginRegister should only be used in test.
 func PurgePluginRegister() {
 	pluginTagRegister.purge()
-}
-
-func RegEntry(entry ...string) {
-	entryTagRegister.reg(entry...)
-}
-
-func DelEntry(entryRegexp string) (deleted []string, err error) {
-	return entryTagRegister.del(entryRegexp)
-}
-
-func GetEntry() []string {
-	return entryTagRegister.get()
-}
-
-func PurgeEntry() {
-	entryTagRegister.purge()
-}
-
-func Dispatch(ctx context.Context, qCtx *Context) error {
-	return entryTagRegister.dispatch(ctx, qCtx)
 }
