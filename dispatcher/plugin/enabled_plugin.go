@@ -21,6 +21,7 @@ import (
 	// import all plugins
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/blackhole"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/ecs"
+	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/fast_forward"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/forward"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/ipset"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/domain_matcher"

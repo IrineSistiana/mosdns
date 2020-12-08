@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"net"
 	"reflect"
+	"strconv"
+	"strings"
 )
 
 // GetIPFromAddr returns net.IP from net.Addr.
@@ -36,4 +38,24 @@ func GetIPFromAddr(addr net.Addr) (ip net.IP, err error) {
 	default:
 		return nil, fmt.Errorf("unsupported addr type: %s", reflect.TypeOf(addr).String())
 	}
+}
+
+// ParseAddr splits addr to protocol and host.
+func ParseAddr(addr string) (protocol, host string) {
+	if s := strings.SplitN(addr, "://", 2); len(s) == 2 {
+		protocol = s[0]
+		host = s[1]
+	} else {
+		host = addr
+	}
+
+	return
+}
+
+// TryAddPort add port to host if host does not has an port suffix.
+func TryAddPort(host string, port uint16) string {
+	if _, p, _ := net.SplitHostPort(host); len(p) == 0 {
+		return host + ":" + strconv.Itoa(int(port))
+	}
+	return host
 }
