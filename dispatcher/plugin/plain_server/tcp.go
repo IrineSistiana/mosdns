@@ -21,7 +21,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/logger"
+	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
 	"net"
@@ -54,7 +54,7 @@ func listenAndServeTCP(l net.Listener, h handler.ServerHandler) error {
 		if err != nil {
 			er, ok := err.(net.Error)
 			if ok && er.Temporary() {
-				logger.Entry().Warnf("tcp server: listener: temporary err: %v", err)
+				mlog.Entry().Warnf("tcp server: listener: temporary err: %v", err)
 				time.Sleep(time.Millisecond * 100)
 				continue
 			} else {

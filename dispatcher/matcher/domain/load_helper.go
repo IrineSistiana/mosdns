@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/IrineSistiana/mosdns/dispatcher/logger"
+	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/golang/protobuf/proto"
 	"github.com/miekg/dns"
 	"v2ray.com/core/app/router"
@@ -98,7 +98,7 @@ func NewDomainListMatcherFormReader(r io.Reader, continueOnInvalidString bool) (
 		fqdn := dns.Fqdn(line)
 		if _, ok := dns.IsDomainName(fqdn); !ok {
 			if continueOnInvalidString {
-				logger.Entry().Warnf("NewMatcherFormReader: invalid domain [%s] at line %d", line, lineCounter)
+				mlog.Entry().Warnf("invalid domain [%s] at line %d", line, lineCounter)
 			} else {
 				return nil, fmt.Errorf("invalid domain [%s] at line %d", line, lineCounter)
 			}

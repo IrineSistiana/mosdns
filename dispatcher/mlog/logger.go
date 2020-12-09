@@ -16,7 +16,7 @@
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // logger for the whole dispatcher package
-package logger
+package mlog
 
 import (
 	"github.com/sirupsen/logrus"
@@ -31,6 +31,10 @@ func Entry() *logrus.Entry {
 	return entry
 }
 
-func GetLogger() *logrus.Logger {
+func Logger() *logrus.Logger {
 	return std
+}
+
+func NewPluginLogger(tag string) *logrus.Entry {
+	return entry.WithField("plugin", tag)
 }

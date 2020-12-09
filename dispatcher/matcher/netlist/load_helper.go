@@ -21,7 +21,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/dispatcher/logger"
+	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/golang/protobuf/proto"
 	"io"
@@ -58,7 +58,7 @@ func NewListFromReader(reader io.Reader, continueOnInvalidString bool) (*List, e
 		ipNet, err := ParseCIDR(line)
 		if err != nil {
 			if continueOnInvalidString {
-				logger.Entry().Warnf("NewListFromReader: invalid CIDR format %s in line %d", line, lineCounter)
+				mlog.Entry().Warnf("invalid CIDR format %s in line %d", line, lineCounter)
 				continue
 			} else {
 				return nil, fmt.Errorf("invalid CIDR format %s in line %d", line, lineCounter)

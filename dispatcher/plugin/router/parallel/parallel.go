@@ -55,7 +55,7 @@ func dispatchMultiEntries(ctx context.Context, qCtx *Context, entries []string) 
 			rtt := time.Since(queryStart).Milliseconds()
 			if err != nil {
 				if err != context.Canceled {
-					qCtx.Logf(logrus.WarnLevel, "entry %s returned an err after %dms: %v", entry, rtt, err)
+					h.logger.Warnf("%v: entry %s returned an err after %dms: %v", qCtx, entry, rtt, err)
 				}
 				return
 			}

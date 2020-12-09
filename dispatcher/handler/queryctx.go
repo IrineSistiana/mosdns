@@ -19,12 +19,12 @@ package handler
 
 import (
 	"fmt"
-	"github.com/IrineSistiana/mosdns/dispatcher/logger"
 	"github.com/miekg/dns"
-	"github.com/sirupsen/logrus"
 	"net"
 )
 
+// Context is a query context that pass through plugins
+// A Context MUST has a non-nil Q and From.
 type Context struct {
 	Q    *dns.Msg
 	From net.Addr
@@ -49,21 +49,19 @@ func (ctx *Context) Copy() *Context {
 	return newCtx
 }
 
+func (ctx *Context) checkContext() {
+	if ctx == nil || ctx.Q == nil || ctx.From == nil {
+		panic("query context: invalid context")
+	}
+}
+
 func (ctx *Context) String() string {
 	if ctx == nil {
 		return "<nil>"
 	}
 
-	var question []dns.Question
-	if ctx.Q != nil {
-		question = ctx.Q.Question
+	if len(ctx.Q.Question) == 1 {
+		return fmt.Sprintf("%v, from: %v", ctx.Q.Question[0], ctx.From)
 	}
-
-	return fmt.Sprintf("%v, from: %v", question, ctx.From)
-}
-
-func (ctx *Context) Logf(level logrus.Level, format string, args ...interface{}) {
-	if logger.GetLogger().IsLevelEnabled(level) {
-		logger.Entry().Log(level, fmt.Sprintf("%v: ", ctx), fmt.Sprintf(format, args...))
-	}
+	return fmt.Sprintf("%v, from: %v", ctx.Q.Question, ctx.From)
 }

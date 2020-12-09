@@ -21,7 +21,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/logger"
+	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
 	"net"
@@ -55,7 +55,7 @@ func listenAndServeUDP(c net.PacketConn, h handler.ServerHandler) error {
 			netErr, ok := err.(net.Error)
 			if ok { // is a net err
 				if netErr.Temporary() {
-					logger.Entry().Warnf("udp server: listener temporary err: %v", err)
+					mlog.Entry().Warnf("udp server: listener temporary err: %v", err)
 					time.Sleep(time.Millisecond * 100)
 					continue
 				} else {

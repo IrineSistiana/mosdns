@@ -20,7 +20,7 @@ package handler
 import (
 	"context"
 	"fmt"
-	"github.com/sirupsen/logrus"
+	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 )
 
 type RouterPlugin interface {
@@ -53,11 +53,11 @@ func Walk(ctx context.Context, qCtx *Context, entryTag string) (err error) {
 		if !ok {
 			return NewErrFromTemplate(ETTagNotDefined, nextTag)
 		}
-		qCtx.Logf(logrus.DebugLevel, "exec plugin %s", p.Tag())
+		mlog.Entry().Debugf("%v: exec router plugin %s", qCtx, p.Tag())
 
 		nextTag, err = p.Do(ctx, qCtx)
 		if err != nil {
-			return fmt.Errorf("plugin %s reports an err: %w", p.Tag(), err)
+			return NewErrFromTemplate(ETPluginErr, p.Tag(), err)
 		}
 	}
 

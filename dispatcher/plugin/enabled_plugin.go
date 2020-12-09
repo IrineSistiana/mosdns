@@ -24,6 +24,7 @@ import (
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/fast_forward"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/forward"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/ipset"
+	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/logger"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/domain_matcher"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/ip_matcher"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/qtype_matcher"

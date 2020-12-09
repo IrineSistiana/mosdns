@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
@@ -57,6 +58,7 @@ type Args struct {
 type ecsPlugin struct {
 	args       *Args
 	ipv4, ipv6 *dns.EDNS0_SUBNET
+	logger     *logrus.Entry
 }
 
 func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err error) {
@@ -68,6 +70,7 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 
 	ep := new(ecsPlugin)
 	ep.args = args
+	ep.logger = mlog.NewPluginLogger(tag)
 
 	if len(args.IPv4) != 0 {
 		ip := net.ParseIP(args.IPv4)
@@ -108,7 +111,7 @@ func (e ecsPlugin) Do(_ context.Context, qCtx *handler.Context) (err error) {
 		if e.args.Auto && qCtx.From != nil {
 			ip, err := utils.GetIPFromAddr(qCtx.From)
 			if err != nil {
-				qCtx.Logf(logrus.WarnLevel, "internal err: can not get ip address from qCtx.From [%s]", qCtx.From)
+				e.logger.Warnf("%v: internal err: can not get ip address from qCtx.From [%s]", qCtx, qCtx.From)
 				return nil
 			}
 			var ecs *dns.EDNS0_SUBNET
@@ -118,7 +121,7 @@ func (e ecsPlugin) Do(_ context.Context, qCtx *handler.Context) (err error) {
 				if ip6 := ip.To16(); ip6 != nil { // is ipv6
 					ecs = newEDNS0Subnet(ip, e.args.Mask6, true)
 				} else { // non
-					qCtx.Logf(logrus.WarnLevel, "internal err: client address [%s] is not a valid ip address", qCtx.From)
+					e.logger.Warnf("%v: internal err: client address [%s] is not a valid ip address", qCtx, qCtx.From)
 					return nil
 				}
 			}

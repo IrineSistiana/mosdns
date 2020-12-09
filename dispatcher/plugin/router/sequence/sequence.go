@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/sirupsen/logrus"
 	"reflect"
 	"strings"
@@ -38,8 +39,9 @@ func init() {
 var _ handler.RouterPlugin = (*sequencePlugin)(nil)
 
 type sequencePlugin struct {
-	tag  string
-	args *Args
+	tag    string
+	args   *Args
+	logger *logrus.Entry
 }
 
 // parse parses map[string]interface{} to IfBlock
@@ -77,7 +79,7 @@ type IfBlock struct {
 	Goto string        `yaml:"goto"`
 }
 
-func walk(ctx context.Context, qCtx *handler.Context, sequence []interface{}) (next string, err error) {
+func (s *sequencePlugin) walk(ctx context.Context, qCtx *handler.Context, sequence []interface{}) (next string, err error) {
 	for _, i := range sequence {
 		if err := ctx.Err(); err != nil {
 			return "", err
@@ -86,7 +88,7 @@ func walk(ctx context.Context, qCtx *handler.Context, sequence []interface{}) (n
 		switch e := i.(type) {
 		case string: // is a tag
 			if len(e) != 0 {
-				err := getPluginAndExec(ctx, qCtx, e)
+				err := s.getPluginAndExec(ctx, qCtx, e)
 				if err != nil {
 					return "", handler.NewErrFromTemplate(handler.ETPluginErr, e, err)
 				}
@@ -103,7 +105,7 @@ func walk(ctx context.Context, qCtx *handler.Context, sequence []interface{}) (n
 				if reverse = strings.HasPrefix(tag, "!"); reverse {
 					tag = strings.TrimPrefix(tag, "!")
 				}
-				matched, err := getPluginAndMatch(ctx, qCtx, tag)
+				matched, err := s.getPluginAndMatch(ctx, qCtx, tag)
 				if err != nil {
 					return "", handler.NewErrFromTemplate(handler.ETPluginErr, tag, err)
 				}
@@ -118,7 +120,7 @@ func walk(ctx context.Context, qCtx *handler.Context, sequence []interface{}) (n
 			}
 
 			// exec
-			next, err = walk(ctx, qCtx, e.Exec) // exec its sub exec sequence
+			next, err = s.walk(ctx, qCtx, e.Exec) // exec its sub exec sequence
 			if err != nil {
 				return "", err
 			}
@@ -132,7 +134,7 @@ func walk(ctx context.Context, qCtx *handler.Context, sequence []interface{}) (n
 			}
 
 		default:
-			qCtx.Logf(logrus.WarnLevel, "internal err: unexpected sequence element type: %s", reflect.TypeOf(e).String())
+			s.logger.Warnf("%v: internal err: unexpected sequence element type: %s", qCtx, reflect.TypeOf(e).String())
 		}
 
 	}
@@ -155,10 +157,11 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
 	}
 
-	s := new(sequencePlugin)
-	s.tag = tag
-	s.args = args
-
+	s := &sequencePlugin{
+		tag:    tag,
+		args:   args,
+		logger: mlog.NewPluginLogger(tag),
+	}
 	return s, nil
 }
 
@@ -175,7 +178,7 @@ func (s *sequencePlugin) Do(ctx context.Context, qCtx *handler.Context) (next st
 		return "", nil
 	}
 
-	next, err = walk(ctx, qCtx, s.args.Exec)
+	next, err = s.walk(ctx, qCtx, s.args.Exec)
 	if err != nil {
 		return "", err
 	}
@@ -185,8 +188,8 @@ func (s *sequencePlugin) Do(ctx context.Context, qCtx *handler.Context) (next st
 	return s.args.Next, nil
 }
 
-func getPluginAndExec(ctx context.Context, qCtx *handler.Context, tag string) (err error) {
-	qCtx.Logf(logrus.DebugLevel, "exec plugin %s", tag)
+func (s *sequencePlugin) getPluginAndExec(ctx context.Context, qCtx *handler.Context, tag string) (err error) {
+	s.logger.Debugf("%v: exec functional plugin %s", qCtx, tag)
 	p, ok := handler.GetFunctionalPlugin(tag)
 	if !ok {
 		return handler.NewErrFromTemplate(handler.ETTagNotDefined, tag)
@@ -194,12 +197,12 @@ func getPluginAndExec(ctx context.Context, qCtx *handler.Context, tag string) (e
 	return p.Do(ctx, qCtx)
 }
 
-func getPluginAndMatch(ctx context.Context, qCtx *handler.Context, tag string) (ok bool, err error) {
+func (s *sequencePlugin) getPluginAndMatch(ctx context.Context, qCtx *handler.Context, tag string) (ok bool, err error) {
 	m, ok := handler.GetMatcherPlugin(tag)
 	if !ok {
 		return false, handler.NewErrFromTemplate(handler.ETTagNotDefined, tag)
 	}
 	ok, err = m.Match(ctx, qCtx)
-	qCtx.Logf(logrus.DebugLevel, "exec plugin %s, returned: %v", tag, ok)
+	s.logger.Debugf("%v: exec matcher plugin %s, returned: %v", qCtx, tag, ok)
 	return
 }

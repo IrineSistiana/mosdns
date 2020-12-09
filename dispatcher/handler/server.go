@@ -19,8 +19,8 @@ package handler
 
 import (
 	"context"
+	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/miekg/dns"
-	"github.com/sirupsen/logrus"
 	"time"
 )
 
@@ -42,11 +42,11 @@ func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *Context, w Re
 	queryStart := time.Now()
 	err := Walk(ctx, qCtx, h.Entry)
 	rtt := time.Since(queryStart).Milliseconds()
-	qCtx.Logf(logrus.DebugLevel, "entry %s returned after %dms:", h.Entry, rtt)
+	mlog.Entry().Debugf("%v: entry %s returned after %dms:", qCtx, h.Entry, rtt)
 
 	var r *dns.Msg
 	if err != nil {
-		qCtx.Logf(logrus.WarnLevel, "query failed: %v", err)
+		mlog.Entry().Warnf("%v: query failed with %v", qCtx, err)
 		r = new(dns.Msg)
 		r.SetReply(qCtx.Q)
 		r.Rcode = dns.RcodeServerFailure
@@ -56,7 +56,7 @@ func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *Context, w Re
 
 	if r != nil {
 		if _, err := w.Write(r); err != nil {
-			qCtx.Logf(logrus.WarnLevel, "failed to respond client: %v", err)
+			mlog.Entry().Warnf("%v: failed to respond client: %v", qCtx, err)
 		}
 	}
 }

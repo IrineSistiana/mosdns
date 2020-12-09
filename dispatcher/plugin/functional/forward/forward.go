@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"github.com/AdguardTeam/dnsproxy/upstream"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
@@ -44,6 +45,7 @@ type forwarder struct {
 
 	deduplicate bool
 	sfGroup     singleflight.Group
+	logger      *logrus.Entry
 }
 
 type Args struct {
@@ -70,6 +72,7 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 	}
 
 	f := new(forwarder)
+	f.logger = mlog.NewPluginLogger(tag)
 
 	for _, u := range args.Upstream {
 		if len(u.Addr) == 0 {
@@ -133,7 +136,7 @@ func (f *forwarder) Do(_ context.Context, qCtx *handler.Context) (err error) {
 	}
 
 	if err != nil {
-		qCtx.Logf(logrus.WarnLevel, "upstream failed: %v", err)
+		f.logger.Warnf("%v: upstream failed: %v", qCtx, err)
 		r = new(dns.Msg)
 		r.SetReply(qCtx.Q)
 		r.Rcode = dns.RcodeServerFailure

@@ -21,7 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/logger"
+	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"io"
 	"net"
@@ -81,10 +81,10 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 				return nil, err
 			}
 			s.listener = append(s.listener, l)
-			logger.Entry().Infof("udp server started at %s", l.LocalAddr())
+			mlog.Entry().Infof("udp server started at %s", l.LocalAddr())
 			go func() {
 				err := listenAndServeUDP(l, h)
-				logger.Entry().Fatalf("udp server at %s exited: %v", l.LocalAddr(), err)
+				mlog.Entry().Fatalf("udp server at %s exited: %v", l.LocalAddr(), err)
 			}()
 		case "tcp":
 			l, err := net.Listen("tcp", addr)
@@ -93,10 +93,10 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 				return nil, err
 			}
 			s.listener = append(s.listener, l)
-			logger.Entry().Infof("tcp server started at %s", l.Addr())
+			mlog.Entry().Infof("tcp server started at %s", l.Addr())
 			go func() {
 				err := listenAndServeTCP(l, h)
-				logger.Entry().Fatalf("tcp server at %s exited: %v", l.Addr(), err)
+				mlog.Entry().Fatalf("tcp server at %s exited: %v", l.Addr(), err)
 			}()
 		default:
 			return nil, fmt.Errorf("unsupported protocol: %s", protocol)

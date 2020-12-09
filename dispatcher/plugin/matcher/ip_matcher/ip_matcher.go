@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/matcher/netlist"
+	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
@@ -46,6 +47,7 @@ type Args struct {
 type ipMatcher struct {
 	args         *Args
 	matcherGroup netlist.Matcher
+	logger       *logrus.Entry
 }
 
 func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err error) {
@@ -57,6 +59,7 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 
 	c := new(ipMatcher)
 	c.args = args
+	c.logger = mlog.NewPluginLogger(tag)
 
 	// init matcherGroup
 	if len(args.IP) == 0 {
@@ -77,24 +80,24 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 	return handler.WrapMatcherPlugin(tag, PluginType, c), nil
 }
 
-func (c *ipMatcher) Match(_ context.Context, qCtx *handler.Context) (bool, error) {
+func (m *ipMatcher) Match(_ context.Context, qCtx *handler.Context) (bool, error) {
 	if qCtx == nil {
 		return false, nil
 	}
 
-	if c.args.MatchResponse && qCtx.R != nil {
-		ok := c.matchResponse(qCtx.R.Answer)
+	if m.args.MatchResponse && qCtx.R != nil {
+		ok := m.matchResponse(qCtx.R.Answer)
 		if ok {
 			return true, nil
 		}
 	}
 
-	if c.args.MatchClient && qCtx.From != nil {
+	if m.args.MatchClient && qCtx.From != nil {
 		ip, err := utils.GetIPFromAddr(qCtx.From)
 		if err != nil {
-			qCtx.Logf(logrus.WarnLevel, "internal err: can not get ip address from qCtx.From [%s]", qCtx.From)
+			m.logger.Warnf("%v: internal err: can not get ip address from qCtx.From [%s]", qCtx, qCtx.From)
 		} else {
-			if c.matcherGroup.Match(ip) {
+			if m.matcherGroup.Match(ip) {
 				return true, nil
 			}
 		}
@@ -103,7 +106,7 @@ func (c *ipMatcher) Match(_ context.Context, qCtx *handler.Context) (bool, error
 	return false, nil
 }
 
-func (c *ipMatcher) matchResponse(a []dns.RR) bool {
+func (m *ipMatcher) matchResponse(a []dns.RR) bool {
 	for i := range a {
 		var ip net.IP
 		switch rr := a[i].(type) {
@@ -115,7 +118,7 @@ func (c *ipMatcher) matchResponse(a []dns.RR) bool {
 			continue
 		}
 
-		if c.matcherGroup.Match(ip) {
+		if m.matcherGroup.Match(ip) {
 			return true
 		}
 	}

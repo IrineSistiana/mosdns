@@ -20,7 +20,7 @@ package cpool
 import (
 	"container/list"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/dispatcher/logger"
+	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"net"
 	"sync"
@@ -136,8 +136,8 @@ func (p *Pool) tryStartCleanerGoroutine() {
 }
 
 func (p *Pool) startCleaner() {
-	logger.Entry().Debugf("pool cleaner %p started", p)
-	defer logger.Entry().Debugf("pool cleaner %p exited", p)
+	mlog.Entry().Debugf("pool cleaner %p started", p)
+	defer mlog.Entry().Debugf("pool cleaner %p exited", p)
 
 	timer := utils.GetTimer(p.cleanerInterval)
 	defer utils.ReleaseTimer(timer)
@@ -159,7 +159,7 @@ func (p *Pool) startCleaner() {
 			interval = p.cleanerInterval
 		}
 		utils.ResetAndDrainTimer(timer, interval)
-		logger.Entry().Debugf("pool cleaner %p removed conn: %d, remain: %d, interval: %.2f", p, connCleaned, connRemain, interval.Seconds())
+		mlog.Entry().Debugf("pool cleaner %p removed conn: %d, remain: %d, interval: %.2f", p, connCleaned, connRemain, interval.Seconds())
 	}
 }
 
