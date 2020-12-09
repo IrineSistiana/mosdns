@@ -25,16 +25,12 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/matcher/netlist"
 	"net"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"runtime"
-	"syscall"
 	"time"
 
-	"github.com/IrineSistiana/mosdns/dispatcher/config"
+	"github.com/IrineSistiana/mosdns/dispatcher/coremain"
 	"github.com/miekg/dns"
-
-	"github.com/IrineSistiana/mosdns/dispatcher"
 
 	"net/http"
 	//DEBUG ONLY
@@ -66,15 +62,6 @@ var (
 )
 
 func main() {
-	//wait for signals
-	go func() {
-		osSignals := make(chan os.Signal, 1)
-		signal.Notify(osSignals, os.Interrupt, os.Kill, syscall.SIGTERM)
-		s := <-osSignals
-		logrus.Infof("received signal: %v, bye", s)
-		os.Exit(0)
-	}()
-
 	flag.Parse()
 	runtime.GOMAXPROCS(*cpu)
 
@@ -130,7 +117,7 @@ func main() {
 
 	// generate config
 	if len(*genConfigTo) != 0 {
-		err := config.GenConfig(*genConfigTo)
+		err := coremain.GenConfig(*genConfigTo)
 		if err != nil {
 			logrus.Fatalf("can not generate config template, %v", err)
 		} else {
@@ -166,22 +153,7 @@ func main() {
 		logrus.Infof("current working directory: %s", wd)
 	}
 
-	//checking
-	if len(*configPath) == 0 {
-		logrus.Fatal("need a config file")
-	}
-
-	c, err := config.LoadConfig(*configPath)
-	if err != nil {
-		logrus.Fatalf("can not load config file, %v", err)
-	}
-
-	err = dispatcher.Init(c)
-	if err != nil {
-		logrus.Fatalf("failed to init dispatcher: %v", err)
-	}
-
-	select {}
+	coremain.Run(*configPath)
 }
 
 func probTCPTimeout(addr string, isTLS bool) error {

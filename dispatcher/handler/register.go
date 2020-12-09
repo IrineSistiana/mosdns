@@ -96,6 +96,17 @@ func (r *pluginRegister) getPlugin(tag string) (p Plugin, ok bool) {
 	return
 }
 
+func (r *pluginRegister) getAllPluginTag() []string {
+	r.RLock()
+	defer r.RUnlock()
+
+	t := make([]string, 0, len(r.register))
+	for tag := range r.register {
+		t = append(t, tag)
+	}
+	return t
+}
+
 func (r *pluginRegister) purge() {
 	r.Lock()
 	r.register = make(map[string]Plugin)
@@ -165,6 +176,10 @@ func MustRegPlugin(p Plugin) {
 
 func GetPlugin(tag string) (p Plugin, ok bool) {
 	return pluginTagRegister.getPlugin(tag)
+}
+
+func GetAllPluginTag() []string {
+	return pluginTagRegister.getAllPluginTag()
 }
 
 func GetFunctionalPlugin(tag string) (p FunctionalPlugin, ok bool) {

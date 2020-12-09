@@ -15,7 +15,7 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package config
+package coremain
 
 import (
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
@@ -26,13 +26,14 @@ import (
 
 // Config is config
 type Config struct {
-	Plugin []*handler.Config `yaml:"plugin"`
+	Plugin  []*handler.Config `yaml:"plugin"`
+	Include []string          `yaml:"include"`
 }
 
-// LoadConfig loads a yaml config from path p.
-func LoadConfig(p string) (*Config, error) {
+// parseConfig loads a yaml config from path f.
+func parseConfig(f string) (*Config, error) {
 	c := new(Config)
-	b, err := ioutil.ReadFile(p)
+	b, err := ioutil.ReadFile(f)
 	if err != nil {
 		return nil, err
 	}
@@ -98,4 +99,10 @@ func objToGeneral(in interface{}) (out map[string]interface{}, err error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+func GetTemplateConfig() (*Config, error) {
+	c := new(Config)
+
+	return c, nil
 }
