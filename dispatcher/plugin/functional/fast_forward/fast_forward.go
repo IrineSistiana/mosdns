@@ -61,6 +61,10 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
 	}
 
+	if len(args.Upstream) == 0 {
+		return nil, errors.New("no upstream is configured")
+	}
+
 	f := new(fastForward)
 	f.logger = mlog.NewPluginLogger(tag)
 	for _, addr := range args.Upstream {

@@ -71,8 +71,13 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
 	}
 
+	if len(args.Upstream) == 0 {
+		return nil, errors.New("no upstream is configured")
+	}
+
 	f := new(forwarder)
 	f.logger = mlog.NewPluginLogger(tag)
+	f.deduplicate = args.Deduplicate
 
 	for _, u := range args.Upstream {
 		if len(u.Addr) == 0 {
@@ -107,11 +112,6 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 
 		f.upstream = append(f.upstream, u)
 	}
-
-	if len(f.upstream) == 0 {
-		return nil, errors.New("missing upstream")
-	}
-	f.deduplicate = args.Deduplicate
 
 	return handler.WrapFunctionalPlugin(tag, PluginType, f), nil
 }

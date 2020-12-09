@@ -21,6 +21,7 @@ import (
 	"github.com/mitchellh/mapstructure"
 )
 
+// WeakDecode decodes args from config to output.
 func WeakDecode(in map[string]interface{}, output interface{}) error {
 	config := &mapstructure.DecoderConfig{
 		Metadata:         nil,

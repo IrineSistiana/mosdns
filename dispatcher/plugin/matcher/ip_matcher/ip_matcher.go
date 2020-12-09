@@ -57,15 +57,13 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
 	}
 
-	c := new(ipMatcher)
-	c.args = args
-	c.logger = mlog.NewPluginLogger(tag)
-
-	// init matcherGroup
 	if len(args.IP) == 0 {
-		return nil, errors.New("no ip file")
+		return nil, errors.New("no ip file is configured")
 	}
 
+	m := new(ipMatcher)
+	m.args = args
+	m.logger = mlog.NewPluginLogger(tag)
 	mg := make([]netlist.Matcher, 0, len(args.IP))
 	for _, f := range args.IP {
 		matcher, err := netlist.NewIPMatcherFromFile(f)
@@ -75,9 +73,9 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		mg = append(mg, matcher)
 	}
 
-	c.matcherGroup = netlist.NewMatcherGroup(mg)
+	m.matcherGroup = netlist.NewMatcherGroup(mg)
 
-	return handler.WrapMatcherPlugin(tag, PluginType, c), nil
+	return handler.WrapMatcherPlugin(tag, PluginType, m), nil
 }
 
 func (m *ipMatcher) Match(_ context.Context, qCtx *handler.Context) (bool, error) {

@@ -23,7 +23,9 @@ import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/matcher/domain"
+	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/miekg/dns"
+	"github.com/sirupsen/logrus"
 )
 
 const PluginType = "domain_matcher"
@@ -44,6 +46,7 @@ type domainMatcher struct {
 	matcherGroup  domain.Matcher
 	matchQuestion bool
 	matchCNAME    bool
+	logger        *logrus.Entry
 }
 
 func (c *domainMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, err error) {
@@ -57,13 +60,12 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
 	}
 
-	c := new(domainMatcher)
-
-	// init matcher
 	if len(args.Domain) == 0 {
-		return nil, errors.New("no domain file")
+		return nil, errors.New("no domain file is configured")
 	}
 
+	m := new(domainMatcher)
+	m.logger = mlog.NewPluginLogger(tag)
 	mg := make([]domain.Matcher, 0, len(args.Domain))
 	for _, f := range args.Domain {
 		matcher, err := domain.NewDomainMatcherFormFile(f)
@@ -73,11 +75,11 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		mg = append(mg, matcher)
 	}
 
-	c.matchQuestion = args.CheckQuestion
-	c.matchCNAME = args.CheckCNAME
-	c.matcherGroup = domain.NewMatcherGroup(mg)
+	m.matchQuestion = args.CheckQuestion
+	m.matchCNAME = args.CheckCNAME
+	m.matcherGroup = domain.NewMatcherGroup(mg)
 
-	return handler.WrapMatcherPlugin(tag, PluginType, c), nil
+	return handler.WrapMatcherPlugin(tag, PluginType, m), nil
 }
 
 func (c *domainMatcher) matchQ(qCtx *handler.Context) bool {

@@ -49,12 +49,6 @@ func (ctx *Context) Copy() *Context {
 	return newCtx
 }
 
-func (ctx *Context) checkContext() {
-	if ctx == nil || ctx.Q == nil || ctx.From == nil {
-		panic("query context: invalid context")
-	}
-}
-
 func (ctx *Context) String() string {
 	if ctx == nil {
 		return "<nil>"

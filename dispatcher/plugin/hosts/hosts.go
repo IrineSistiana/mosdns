@@ -20,6 +20,7 @@ package hosts
 import (
 	"bufio"
 	"context"
+	"errors"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/miekg/dns"
@@ -65,7 +66,7 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 	}
 
 	if len(args.Hosts) == 0 {
-		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, "no hosts file is specified")
+		return nil, errors.New("no hosts file is configured")
 	}
 
 	h := newHostsContainer(tag)
