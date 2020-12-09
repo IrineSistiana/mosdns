@@ -25,6 +25,7 @@ import (
 	"io"
 	"os"
 	"runtime"
+	"sync"
 	"time"
 )
 
@@ -51,6 +52,8 @@ type Args struct {
 	File  string `yaml:"file"`
 }
 
+var initOnce sync.Once
+
 func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err error) {
 	args := new(Args)
 	err = handler.WeakDecode(argsMap, args)
@@ -58,19 +61,31 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
 	}
 
+	initOnce.Do(
+		func() {
+			if err := configLogger(args); err != nil {
+				mlog.Entry().Error(err)
+			}
+		},
+	)
+
+	return &logger{tag: tag}, nil
+}
+
+func configLogger(args *Args) error {
 	if len(args.Level) != 0 {
 		level, err := logrus.ParseLevel(args.Level)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		mlog.Logger().SetLevel(level)
 	}
 	if len(args.File) != 0 {
 		f, err := os.OpenFile(args.File, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0755)
 		if err != nil {
-			return nil, fmt.Errorf("can not open log file %s: %w", args.File, err)
+			return fmt.Errorf("can not open log file %s: %w", args.File, err)
 		}
-		mlog.Entry().Infof("use log file %s", args.File)
+		mlog.Entry().Infof("opened log file %s", args.File)
 		logWriter := io.MultiWriter(os.Stdout, f)
 		mlog.Logger().SetOutput(logWriter)
 	}
@@ -85,6 +100,5 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 			}
 		}()
 	}
-
-	return &logger{tag: tag}, nil
+	return nil
 }
