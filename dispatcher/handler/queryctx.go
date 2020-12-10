@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"github.com/miekg/dns"
 	"net"
+	"strings"
 )
 
 // Context is a query context that pass through plugins
@@ -53,9 +54,12 @@ func (ctx *Context) String() string {
 	if ctx == nil {
 		return "<nil>"
 	}
+	sb := new(strings.Builder)
+	sb.Grow(64)
 
-	if len(ctx.Q.Question) == 1 {
-		return fmt.Sprintf("%v, from: %v", ctx.Q.Question[0], ctx.From)
+	sb.WriteString(fmt.Sprintf("%v", ctx.Q.Question))
+	if ctx.From != nil {
+		sb.WriteString(fmt.Sprintf(", from: %s, network: %s", ctx.From.String(), ctx.From.Network()))
 	}
-	return fmt.Sprintf("%v, from: %v", ctx.Q.Question, ctx.From)
+	return sb.String()
 }

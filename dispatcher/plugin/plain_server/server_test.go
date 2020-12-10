@@ -20,18 +20,66 @@ package plainserver
 import (
 	"context"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/miekg/dns"
+	"net"
 	"testing"
 	"time"
 )
 
+var dummyServer = &singleServer{
+	logger:       mlog.Entry(),
+	shutdownChan: make(chan struct{}),
+}
+
+func TestUdpServer_ListenAndServe(t *testing.T) {
+	l, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+
+	go dummyServer.serveUDP(l, &testEchoHandler{})
+
+	c, err := net.Dial("udp", l.LocalAddr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	testServer(t, &dns.Conn{
+		Conn: c,
+	})
+}
+
+func TestTcpServer_ListenAndServe(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+
+	go dummyServer.serveTCP(l, &testEchoHandler{})
+
+	c, err := net.Dial("tcp", l.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+
+	testServer(t, &dns.Conn{
+		Conn: c,
+	})
+}
+
 type testEchoHandler struct{}
 
-func (t *testEchoHandler) ServeDNS(_ context.Context, qCtx *handler.Context, w handler.ResponseWriter) {
+func (t *testEchoHandler) ServeDNS(_ context.Context, qCtx *handler.Context, w handler.ResponseWriter) error {
 	_, err := w.Write(qCtx.Q)
 	if err != nil {
 		panic(err.Error())
 	}
+	return nil
 }
 
 func newDummyMsg() *dns.Msg {

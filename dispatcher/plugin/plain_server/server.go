@@ -23,6 +23,7 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
+	"github.com/sirupsen/logrus"
 	"io"
 	"net"
 )
@@ -33,18 +34,20 @@ func init() {
 	handler.RegInitFunc(PluginType, Init)
 }
 
-type plainServer struct {
-	tag  string
-	args *Args
+type plainServerPlugin struct {
+	tag          string
+	logger       *logrus.Entry
+	args         *Args
+	shutdownChan chan struct{}
 
-	listener []io.Closer
+	startedListener []io.Closer
 }
 
-func (s *plainServer) Tag() string {
+func (s *plainServerPlugin) Tag() string {
 	return s.tag
 }
 
-func (s *plainServer) Type() string {
+func (s *plainServerPlugin) Type() string {
 	return PluginType
 }
 
@@ -64,12 +67,21 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		return nil, errors.New("no address to listen")
 	}
 
-	s := &plainServer{
-		tag:  tag,
-		args: args,
+	sp := &plainServerPlugin{
+		tag:          tag,
+		logger:       mlog.NewPluginLogger(tag),
+		args:         args,
+		shutdownChan: make(chan struct{}),
 	}
 
-	h := &handler.DefaultServerHandler{Entry: s.args.Entry}
+	h := &handler.DefaultServerHandler{
+		Logger: sp.logger,
+		Entry:  sp.args.Entry,
+	}
+	server := &singleServer{
+		logger:       sp.logger,
+		shutdownChan: sp.shutdownChan,
+	}
 	for _, addr := range args.Listen {
 		protocol, host := utils.ParseAddr(addr)
 		addr = utils.TryAddPort(host, 53)
@@ -77,37 +89,43 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		case "", "udp":
 			l, err := net.ListenPacket("udp", addr)
 			if err != nil {
-				s.shutDown()
+				sp.shutDown()
 				return nil, err
 			}
-			s.listener = append(s.listener, l)
-			mlog.Entry().Infof("udp server started at %s", l.LocalAddr())
+			sp.startedListener = append(sp.startedListener, l)
+			sp.logger.Infof("udp server started at %s", l.LocalAddr())
 			go func() {
-				err := listenAndServeUDP(l, h)
+				err := server.serveUDP(l, h)
 				handler.PluginFatalErr(tag, fmt.Sprintf("udp server at %s exited: %v", l.LocalAddr(), err))
 			}()
 		case "tcp":
 			l, err := net.Listen("tcp", addr)
 			if err != nil {
-				s.shutDown()
+				sp.shutDown()
 				return nil, err
 			}
-			s.listener = append(s.listener, l)
-			mlog.Entry().Infof("tcp server started at %s", l.Addr())
+			sp.startedListener = append(sp.startedListener, l)
+			sp.logger.Infof("tcp server started at %s", l.Addr())
 			go func() {
-				err := listenAndServeTCP(l, h)
+				err := server.serveTCP(l, h)
 				handler.PluginFatalErr(tag, fmt.Sprintf("tcp server at %s exited: %v", l.Addr(), err))
 			}()
 		default:
 			return nil, fmt.Errorf("unsupported protocol: %s", protocol)
 		}
 	}
-	return s, nil
+	return sp, nil
 }
 
 // shutDown closes all server listeners.
-func (s *plainServer) shutDown() {
-	for _, l := range s.listener {
+func (s *plainServerPlugin) shutDown() {
+	close(s.shutdownChan)
+	for _, l := range s.startedListener {
 		l.Close()
 	}
+}
+
+type singleServer struct {
+	logger       *logrus.Entry
+	shutdownChan chan struct{}
 }

@@ -20,13 +20,13 @@ package handler
 import (
 	"context"
 	"github.com/miekg/dns"
+	"github.com/sirupsen/logrus"
+	"time"
 )
 
 type ServerHandler interface {
 	// ServeDNS use ctx to control deadline, exchange qCtx, and write response to w.
-	// The returned error is for log only, no need to handle it, as it should be handled by
-	// ServeDNS.
-	ServeDNS(ctx context.Context, qCtx *Context, w ResponseWriter) error
+	ServeDNS(ctx context.Context, qCtx *Context, w ResponseWriter)
 }
 
 // ResponseWriter can write msg to the client.
@@ -37,12 +37,19 @@ type ResponseWriter interface {
 // DefaultServerHandler
 // If entry returns an err, a SERVFAIL response will be sent back to client.
 type DefaultServerHandler struct {
-	Entry string
+	Entry  string
+	Logger *logrus.Entry
 }
 
 // ServeDNS: see DefaultServerHandler.
-func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *Context, w ResponseWriter) error {
+func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *Context, w ResponseWriter) {
+	start := time.Now()
 	err := Walk(ctx, qCtx, h.Entry)
+	if err != nil {
+		h.Logger.Warnf("entry %s returned after %d ms with err: %v", h.Entry, time.Since(start).Milliseconds(), err)
+	} else {
+		h.Logger.Debugf("entry %s returned after %d ms", h.Entry, time.Since(start).Milliseconds())
+	}
 
 	var r *dns.Msg
 	if err != nil {
@@ -55,8 +62,7 @@ func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *Context, w Re
 
 	if r != nil {
 		if _, err = w.Write(r); err != nil {
+			h.Logger.Warnf("response might not send back to client: %v", err)
 		}
 	}
-
-	return err
 }

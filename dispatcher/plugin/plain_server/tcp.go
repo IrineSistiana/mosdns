@@ -21,7 +21,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
 	"net"
@@ -44,7 +43,7 @@ func (t *tcpResponseWriter) Write(m *dns.Msg) (n int, err error) {
 	return utils.WriteMsgToTCP(t.c, m)
 }
 
-func listenAndServeTCP(l net.Listener, h handler.ServerHandler) error {
+func (s *singleServer) serveTCP(l net.Listener, h handler.ServerHandler) error {
 	listenerCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -52,10 +51,16 @@ func listenAndServeTCP(l net.Listener, h handler.ServerHandler) error {
 		c, err := l.Accept()
 
 		if err != nil {
+			select {
+			case <-s.shutdownChan:
+				return nil
+			default:
+			}
+
 			er, ok := err.(net.Error)
 			if ok && er.Temporary() {
-				mlog.Entry().Warnf("tcp server: listener: temporary err: %v", err)
-				time.Sleep(time.Millisecond * 100)
+				s.logger.Warnf("tcp server: listener: temporary err: %v", err)
+				time.Sleep(time.Second * 5)
 				continue
 			} else {
 				return fmt.Errorf("listener: %w", err)

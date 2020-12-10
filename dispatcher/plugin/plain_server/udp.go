@@ -21,7 +21,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
 	"net"
@@ -45,18 +44,23 @@ func (u *udpResponseWriter) Write(m *dns.Msg) (n int, err error) {
 	return utils.WriteUDPMsgTo(m, u.c, u.to)
 }
 
-func listenAndServeUDP(c net.PacketConn, h handler.ServerHandler) error {
+func (s *singleServer) serveUDP(c net.PacketConn, h handler.ServerHandler) error {
 	listenerCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	for {
 		q, from, _, err := utils.ReadUDPMsgFrom(c, utils.IPv4UdpMaxPayload)
 		if err != nil {
+			select {
+			case <-s.shutdownChan:
+				return nil
+			default:
+			}
 			netErr, ok := err.(net.Error)
 			if ok { // is a net err
 				if netErr.Temporary() {
-					mlog.Entry().Warnf("udp server: listener temporary err: %v", err)
-					time.Sleep(time.Millisecond * 100)
+					s.logger.Warnf("udp server: listener temporary err: %v", err)
+					time.Sleep(time.Second * 5)
 					continue
 				} else {
 					return fmt.Errorf("udp server: unexpected listener err: %w", err)
