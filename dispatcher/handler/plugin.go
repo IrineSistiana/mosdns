@@ -17,6 +17,8 @@
 
 package handler
 
+import "github.com/IrineSistiana/mosdns/dispatcher/mlog"
+
 type Plugin interface {
 	Tag() string
 	Type() string
@@ -31,4 +33,9 @@ type Config struct {
 
 	// Args, might be required by some plugins
 	Args map[string]interface{} `yaml:"args"`
+}
+
+// PluginFatalErr: If a plugin has a fatal err, call this.
+func PluginFatalErr(tag string, msg string) {
+	mlog.Entry().Fatalf("plugin %s reported a fatal err: %s", tag, msg)
 }

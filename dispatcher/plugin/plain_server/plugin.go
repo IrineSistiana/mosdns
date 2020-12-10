@@ -84,7 +84,7 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 			mlog.Entry().Infof("udp server started at %s", l.LocalAddr())
 			go func() {
 				err := listenAndServeUDP(l, h)
-				mlog.Entry().Fatalf("udp server at %s exited: %v", l.LocalAddr(), err)
+				handler.PluginFatalErr(tag, fmt.Sprintf("udp server at %s exited: %v", l.LocalAddr(), err))
 			}()
 		case "tcp":
 			l, err := net.Listen("tcp", addr)
@@ -96,7 +96,7 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 			mlog.Entry().Infof("tcp server started at %s", l.Addr())
 			go func() {
 				err := listenAndServeTCP(l, h)
-				mlog.Entry().Fatalf("tcp server at %s exited: %v", l.Addr(), err)
+				handler.PluginFatalErr(tag, fmt.Sprintf("tcp server at %s exited: %v", l.Addr(), err))
 			}()
 		default:
 			return nil, fmt.Errorf("unsupported protocol: %s", protocol)
