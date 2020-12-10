@@ -18,65 +18,69 @@ func Test_switchPlugin_Do(t *testing.T) {
 	matched := "matched"
 	matchErr := "match_err"
 
-	exec := "exec"
-	execErr := "exec_err"
+	exec := functionalPlugin("exec")
+	execErr := functionalPlugin("exec_err")
+	type args struct {
+		executable []executable
+		Next       string
+	}
 
 	var tests = []struct {
 		name     string
-		args     *Args
+		args     *args
 		wantNext string
 		wantErr  error
 	}{
-		{name: "try to reach next 1", args: &Args{
-			Exec: []interface{}{exec, exec,
-				&IfBlock{
-					If:   []string{"!" + matched, notMatched},
-					Exec: []interface{}{execErr},
-					Goto: "goto",
+		{name: "try to reach next 1", args: &args{
+			executable: []executable{exec, exec,
+				&ifBlock{
+					ifMather:   []string{"!" + matched, notMatched},
+					executable: []executable{execErr},
+					gotoRouter: "goto",
 				},
 			},
 			Next: "no_rd",
 		}, wantNext: "no_rd", wantErr: nil},
 
-		{name: "try to reach goto 1", args: &Args{
-			Exec: []interface{}{exec, exec,
-				&IfBlock{
-					If:   []string{"!" + matched, notMatched}, // not matched
-					Exec: []interface{}{execErr},
-					Goto: "goto1",
+		{name: "try to reach goto 1", args: &args{
+			executable: []executable{exec, exec,
+				&ifBlock{
+					ifMather:   []string{"!" + matched, notMatched}, // not matched
+					executable: []executable{execErr},
+					gotoRouter: "goto1",
 				},
-				&IfBlock{
-					If: []string{"!" + matched, matched, matchErr}, // matched, no err
-					Exec: []interface{}{
+				&ifBlock{
+					ifMather: []string{"!" + matched, matched, matchErr}, // matched, no err
+					executable: []executable{
 						exec,
-						&IfBlock{
-							If:   []string{"!" + matched, notMatched, matched}, // matched
-							Exec: []interface{}{exec},
-							Goto: "goto2", // reached here
+						&ifBlock{
+							ifMather:   []string{"!" + matched, notMatched, matched}, // matched
+							executable: []executable{exec},
+							gotoRouter: "goto2", // reached here
 						},
 					},
-					Goto: "goto3",
+					gotoRouter: "goto3",
 				},
 			},
 			Next: "no_rd",
 		}, wantNext: "goto2", wantErr: nil},
 
-		{name: "matcher err", args: &Args{
-			Exec: []interface{}{exec, exec,
-				&IfBlock{
-					If:   []string{"!" + matched, notMatched, matchErr},
-					Exec: []interface{}{exec},
-					Goto: "goto",
+		{name: "matcher err", args: &args{
+			executable: []executable{exec, exec,
+				&ifBlock{
+					ifMather:   []string{"!" + matched, notMatched, matchErr},
+					executable: []executable{exec},
+					gotoRouter: "goto",
 				},
 			},
 			Next: "no_rd",
 		}, wantNext: "", wantErr: mErr},
-		{name: "exec err", args: &Args{
-			Exec: []interface{}{exec, exec,
-				&IfBlock{
-					If:   []string{"!" + matched, matched},
-					Exec: []interface{}{execErr},
-					Goto: "goto",
+		{name: "exec err", args: &args{
+			executable: []executable{exec, exec,
+				&ifBlock{
+					ifMather:   []string{"!" + matched, matched},
+					executable: []executable{execErr},
+					gotoRouter: "goto",
 				},
 			},
 			Next: "no_rd",
@@ -95,7 +99,7 @@ func Test_switchPlugin_Do(t *testing.T) {
 	)))
 
 	// do something
-	mustSuccess(handler.RegPlugin(handler.WrapFunctionalPlugin(exec, "",
+	mustSuccess(handler.RegPlugin(handler.WrapFunctionalPlugin(string(exec), "",
 		&handler.DummyFunctional{WantErr: nil},
 	)))
 
@@ -108,15 +112,14 @@ func Test_switchPlugin_Do(t *testing.T) {
 	mustSuccess(handler.RegPlugin(handler.WrapMatcherPlugin(matchErr, "",
 		&handler.DummyMatcher{Matched: false, WantErr: mErr},
 	)))
-	mustSuccess(handler.RegPlugin(handler.WrapFunctionalPlugin(execErr, "",
+	mustSuccess(handler.RegPlugin(handler.WrapFunctionalPlugin(string(execErr), "",
 		&handler.DummyFunctional{WantErr: eErr},
 	)))
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &sequencePlugin{
-				args: tt.args,
-			}
+
+			s := newSequencePlugin("", tt.args.executable, tt.args.Next)
 			gotNext, err := s.Do(context.Background(), nil)
 
 			if (err != nil || tt.wantErr != nil) && !errors.Is(err, tt.wantErr) {

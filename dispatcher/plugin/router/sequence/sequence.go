@@ -39,107 +39,16 @@ func init() {
 var _ handler.RouterPlugin = (*sequencePlugin)(nil)
 
 type sequencePlugin struct {
-	tag    string
-	args   *Args
-	logger *logrus.Entry
-}
+	tag        string
+	executable []executable
+	next       string
 
-// parse parses map[string]interface{} to IfBlock
-func parse(s *[]interface{}) error {
-	for i, e := range *s {
-		switch v := e.(type) {
-		case string:
-		case []interface{}:
-			err := parse(&v)
-			if err != nil {
-				return err
-			}
-		case map[string]interface{}:
-			ifBlock := new(IfBlock)
-			err := handler.WeakDecode(v, ifBlock)
-			if err != nil {
-				return err
-			}
-			(*s)[i] = ifBlock
-		default:
-			return fmt.Errorf("unexpected type: %s", reflect.TypeOf(e).Name())
-		}
-	}
-	return nil
+	logger *logrus.Entry
 }
 
 type Args struct {
 	Exec []interface{} `yaml:"exec"`
 	Next string        `yaml:"next"`
-}
-
-type IfBlock struct {
-	If   []string      `yaml:"if"`
-	Exec []interface{} `yaml:"exec"`
-	Goto string        `yaml:"goto"`
-}
-
-func (s *sequencePlugin) walk(ctx context.Context, qCtx *handler.Context, sequence []interface{}) (next string, err error) {
-	for _, i := range sequence {
-		if err := ctx.Err(); err != nil {
-			return "", err
-		}
-
-		switch e := i.(type) {
-		case string: // is a tag
-			if len(e) != 0 {
-				err := s.getPluginAndExec(ctx, qCtx, e)
-				if err != nil {
-					return "", handler.NewErrFromTemplate(handler.ETPluginErr, e, err)
-				}
-			}
-
-		case *IfBlock: // is a if block
-			// if
-			If := true
-			for _, tag := range e.If {
-				if len(tag) == 0 {
-					continue
-				}
-				reverse := false
-				if reverse = strings.HasPrefix(tag, "!"); reverse {
-					tag = strings.TrimPrefix(tag, "!")
-				}
-				matched, err := s.getPluginAndMatch(ctx, qCtx, tag)
-				if err != nil {
-					return "", handler.NewErrFromTemplate(handler.ETPluginErr, tag, err)
-				}
-
-				If = matched != reverse
-				if If == true {
-					break // if one of the case is true, skip others.
-				}
-			}
-			if If == false {
-				continue // if case returns false, skip this block.
-			}
-
-			// exec
-			next, err = s.walk(ctx, qCtx, e.Exec) // exec its sub exec sequence
-			if err != nil {
-				return "", err
-			}
-			if len(next) != 0 {
-				return next, nil
-			}
-
-			// goto
-			if len(e.Goto) != 0 { // if block has a goto, return it
-				return e.Goto, nil
-			}
-
-		default:
-			s.logger.Warnf("%v: internal err: unexpected sequence element type: %s", qCtx, reflect.TypeOf(e).String())
-		}
-
-	}
-
-	return "", nil
 }
 
 func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err error) {
@@ -153,15 +62,12 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		return nil, errors.New("empty exec sequence")
 	}
 
-	if err := parse(&args.Exec); err != nil {
+	executable := make([]executable, 0, len(args.Exec))
+	if err := parse(args.Exec, &executable); err != nil {
 		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
 	}
 
-	s := &sequencePlugin{
-		tag:    tag,
-		args:   args,
-		logger: mlog.NewPluginLogger(tag),
-	}
+	s := newSequencePlugin(tag, executable, args.Next)
 	return s, nil
 }
 
@@ -174,35 +80,148 @@ func (s *sequencePlugin) Type() string {
 }
 
 func (s *sequencePlugin) Do(ctx context.Context, qCtx *handler.Context) (next string, err error) {
-	if s.args == nil {
-		return "", nil
-	}
-
-	next, err = s.walk(ctx, qCtx, s.args.Exec)
+	goTwo, err := walk(ctx, qCtx, s.executable, s.logger)
 	if err != nil {
 		return "", err
 	}
-	if len(next) != 0 {
-		return next, nil
+	if len(goTwo) != 0 {
+		return goTwo, nil
 	}
-	return s.args.Next, nil
+	return s.next, nil
 }
 
-func (s *sequencePlugin) getPluginAndExec(ctx context.Context, qCtx *handler.Context, tag string) (err error) {
-	s.logger.Debugf("%v: exec functional plugin %s", qCtx, tag)
-	p, ok := handler.GetFunctionalPlugin(tag)
-	if !ok {
-		return handler.NewErrFromTemplate(handler.ETTagNotDefined, tag)
-	}
-	return p.Do(ctx, qCtx)
+func newSequencePlugin(tag string, executable []executable, next string) *sequencePlugin {
+	return &sequencePlugin{tag: tag, executable: executable, next: next, logger: mlog.NewPluginLogger(tag)}
 }
 
-func (s *sequencePlugin) getPluginAndMatch(ctx context.Context, qCtx *handler.Context, tag string) (ok bool, err error) {
-	m, ok := handler.GetMatcherPlugin(tag)
-	if !ok {
-		return false, handler.NewErrFromTemplate(handler.ETTagNotDefined, tag)
+type executable interface {
+	exec(ctx context.Context, qCtx *handler.Context, logger *logrus.Entry) (goTwo string, err error)
+}
+
+type functionalPlugin string
+
+func (tag functionalPlugin) exec(ctx context.Context, qCtx *handler.Context, logger *logrus.Entry) (goTwo string, err error) {
+	if len(tag) == 0 {
+		return "", nil
 	}
-	ok, err = m.Match(ctx, qCtx)
-	s.logger.Debugf("%v: exec matcher plugin %s, returned: %v", qCtx, tag, ok)
-	return
+	logger.Debugf("%v: exec functional plugin %s", qCtx, tag)
+
+	p, err := handler.GetFunctionalPlugin(string(tag))
+	if err != nil {
+		return "", err
+	}
+	return "", p.Do(ctx, qCtx)
+}
+
+type IfBlockConfig struct {
+	If   []string      `yaml:"if"`
+	Exec []interface{} `yaml:"exec"`
+	Goto string        `yaml:"goto"`
+}
+
+type ifBlock struct {
+	ifMather   []string
+	executable []executable
+	gotoRouter string
+}
+
+func (b *ifBlock) exec(ctx context.Context, qCtx *handler.Context, logger *logrus.Entry) (goTwo string, err error) {
+	If := true
+	for _, tag := range b.ifMather {
+		if len(tag) == 0 {
+			continue
+		}
+
+		reverse := false
+		if reverse = strings.HasPrefix(tag, "!"); reverse {
+			tag = strings.TrimPrefix(tag, "!")
+		}
+
+		m, err := handler.GetMatcherPlugin(tag)
+		if err != nil {
+			return "", err
+		}
+		matched, err := m.Match(ctx, qCtx)
+		if err != nil {
+			return "", handler.NewErrFromTemplate(handler.ETPluginErr, tag, err)
+		}
+		logger.Debugf("%v: exec matcher plugin %s, returned: %v", qCtx, tag, matched)
+
+		If = matched != reverse
+		if If == true {
+			break // if one of the case is true, skip others.
+		}
+	}
+	if If == false {
+		return "", nil // if case returns false, skip this block.
+	}
+
+	// exec
+	goTwo, err = walk(ctx, qCtx, b.executable, logger) // exec its sub exec sequence
+	if err != nil {
+		return "", err
+	}
+	if len(goTwo) != 0 {
+		return goTwo, nil
+	}
+
+	// goto
+	if len(b.gotoRouter) != 0 { // if block has a goto, return it
+		return b.gotoRouter, nil
+	}
+
+	return "", nil
+}
+
+// parse parses []interface{} to []executable
+func parse(in []interface{}, out *[]executable) error {
+	for i := range in {
+		switch v := in[i].(type) {
+		case string:
+			*out = append(*out, functionalPlugin(v))
+		case map[string]interface{}:
+			c := new(IfBlockConfig)
+			err := handler.WeakDecode(v, c)
+			if err != nil {
+				return err
+			}
+
+			ifBlock := &ifBlock{
+				ifMather:   c.If,
+				executable: make([]executable, 0, len(c.Exec)),
+				gotoRouter: c.Goto,
+			}
+
+			if len(c.Exec) != 0 {
+				err := parse(c.Exec, &ifBlock.executable)
+				if err != nil {
+					return err
+				}
+			}
+			*out = append(*out, ifBlock)
+		default:
+			return fmt.Errorf("unexpected type: %s", reflect.TypeOf(in[i]).String())
+		}
+	}
+	return nil
+}
+
+func walk(ctx context.Context, qCtx *handler.Context, sequence []executable, logger *logrus.Entry) (next string, err error) {
+	for _, e := range sequence {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		goTwo, err := e.exec(ctx, qCtx, logger)
+		if err != nil {
+			if tag, ok := e.(functionalPlugin); ok {
+				return "", handler.NewErrFromTemplate(handler.ETPluginErr, tag, err)
+			}
+			return "", err
+		}
+		if len(goTwo) != 0 {
+			return goTwo, nil
+		}
+	}
+
+	return "", nil
 }

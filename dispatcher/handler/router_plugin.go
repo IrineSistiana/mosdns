@@ -33,32 +33,35 @@ const (
 	IterationLimit = 50
 )
 
-// Walk walks into this RouterPlugin. Walk will stop and return when
-// last RouterPlugin.Do() returns:
+// Walk walks into RouterPlugin. entry must be an RouterPlugin tag.
+// Walk will stop and return
+// when last RouterPlugin.Do() returns:
 // 1. An empty tag.
 // 2. An error.
-func Walk(ctx context.Context, qCtx *Context, entryTag string) (err error) {
-	nextTag := entryTag
+func Walk(ctx context.Context, qCtx *Context, entry string) (err error) {
+	mlog.Entry().Debugf("%v: start entry router plugin %s", qCtx, entry)
+	defer mlog.Entry().Debugf("%v: entry %s returned", qCtx, entry)
 
+	nextTag := entry
 	for i := 0; i < IterationLimit; i++ {
-		if len(nextTag) == 0 { // end of the plugin chan
-			return nil
-		}
 		// check ctx
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 
-		p, ok := GetRouterPlugin(nextTag) // get next plugin
-		if !ok {
-			return NewErrFromTemplate(ETTagNotDefined, nextTag)
+		p, err := GetRouterPlugin(nextTag) // get next plugin
+		if err != nil {
+			return err
 		}
-		mlog.Entry().Debugf("%v: exec router plugin %s", qCtx, p.Tag())
 
 		nextTag, err = p.Do(ctx, qCtx)
 		if err != nil {
 			return NewErrFromTemplate(ETPluginErr, p.Tag(), err)
 		}
+		if len(nextTag) == 0 { // end of the plugin chan
+			return nil
+		}
+		mlog.Entry().Debugf("%v: next router plugin %s", qCtx, nextTag)
 	}
 
 	return fmt.Errorf("length of plugin execution sequence reached limit %d", IterationLimit)

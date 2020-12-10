@@ -56,37 +56,40 @@ func (r *pluginRegister) regPlugin(p Plugin, overwrite bool) error {
 	return nil
 }
 
-func (r *pluginRegister) getFunctionalPlugin(tag string) (p FunctionalPlugin, ok bool) {
+func (r *pluginRegister) getFunctionalPlugin(tag string) (p FunctionalPlugin, err error) {
 	r.RLock()
 	defer r.RUnlock()
 	if gp, ok := r.register[tag]; ok {
 		if p, ok := gp.(FunctionalPlugin); ok {
-			return p, true
+			return p, nil
 		}
+		return nil, fmt.Errorf("plugin %s is not a functional plugin", tag)
 	}
 
-	return
+	return nil, NewErrFromTemplate(ETTagNotDefined, tag)
 }
-func (r *pluginRegister) getMatcherPlugin(tag string) (p MatcherPlugin, ok bool) {
+func (r *pluginRegister) getMatcherPlugin(tag string) (p MatcherPlugin, err error) {
 	r.RLock()
 	defer r.RUnlock()
 	if gp, ok := r.register[tag]; ok {
 		if p, ok := gp.(MatcherPlugin); ok {
-			return p, true
+			return p, nil
 		}
+		return nil, fmt.Errorf("plugin %s is not a matcher plugin", tag)
 	}
-	return
+	return nil, NewErrFromTemplate(ETTagNotDefined, tag)
 }
 
-func (r *pluginRegister) getRouterPlugin(tag string) (p RouterPlugin, ok bool) {
+func (r *pluginRegister) getRouterPlugin(tag string) (p RouterPlugin, err error) {
 	r.RLock()
 	defer r.RUnlock()
 	if gp, ok := r.register[tag]; ok {
 		if p, ok := gp.(RouterPlugin); ok {
-			return p, true
+			return p, nil
 		}
+		return nil, fmt.Errorf("plugin %s is not a router plugin", tag)
 	}
-	return
+	return nil, NewErrFromTemplate(ETTagNotDefined, tag)
 }
 
 func (r *pluginRegister) getPlugin(tag string) (p Plugin, ok bool) {
@@ -182,15 +185,15 @@ func GetAllPluginTag() []string {
 	return pluginTagRegister.getAllPluginTag()
 }
 
-func GetFunctionalPlugin(tag string) (p FunctionalPlugin, ok bool) {
+func GetFunctionalPlugin(tag string) (p FunctionalPlugin, err error) {
 	return pluginTagRegister.getFunctionalPlugin(tag)
 }
 
-func GetMatcherPlugin(tag string) (p MatcherPlugin, ok bool) {
+func GetMatcherPlugin(tag string) (p MatcherPlugin, err error) {
 	return pluginTagRegister.getMatcherPlugin(tag)
 }
 
-func GetRouterPlugin(tag string) (p RouterPlugin, ok bool) {
+func GetRouterPlugin(tag string) (p RouterPlugin, err error) {
 	return pluginTagRegister.getRouterPlugin(tag)
 }
 

@@ -40,5 +40,4 @@ const (
 	ETPluginErr      = "plugin %s reported an err: %w"
 	ETTypeNotDefined = "plugin type %s not defined"
 	ETTagNotDefined  = "plugin tag %s not defined"
-	ETInvalidQCtx    = "invalid qCtx: %w"
 )

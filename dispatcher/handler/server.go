@@ -19,15 +19,17 @@ package handler
 
 import (
 	"context"
-	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/miekg/dns"
-	"time"
 )
 
 type ServerHandler interface {
-	ServeDNS(ctx context.Context, qCtx *Context, w ResponseWriter)
+	// ServeDNS use ctx to control deadline, exchange qCtx, and write response to w.
+	// The returned error is for log only, no need to handle it, as it should be handled by
+	// ServeDNS.
+	ServeDNS(ctx context.Context, qCtx *Context, w ResponseWriter) error
 }
 
+// ResponseWriter can write msg to the client.
 type ResponseWriter interface {
 	Write(m *dns.Msg) (n int, err error)
 }
@@ -38,15 +40,12 @@ type DefaultServerHandler struct {
 	Entry string
 }
 
-func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *Context, w ResponseWriter) {
-	queryStart := time.Now()
+// ServeDNS: see DefaultServerHandler.
+func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *Context, w ResponseWriter) error {
 	err := Walk(ctx, qCtx, h.Entry)
-	rtt := time.Since(queryStart).Milliseconds()
-	mlog.Entry().Debugf("%v: entry %s returned after %dms:", qCtx, h.Entry, rtt)
 
 	var r *dns.Msg
 	if err != nil {
-		mlog.Entry().Warnf("%v: query failed with %v", qCtx, err)
 		r = new(dns.Msg)
 		r.SetReply(qCtx.Q)
 		r.Rcode = dns.RcodeServerFailure
@@ -55,8 +54,9 @@ func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *Context, w Re
 	}
 
 	if r != nil {
-		if _, err := w.Write(r); err != nil {
-			mlog.Entry().Warnf("%v: failed to respond client: %v", qCtx, err)
+		if _, err = w.Write(r); err != nil {
 		}
 	}
+
+	return err
 }
