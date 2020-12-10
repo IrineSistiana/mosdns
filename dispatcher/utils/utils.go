@@ -18,25 +18,27 @@
 package utils
 
 import (
-	"fmt"
 	"net"
-	"reflect"
 	"strconv"
 	"strings"
 )
 
 // GetIPFromAddr returns net.IP from net.Addr.
-// addr must be *net.TCPAddr, *net.UDPAddr or *net.IPNet.
-func GetIPFromAddr(addr net.Addr) (ip net.IP, err error) {
+// Will return nil if no ip address can be parsed.
+func GetIPFromAddr(addr net.Addr) (ip net.IP) {
 	switch v := addr.(type) {
 	case *net.TCPAddr:
-		return v.IP, nil
+		return v.IP
 	case *net.UDPAddr:
-		return v.IP, nil
+		return v.IP
 	case *net.IPNet:
-		return v.IP, nil
+		return v.IP
 	default:
-		return nil, fmt.Errorf("unsupported addr type: %s", reflect.TypeOf(addr).String())
+		ipStr, _, err := net.SplitHostPort(addr.String())
+		if err != nil {
+			return nil
+		}
+		return net.ParseIP(ipStr)
 	}
 }
 

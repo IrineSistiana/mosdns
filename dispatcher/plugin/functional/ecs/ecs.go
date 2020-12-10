@@ -109,8 +109,8 @@ func (e ecsPlugin) Do(_ context.Context, qCtx *handler.Context) (err error) {
 
 	if checkMsgHasECS(qCtx.Q) == false || e.args.ForceOverwrite {
 		if e.args.Auto && qCtx.From != nil {
-			ip, err := utils.GetIPFromAddr(qCtx.From)
-			if err != nil {
+			ip := utils.GetIPFromAddr(qCtx.From)
+			if ip == nil {
 				e.logger.Warnf("%v: internal err: can not get ip address from qCtx.From [%s]", qCtx, qCtx.From)
 				return nil
 			}

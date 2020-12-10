@@ -91,13 +91,9 @@ func (m *ipMatcher) Match(_ context.Context, qCtx *handler.Context) (bool, error
 	}
 
 	if m.args.MatchClient && qCtx.From != nil {
-		ip, err := utils.GetIPFromAddr(qCtx.From)
-		if err != nil {
-			m.logger.Warnf("%v: internal err: can not get ip address from qCtx.From [%s]", qCtx, qCtx.From)
-		} else {
-			if m.matcherGroup.Match(ip) {
-				return true, nil
-			}
+		ip := utils.GetIPFromAddr(qCtx.From)
+		if ip != nil && m.matcherGroup.Match(ip) {
+			return true, nil
 		}
 	}
 
