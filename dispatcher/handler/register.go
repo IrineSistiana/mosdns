@@ -42,17 +42,15 @@ func newPluginRegister() *pluginRegister {
 	}
 }
 
-func (r *pluginRegister) regPlugin(p Plugin, overwrite bool) error {
+func (r *pluginRegister) regPlugin(p Plugin) error {
 	r.Lock()
 	defer r.Unlock()
 
-	if !overwrite {
-		if _, ok := r.register[p.Tag()]; ok {
-			return fmt.Errorf("plugin %s has been registered", p.Tag())
-		}
+	_, dup := r.register[p.Tag()]
+	if dup {
+		return fmt.Errorf("plugin tag %s has been registered", p.Tag())
 	}
 	r.register[p.Tag()] = p
-
 	return nil
 }
 
@@ -159,19 +157,13 @@ func NewPlugin(c *Config) (p Plugin, err error) {
 // RegPlugin registers this Plugin globally.
 // Duplicate Plugin tag will cause an error.
 func RegPlugin(p Plugin) error {
-	return pluginTagRegister.regPlugin(p, false)
-}
-
-// RegPlugin registers this Plugin globally.
-// Duplicate Plugin tag will be overwritten.
-func RegPluginOverwrite(p Plugin) error {
-	return pluginTagRegister.regPlugin(p, true)
+	return pluginTagRegister.regPlugin(p)
 }
 
 // MustRegPlugin: see RegPlugin.
 // MustRegPlugin will panic if err.
 func MustRegPlugin(p Plugin) {
-	err := pluginTagRegister.regPlugin(p, false)
+	err := pluginTagRegister.regPlugin(p)
 	if err != nil {
 		panic(err.Error())
 	}
