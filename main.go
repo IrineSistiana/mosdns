@@ -70,7 +70,7 @@ func main() {
 		go func() {
 			logrus.Infof("pprof backend is starting at: %v", *pprofAddr)
 			if err := http.ListenAndServe(*pprofAddr, nil); err != nil {
-				logrus.Fatal("pprof backend is exited: %v", err)
+				logrus.Fatalf("pprof backend is exited: %v", err)
 			}
 		}()
 	}

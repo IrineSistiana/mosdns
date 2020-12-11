@@ -35,14 +35,13 @@ var _ handler.Functional = (*ipsetPlugin)(nil)
 type Args struct {
 	SetName4 string `yaml:"set_name4"`
 	SetName6 string `yaml:"set_name6"`
-	Mask4    int    `yaml:"mask4"`
-	Mask6    int    `yaml:"mask6"`
+	Mask4    uint8  `yaml:"mask4"`
+	Mask6    uint8  `yaml:"mask6"`
 }
 
 type ipsetPlugin struct {
-	setName4, setName6 string
-	mask4, mask6       uint8
-	logger             *logrus.Entry
+	logger *logrus.Entry
+	args   *Args
 }
 
 func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err error) {
@@ -52,12 +51,10 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
 	}
 
-	ipsetPlugin := new(ipsetPlugin)
-	ipsetPlugin.logger = mlog.NewPluginLogger(tag)
-	ipsetPlugin.setName4 = args.SetName4
-	ipsetPlugin.setName6 = args.SetName6
-	ipsetPlugin.mask4 = uint8(args.Mask4)
-	ipsetPlugin.mask6 = uint8(args.Mask6)
+	ipsetPlugin := &ipsetPlugin{
+		logger: mlog.NewPluginLogger(tag),
+		args:   args,
+	}
 
 	return handler.WrapFunctionalPlugin(tag, PluginType, ipsetPlugin), nil
 }

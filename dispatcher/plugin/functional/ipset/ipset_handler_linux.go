@@ -26,24 +26,30 @@ import (
 
 func (p *ipsetPlugin) addIPSet(r *dns.Msg) error {
 	for i := range r.Answer {
-		entry := new(Entry)
+		var entry *Entry
 
 		switch rr := r.Answer[i].(type) {
 		case *dns.A:
-			entry.IP = rr.A
-			entry.SetName = p.setName4
-			entry.Mask = p.mask4
-			entry.IsNET6 = false
+			if len(p.args.SetName4) == 0 {
+				continue
+			}
+			entry = &Entry{
+				SetName: p.args.SetName4,
+				IP:      rr.A,
+				Mask:    p.args.Mask4,
+				IsNET6:  false,
+			}
 		case *dns.AAAA:
-			entry.IP = rr.AAAA
-			entry.SetName = p.setName6
-			entry.Mask = p.mask6
-			entry.IsNET6 = true
+			if len(p.args.SetName6) == 0 {
+				continue
+			}
+			entry = &Entry{
+				SetName: p.args.SetName6,
+				IP:      rr.AAAA,
+				Mask:    p.args.Mask6,
+				IsNET6:  true,
+			}
 		default:
-			continue
-		}
-
-		if len(entry.SetName) == 0 {
 			continue
 		}
 

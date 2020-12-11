@@ -26,8 +26,6 @@ import (
 )
 
 // ReadMsgFromTCP reads msg from a tcp connection.
-// brokenDataLeft indicates the frame size which have not be read from c.
-// if brokenDataLeft is unknownBrokenDataSize(-1), c should not be reused anymore.
 // n represents how many bytes are read from c.
 func ReadMsgFromTCP(c io.Reader) (m *dns.Msg, n int, err error) {
 	lengthRaw := getTCPHeaderBuf()
@@ -63,7 +61,7 @@ func ReadMsgFromTCP(c io.Reader) (m *dns.Msg, n int, err error) {
 }
 
 // WriteMsgToTCP writes m to c.
-// n represents how many bytes are wrote to c. This includes 2 bytes tcp length header.
+// n represents how many bytes are wrote to c. This includes 2 bytes tcp header.
 func WriteMsgToTCP(c io.Writer, m *dns.Msg) (n int, err error) {
 	mRaw, buf, err := packMsgWithBuffer(m)
 	if err != nil {
@@ -75,7 +73,7 @@ func WriteMsgToTCP(c io.Writer, m *dns.Msg) (n int, err error) {
 }
 
 // WriteRawMsgToTCP writes b to c.
-// n represents how many bytes are wrote to c. This includes 2 bytes tcp length header.
+// n represents how many bytes are wrote to c. This includes 2 bytes tcp header.
 func WriteRawMsgToTCP(c io.Writer, b []byte) (n int, err error) {
 	if len(b) > dns.MaxMsgSize {
 		return 0, fmt.Errorf("payload length %d is greater than dns max msg size", len(b))
