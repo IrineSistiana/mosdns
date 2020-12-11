@@ -59,7 +59,6 @@ func TestRegPlugin(t *testing.T) {
 	fp := WrapFunctionalPlugin("fp", "", &DummyFunctional{})
 	mp := WrapMatcherPlugin("wp", "", &DummyMatcher{})
 	sp := &dummySequencePlugin{}
-	jp := &justPlugin{}
 
 	type args struct {
 		p Plugin
@@ -73,7 +72,6 @@ func TestRegPlugin(t *testing.T) {
 		{"reg fp", args{p: fp}, fp, false},
 		{"reg mp", args{p: mp}, mp, false},
 		{"reg sp", args{p: sp}, sp, false},
-		{"reg jp", args{p: jp}, nil, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

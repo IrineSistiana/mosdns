@@ -74,12 +74,11 @@ func TestTcpServer_ListenAndServe(t *testing.T) {
 
 type testEchoHandler struct{}
 
-func (t *testEchoHandler) ServeDNS(_ context.Context, qCtx *handler.Context, w handler.ResponseWriter) error {
+func (t *testEchoHandler) ServeDNS(_ context.Context, qCtx *handler.Context, w handler.ResponseWriter) {
 	_, err := w.Write(qCtx.Q)
 	if err != nil {
 		panic(err.Error())
 	}
-	return nil
 }
 
 func newDummyMsg() *dns.Msg {
