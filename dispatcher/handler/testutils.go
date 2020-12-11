@@ -17,7 +17,11 @@
 
 package handler
 
-import "context"
+import (
+	"context"
+	"github.com/miekg/dns"
+	"testing"
+)
 
 // Types and funcs in this file are for testing only
 
@@ -54,4 +58,19 @@ func (d *DummyRouterPlugin) Type() string {
 
 func (d *DummyRouterPlugin) Do(_ context.Context, _ *Context) (next string, err error) {
 	return d.WantNext, d.WantErr
+}
+
+type DummyServerHandler struct {
+	T       *testing.T
+	EchoMsg *dns.Msg
+	WantErr error
+}
+
+func (d *DummyServerHandler) ServeDNS(_ context.Context, qCtx *Context, w ResponseWriter) {
+	r := d.EchoMsg.Copy()
+	r.Id = qCtx.Q.Id
+	_, err := w.Write(r)
+	if err != nil {
+		d.T.Errorf("DummyServerHandler: %v", err)
+	}
 }

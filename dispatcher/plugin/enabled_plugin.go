@@ -25,6 +25,7 @@ import (
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/forward"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/ipset"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/hosts"
+	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/http_server"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/logger"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/domain_matcher"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/ip_matcher"
