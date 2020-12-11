@@ -1,12 +1,10 @@
 # mosdns
 
-mosdns 是一个插件化配置的 DNS 转发器。每个插件实现一个功能。插件执行顺序可动态调整。
-
----
-
-配置说明、插件示例、教程等，详见：[wiki](https://github.com/IrineSistiana/mosdns/wiki)
+功能、配置说明、教程等，详见：[wiki](https://github.com/IrineSistiana/mosdns/wiki)
 
 下载预编译文件、更新日志，详见：[release](https://github.com/IrineSistiana/mosdns/releases)
+
+快速查找插件和其对应的 `args` 参数说明，详见: [wiki/Plugin](https://github.com/IrineSistiana/mosdns/wiki/Plugin)
 
 ---
 
