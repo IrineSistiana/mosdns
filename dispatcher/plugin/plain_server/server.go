@@ -66,6 +66,9 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 	if len(args.Listen) == 0 {
 		return nil, errors.New("no address to listen")
 	}
+	if len(args.Entry) == 0 {
+		return nil, errors.New("empty entry")
+	}
 
 	sp := &plainServerPlugin{
 		tag:          tag,
@@ -95,8 +98,11 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 			sp.startedListener = append(sp.startedListener, l)
 			sp.logger.Infof("udp server started at %s", l.LocalAddr())
 			go func() {
-				err := server.serveUDP(l, h)
-				handler.PluginFatalErr(tag, fmt.Sprintf("udp server at %s exited: %v", l.LocalAddr(), err))
+				if err := server.serveUDP(l, h); err != nil {
+					handler.PluginFatalErr(tag, fmt.Sprintf("udp server %s exited: %v", l.LocalAddr(), err))
+				} else {
+					sp.logger.Infof("udp server %s exited", l.LocalAddr())
+				}
 			}()
 		case "tcp":
 			l, err := net.Listen("tcp", addr)
@@ -107,8 +113,11 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 			sp.startedListener = append(sp.startedListener, l)
 			sp.logger.Infof("tcp server started at %s", l.Addr())
 			go func() {
-				err := server.serveTCP(l, h)
-				handler.PluginFatalErr(tag, fmt.Sprintf("tcp server at %s exited: %v", l.Addr(), err))
+				if err := server.serveTCP(l, h); err != nil {
+					handler.PluginFatalErr(tag, fmt.Sprintf("tcp server %s exited: %v", l.Addr(), err))
+				} else {
+					sp.logger.Infof("tcp server %s exited", l.Addr())
+				}
 			}()
 		default:
 			return nil, fmt.Errorf("unsupported protocol: %s", protocol)

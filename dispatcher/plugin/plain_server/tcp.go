@@ -43,6 +43,7 @@ func (t *tcpResponseWriter) Write(m *dns.Msg) (n int, err error) {
 	return utils.WriteMsgToTCP(t.c, m)
 }
 
+// serveTCP: if server was closed, the err would be nil.
 func (s *singleServer) serveTCP(l net.Listener, h handler.ServerHandler) error {
 	listenerCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()

@@ -44,6 +44,7 @@ func (u *udpResponseWriter) Write(m *dns.Msg) (n int, err error) {
 	return utils.WriteUDPMsgTo(m, u.c, u.to)
 }
 
+// serveUDP: if server was closed, the err would be nil.
 func (s *singleServer) serveUDP(c net.PacketConn, h handler.ServerHandler) error {
 	listenerCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -53,7 +54,7 @@ func (s *singleServer) serveUDP(c net.PacketConn, h handler.ServerHandler) error
 		if err != nil {
 			select {
 			case <-s.shutdownChan:
-				return nil
+				return err
 			default:
 			}
 			netErr, ok := err.(net.Error)
