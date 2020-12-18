@@ -26,9 +26,9 @@ import (
 const PluginType = "simple_matcher"
 
 func init() {
-	handler.MustRegPlugin(handler.WrapMatcherPlugin("_response_no_valid_ipv6", PluginType, &responseNoValidIPv6{}))
-	handler.MustRegPlugin(handler.WrapMatcherPlugin("_response_err_rcode", PluginType, &responseErrRcode{}))
-	handler.MustRegPlugin(handler.WrapMatcherPlugin("_query_unusual_types", PluginType, &queryUnusualTypes{}))
+	handler.MustRegPlugin(handler.WrapMatcherPlugin("_response_has_no_valid_ipv6", PluginType, &responseNoValidIPv6{}))
+	handler.MustRegPlugin(handler.WrapMatcherPlugin("_response_has_err_rcode", PluginType, &responseErrRcode{}))
+	handler.MustRegPlugin(handler.WrapMatcherPlugin("_query_is_unusual_types", PluginType, &queryUnusualTypes{}))
 }
 
 var _ handler.Matcher = (*responseNoValidIPv6)(nil)
