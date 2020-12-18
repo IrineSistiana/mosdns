@@ -23,3 +23,7 @@
 使用源码
 
 * [xtaci/smux](https://github.com/xtaci/smux): [MIT](https://github.com/xtaci/smux/blob/master/LICENSE)
+
+参考
+
+* [coredns/coredns](https://github.com/coredns/coredns)
