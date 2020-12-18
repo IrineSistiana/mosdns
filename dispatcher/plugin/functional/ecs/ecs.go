@@ -68,6 +68,10 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
 	}
 
+	return newPlugin(tag, args)
+}
+
+func newPlugin(tag string, args *Args) (p handler.Plugin, err error) {
 	ep := new(ecsPlugin)
 	ep.args = args
 	ep.logger = mlog.NewPluginLogger(tag)
@@ -107,7 +111,7 @@ func (e ecsPlugin) Do(_ context.Context, qCtx *handler.Context) (err error) {
 		return nil
 	}
 
-	if checkMsgHasECS(qCtx.Q) == false || e.args.ForceOverwrite {
+	if e.args.ForceOverwrite || getMsgECS(qCtx.Q) == nil {
 		if e.args.Auto && qCtx.From != nil {
 			ip := utils.GetIPFromAddr(qCtx.From)
 			if ip == nil {
@@ -116,10 +120,10 @@ func (e ecsPlugin) Do(_ context.Context, qCtx *handler.Context) (err error) {
 			}
 			var ecs *dns.EDNS0_SUBNET
 			if ip4 := ip.To4(); ip4 != nil { // is ipv4
-				ecs = newEDNS0Subnet(ip, e.args.Mask4, false)
+				ecs = newEDNS0Subnet(ip4, e.args.Mask4, false)
 			} else {
 				if ip6 := ip.To16(); ip6 != nil { // is ipv6
-					ecs = newEDNS0Subnet(ip, e.args.Mask6, true)
+					ecs = newEDNS0Subnet(ip6, e.args.Mask6, true)
 				} else { // non
 					e.logger.Warnf("%v: internal err: client address [%s] is not a valid ip address", qCtx, qCtx.From)
 					return nil

@@ -23,37 +23,38 @@ import (
 	"net"
 )
 
-func checkMsgHasECS(m *dns.Msg) bool {
+func getMsgECS(m *dns.Msg) (e *dns.EDNS0_SUBNET) {
 	opt := m.IsEdns0()
 	if opt == nil { // no opt, no ecs
-		return false
+		return nil
 	}
-
 	// find ecs in opt
 	for o := range opt.Option {
 		if opt.Option[o].Option() == dns.EDNS0SUBNET {
-			return true
+			return opt.Option[o].(*dns.EDNS0_SUBNET)
 		}
 	}
-	return false
+	return nil
 }
 
-func removeECS(m *dns.Msg) (removed bool) {
+func removeECS(m *dns.Msg) (removedECS *dns.EDNS0_SUBNET) {
 	opt := m.IsEdns0()
 	if opt == nil { // no opt, no ecs
-		return false
+		return nil
 	}
 
 	for i := range opt.Option {
 		if opt.Option[i].Option() == dns.EDNS0SUBNET {
+			removedECS = opt.Option[i].(*dns.EDNS0_SUBNET)
 			if i < len(opt.Option) {
 				opt.Option = append(opt.Option[:i], opt.Option[i+1:]...)
+			} else {
+				opt.Option = opt.Option[:len(opt.Option)-1]
 			}
-			opt.Option = opt.Option[:len(opt.Option)-1]
-			removed = true
+			return
 		}
 	}
-	return removed
+	return nil
 }
 
 func setECS(m *dns.Msg, ecs *dns.EDNS0_SUBNET) *dns.Msg {

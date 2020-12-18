@@ -31,6 +31,8 @@ import (
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/ip_matcher"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/qtype_matcher"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/simple_matcher"
+	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/pipeline/cache"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/plain_server"
+	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/router/pipeline"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/router/sequence"
 )

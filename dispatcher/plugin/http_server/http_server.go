@@ -137,11 +137,9 @@ func (s *httpServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	qCtx := &handler.Context{
-		Q:    q,
-		From: httpAddr(req.RemoteAddr),
-		R:    nil,
-	}
+	qCtx := handler.NewContext(q)
+	qCtx.From = httpAddr(req.RemoteAddr)
+
 	responseWriter := &httpDnsRespWriter{httpRespWriter: w}
 	s.dnsHandler.ServeDNS(req.Context(), qCtx, responseWriter)
 }

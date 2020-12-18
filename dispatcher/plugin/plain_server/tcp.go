@@ -81,10 +81,9 @@ func (s *singleServer) serveTCP(l net.Listener, h handler.ServerHandler) error {
 				}
 
 				w := &tcpResponseWriter{c: c}
-				qCtx := &handler.Context{
-					Q:    q,
-					From: c.RemoteAddr(),
-				}
+
+				qCtx := handler.NewContext(q)
+				qCtx.From = c.RemoteAddr()
 				go h.ServeDNS(tcpConnCtx, qCtx, w)
 			}
 		}()

@@ -22,10 +22,15 @@ import (
 )
 
 type Error struct {
-	err string
+	plugin string
+	err    error
 }
 
 func (e *Error) Error() string {
+	return fmt.Sprintf("%s: %v", e.plugin, e.err)
+}
+
+func (e *Error) Unwrap() error {
 	return e.err
 }
 

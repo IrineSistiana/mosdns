@@ -39,9 +39,6 @@ const (
 // 1. An empty tag.
 // 2. An error.
 func Walk(ctx context.Context, qCtx *Context, entry string) (err error) {
-	mlog.Entry().Debugf("%v: start entry router plugin %s", qCtx, entry)
-	defer mlog.Entry().Debugf("%v: entry %s returned", qCtx, entry)
-
 	nextTag := entry
 	for i := 0; i < IterationLimit; i++ {
 		// check ctx

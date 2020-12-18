@@ -18,6 +18,7 @@
 package utils
 
 import (
+	"github.com/miekg/dns"
 	"net"
 	"strconv"
 	"strings"
@@ -60,4 +61,46 @@ func TryAddPort(host string, port uint16) string {
 		return host + ":" + strconv.Itoa(int(port))
 	}
 	return host
+}
+
+// NetAddr implements net.Addr interface.
+type NetAddr struct {
+	str     string
+	network string
+}
+
+func NewNetAddr(str string, network string) *NetAddr {
+	return &NetAddr{str: str, network: network}
+}
+
+func (n *NetAddr) Network() string {
+	if len(n.str) == 0 {
+		return "<nil>"
+	}
+	return n.str
+}
+
+func (n *NetAddr) String() string {
+	if len(n.str) == 0 {
+		return "<nil>"
+	}
+	return n.network
+}
+
+// GetMsgKey unpacks m and set its id to 0.
+func GetMsgKey(m *dns.Msg) (string, error) {
+	buf, err := GetMsgBufFor(m)
+	if err != nil {
+		return "", err
+	}
+	defer ReleaseMsgBuf(buf)
+
+	wireMsg, err := m.PackBuffer(buf)
+	if err != nil {
+		return "", err
+	}
+
+	wireMsg[0] = 0
+	wireMsg[1] = 1
+	return string(wireMsg), nil
 }

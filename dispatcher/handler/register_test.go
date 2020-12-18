@@ -83,8 +83,8 @@ func TestRegPlugin(t *testing.T) {
 				return
 			}
 
-			p, ok := GetPlugin(tt.args.p.Tag())
-			if !ok {
+			p, err := GetPlugin(tt.args.p.Tag())
+			if err != nil {
 				t.Errorf("failed to get registed plugin")
 			}
 			if !reflect.DeepEqual(p, tt.wantPlugin) {

@@ -22,15 +22,24 @@ import (
 	"github.com/miekg/dns"
 	"net"
 	"strings"
+	"time"
 )
 
 // Context is a query context that pass through plugins
 // A Context MUST has a non-nil Q.
+// Context MUST be created by NewContext.
 type Context struct {
 	Q    *dns.Msg
 	From net.Addr
 
 	R *dns.Msg
+
+	startTime time.Time
+	id        uint32
+}
+
+func NewContext(q *dns.Msg) *Context {
+	return &Context{Q: q, startTime: time.Now()}
 }
 
 func (ctx *Context) Copy() *Context {
@@ -57,7 +66,7 @@ func (ctx *Context) String() string {
 	sb := new(strings.Builder)
 	sb.Grow(64)
 
-	sb.WriteString(fmt.Sprintf("%v", ctx.Q.Question))
+	sb.WriteString(fmt.Sprintf("%v: t: %d ms", ctx.Q.Question, time.Since(ctx.startTime).Milliseconds()))
 	if ctx.From != nil {
 		sb.WriteString(fmt.Sprintf(", from: %s, network: %s", ctx.From.String(), ctx.From.Network()))
 	}

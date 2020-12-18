@@ -90,11 +90,26 @@ func (r *pluginRegister) getRouterPlugin(tag string) (p RouterPlugin, err error)
 	return nil, NewErrFromTemplate(ETTagNotDefined, tag)
 }
 
-func (r *pluginRegister) getPlugin(tag string) (p Plugin, ok bool) {
+func (r *pluginRegister) getChainPlugin(tag string) (p PipelinePlugin, err error) {
 	r.RLock()
 	defer r.RUnlock()
-	p, ok = r.register[tag]
-	return
+	if gp, ok := r.register[tag]; ok {
+		if p, ok := gp.(PipelinePlugin); ok {
+			return p, nil
+		}
+		return nil, fmt.Errorf("plugin %s is not a pipeline plugin", tag)
+	}
+	return nil, NewErrFromTemplate(ETTagNotDefined, tag)
+}
+
+func (r *pluginRegister) getPlugin(tag string) (p Plugin, err error) {
+	r.RLock()
+	defer r.RUnlock()
+	p, ok := r.register[tag]
+	if !ok {
+		return nil, NewErrFromTemplate(ETTagNotDefined, tag)
+	}
+	return p, nil
 }
 
 func (r *pluginRegister) getAllPluginTag() []string {
@@ -169,7 +184,7 @@ func MustRegPlugin(p Plugin) {
 	}
 }
 
-func GetPlugin(tag string) (p Plugin, ok bool) {
+func GetPlugin(tag string) (p Plugin, err error) {
 	return pluginTagRegister.getPlugin(tag)
 }
 
@@ -187,6 +202,10 @@ func GetMatcherPlugin(tag string) (p MatcherPlugin, err error) {
 
 func GetRouterPlugin(tag string) (p RouterPlugin, err error) {
 	return pluginTagRegister.getRouterPlugin(tag)
+}
+
+func GetChainPlugin(tag string) (p PipelinePlugin, err error) {
+	return pluginTagRegister.getChainPlugin(tag)
 }
 
 // PurgePluginRegister should only be used in test.

@@ -154,7 +154,7 @@ func (f *forwarder) forward(q *dns.Msg) (r *dns.Msg, err error) {
 }
 
 func (f *forwarder) forwardSingleFlight(q *dns.Msg) (r *dns.Msg, err error) {
-	key, err := getMsgKey(q)
+	key, err := utils.GetMsgKey(q)
 	if err != nil {
 		return nil, fmt.Errorf("failed to caculate msg key, %w", err)
 	}
@@ -177,21 +177,4 @@ func (f *forwarder) forwardSingleFlight(q *dns.Msg) (r *dns.Msg, err error) {
 	}
 
 	return rUnsafe, nil
-}
-
-func getMsgKey(m *dns.Msg) (string, error) {
-	buf, err := utils.GetMsgBufFor(m)
-	if err != nil {
-		return "", err
-	}
-	defer utils.ReleaseMsgBuf(buf)
-
-	wireMsg, err := m.PackBuffer(buf)
-	if err != nil {
-		return "", err
-	}
-
-	wireMsg[0] = 0
-	wireMsg[1] = 1
-	return string(wireMsg), nil
 }

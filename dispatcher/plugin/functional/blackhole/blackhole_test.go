@@ -14,7 +14,7 @@ func Test_blackhole_Do(t *testing.T) {
 		wantRcode    int
 		wantResponse bool
 	}{
-		{"Drop response", 0, 0, false},
+		{"Drop response", -1, 0, false},
 		{"Respond with rcode 2", 2, 2, true},
 		{"Respond with rcode 3", 3, 3, true},
 	}

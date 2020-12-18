@@ -49,9 +49,7 @@ func Test_hostsContainer_Match(t *testing.T) {
 	for _, tt := range tests {
 		q := new(dns.Msg)
 		q.SetQuestion(tt.args.name, tt.args.typ)
-		qCtx := &handler.Context{
-			Q: q,
-		}
+		qCtx := handler.NewContext(q)
 
 		t.Run(tt.name, func(t *testing.T) {
 			gotMatched, err := h.Match(nil, qCtx)

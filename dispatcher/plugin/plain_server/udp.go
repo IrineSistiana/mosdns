@@ -74,10 +74,13 @@ func (s *singleServer) serveUDP(c net.PacketConn, h handler.ServerHandler) error
 			c:  c,
 			to: from,
 		}
-		qCtx := &handler.Context{
-			Q:    q,
-			From: from,
-		}
-		go h.ServeDNS(listenerCtx, qCtx, w)
+		qCtx := handler.NewContext(q)
+		qCtx.From = from
+
+		go func() {
+			queryCtx, cancel := context.WithTimeout(listenerCtx, time.Second*5)
+			defer cancel()
+			h.ServeDNS(queryCtx, qCtx, w)
+		}()
 	}
 }

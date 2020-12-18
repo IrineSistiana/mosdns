@@ -50,14 +50,6 @@ type hostsContainer struct {
 	aaaa   map[string][]net.IP
 }
 
-func (h *hostsContainer) Tag() string {
-	return h.tag
-}
-
-func (h *hostsContainer) Type() string {
-	return PluginType
-}
-
 func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err error) {
 	args := new(Args)
 	err = handler.WeakDecode(argsMap, args)
@@ -80,9 +72,31 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 	return h, nil
 }
 
+func (h *hostsContainer) Tag() string {
+	return h.tag
+}
+
+func (h *hostsContainer) Type() string {
+	return PluginType
+}
+
+func (h *hostsContainer) Connect(ctx context.Context, qCtx *handler.Context, pipCtx *handler.PipeContext) (err error) {
+	if ok := h.matchAndSet(qCtx); ok {
+		return nil
+	}
+
+	return pipCtx.ExecNextPlugin(ctx, qCtx)
+}
+
+// Match matches domain in the hosts file and set its response.
+// It never returns an err.
 func (h *hostsContainer) Match(_ context.Context, qCtx *handler.Context) (matched bool, err error) {
+	return h.matchAndSet(qCtx), nil
+}
+
+func (h *hostsContainer) matchAndSet(qCtx *handler.Context) (matched bool) {
 	if qCtx == nil || qCtx.Q == nil || len(qCtx.Q.Question) != 1 {
-		return false, nil
+		return false
 	}
 
 	typ := qCtx.Q.Question[0].Qtype
@@ -105,7 +119,7 @@ func (h *hostsContainer) Match(_ context.Context, qCtx *handler.Context) (matche
 				r.Answer = append(r.Answer, rr)
 			}
 			qCtx.R = r
-			return true, nil
+			return true
 		}
 
 	case dns.TypeAAAA:
@@ -125,10 +139,10 @@ func (h *hostsContainer) Match(_ context.Context, qCtx *handler.Context) (matche
 				r.Answer = append(r.Answer, rr)
 			}
 			qCtx.R = r
-			return true, nil
+			return true
 		}
 	}
-	return false, nil
+	return false
 }
 
 func newHostsContainer(tag string) *hostsContainer {
