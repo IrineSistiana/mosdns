@@ -61,13 +61,20 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
 	}
 
+	loaded := false
 	initOnce.Do(
 		func() {
-			if err := configLogger(args); err != nil {
-				mlog.Entry().Error(err)
-			}
+			loaded = true
+			err = configLogger(args)
 		},
 	)
+
+	if !loaded {
+		return nil, fmt.Errorf("multipule loggers detected")
+	}
+	if err != nil {
+		return nil, err
+	}
 
 	return &logger{tag: tag}, nil
 }
