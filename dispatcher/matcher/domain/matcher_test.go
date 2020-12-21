@@ -23,26 +23,36 @@ import (
 
 func Test_DomainList(t *testing.T) {
 	l := NewListMatcher()
-	l.Add("cn.")
-	l.Add("a.com.")
-	l.Add("b.com.")
-	l.Add("abc.com.")
-	l.Add("123456789012345678901234567890.com.")
 
-	assertTrue(l.Match("a.cn."))
-	assertTrue(l.Match("a.b.cn."))
-
-	assertTrue(l.Match("a.com."))
-	assertTrue(l.Match("b.com."))
-	assertTrue(!l.Match("c.com."))
-	assertTrue(!l.Match("a.c.com."))
-	assertTrue(l.Match("123456789012345678901234567890.com."))
-
-	assertTrue(l.Match("abc.abc.com."))
-}
-
-func assertTrue(b bool) {
-	if !b {
-		panic("assert failed")
+	add := func(fqdn string) {
+		l.Add(fqdn, fqdn)
 	}
+	assertMatched := func(fqdn, base string) {
+		v, ok := l.Match(fqdn)
+		if !ok || base != v.(string) {
+			t.Fatal()
+		}
+	}
+	assertNotMatched := func(fqdn string) {
+		v, ok := l.Match(fqdn)
+		if ok || v != nil {
+			t.Fatal()
+		}
+	}
+	add("cn.")
+	add("a.com.")
+	add("b.com.")
+	add("abc.com.")
+	add("123456789012345678901234567890.com.")
+
+	assertMatched("a.cn.", "cn.")
+	assertMatched("a.b.cn.", "cn.")
+	assertMatched("a.com.", "a.com.")
+	assertMatched("b.com.", "b.com.")
+	assertMatched("abc.abc.com.", "abc.com.")
+	assertMatched("123456.123456789012345678901234567890.com.", "123456789012345678901234567890.com.")
+
+	assertNotMatched("us.")
+	assertNotMatched("c.com.")
+	assertNotMatched("a.c.com.")
 }

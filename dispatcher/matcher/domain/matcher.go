@@ -21,42 +21,42 @@ import (
 	"github.com/miekg/dns"
 )
 
-type ListMatcher struct {
-	s map[[16]byte]struct{}
-	m map[[32]byte]struct{}
-	l map[[256]byte]struct{}
+type DomainMatcher struct {
+	s map[[16]byte]interface{}
+	m map[[32]byte]interface{}
+	l map[[256]byte]interface{}
 }
 
-func NewListMatcher() *ListMatcher {
-	return &ListMatcher{
-		s: make(map[[16]byte]struct{}),
-		m: make(map[[32]byte]struct{}),
-		l: make(map[[256]byte]struct{}),
+func NewListMatcher() *DomainMatcher {
+	return &DomainMatcher{
+		s: make(map[[16]byte]interface{}),
+		m: make(map[[32]byte]interface{}),
+		l: make(map[[256]byte]interface{}),
 	}
 }
 
-func (l *ListMatcher) Add(fqdn string) {
+func (l *DomainMatcher) Add(fqdn string, v interface{}) {
 	n := len(fqdn)
 
 	switch {
 	case n <= 16:
 		var b [16]byte
 		copy(b[:], fqdn)
-		l.s[b] = struct{}{}
+		l.s[b] = v
 	case n <= 32:
 		var b [32]byte
 		copy(b[:], fqdn)
-		l.m[b] = struct{}{}
+		l.m[b] = v
 	default:
 		var b [256]byte
 		copy(b[:], fqdn)
-		l.l[b] = struct{}{}
+		l.l[b] = v
 	}
 }
 
-func (l *ListMatcher) Match(fqdn string) bool {
+func (l *DomainMatcher) Match(fqdn string) (v interface{}, ok bool) {
 	if fqdn == "." {
-		return false
+		return nil, false
 	}
 	idx := make([]int, 1, 6)
 	off := 0
@@ -72,34 +72,34 @@ func (l *ListMatcher) Match(fqdn string) bool {
 
 	for i := range idx {
 		p := idx[len(idx)-1-i]
-		if l.has(fqdn[p:]) {
-			return true
+		if v, ok = l.fullMatch(fqdn[p:]); ok {
+			return v, true
 		}
 	}
-	return false
+	return nil, false
 }
 
-func (l *ListMatcher) has(fqdn string) bool {
+func (l *DomainMatcher) fullMatch(fqdn string) (v interface{}, ok bool) {
 	n := len(fqdn)
 	switch {
 	case n <= 16:
 		var b [16]byte
 		copy(b[:], fqdn)
-		_, ok := l.s[b]
-		return ok
+		v, ok = l.s[b]
+		return
 	case n <= 32:
 		var b [32]byte
 		copy(b[:], fqdn)
-		_, ok := l.m[b]
-		return ok
+		v, ok = l.m[b]
+		return
 	default:
 		var b [256]byte
 		copy(b[:], fqdn)
-		_, ok := l.l[b]
-		return ok
+		v, ok = l.l[b]
+		return
 	}
 }
 
-func (l *ListMatcher) Len() int {
+func (l *DomainMatcher) Len() int {
 	return len(l.l) + len(l.m) + len(l.s)
 }

@@ -18,5 +18,5 @@
 package domain
 
 type Matcher interface {
-	Match(fqdn string) bool
+	Match(fqdn string) (v interface{}, ok bool)
 }
