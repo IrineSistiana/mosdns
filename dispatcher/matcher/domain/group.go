@@ -21,13 +21,13 @@ type MatcherGroup struct {
 	m []Matcher
 }
 
-func (mg *MatcherGroup) Match(fqdn string) bool {
+func (mg *MatcherGroup) Match(fqdn string) (v interface{}, ok bool) {
 	for _, m := range mg.m {
-		if m.Match(fqdn) {
-			return true
+		if v, ok = m.Match(fqdn); ok {
+			return
 		}
 	}
-	return false
+	return nil, false
 }
 
 func NewMatcherGroup(m []Matcher) *MatcherGroup {

@@ -26,11 +26,11 @@ type V2Matcher struct {
 	dm *router.DomainMatcher
 }
 
-func (m *V2Matcher) Match(fqdn string) bool {
+func (m *V2Matcher) Match(fqdn string) (v interface{}, ok bool) {
 	if strings.HasSuffix(fqdn, ".") {
 		fqdn = fqdn[:len(fqdn)-1]
 	}
-	return m.dm.ApplyDomain(fqdn)
+	return nil, m.dm.ApplyDomain(fqdn)
 }
 
 func NewV2Matcher(domains []*router.Domain) (*V2Matcher, error) {

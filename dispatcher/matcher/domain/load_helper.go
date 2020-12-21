@@ -103,7 +103,7 @@ func NewDomainListMatcherFormReader(r io.Reader, continueOnInvalidString bool) (
 				return nil, fmt.Errorf("invalid domain [%s] at line %d", line, lineCounter)
 			}
 		}
-		l.Add(fqdn)
+		l.Add(fqdn, nil)
 
 	}
 	return l, nil

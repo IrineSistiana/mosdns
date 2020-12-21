@@ -86,7 +86,8 @@ func (c *domainMatcher) matchQ(qCtx *handler.Context) bool {
 	if qCtx == nil || qCtx.Q == nil || len(qCtx.Q.Question) == 0 {
 		return false
 	}
-	return c.matcherGroup.Match(qCtx.Q.Question[0].Name)
+	_, ok := c.matcherGroup.Match(qCtx.Q.Question[0].Name)
+	return ok
 }
 
 func (c *domainMatcher) matchC(qCtx *handler.Context) bool {
@@ -95,7 +96,7 @@ func (c *domainMatcher) matchC(qCtx *handler.Context) bool {
 	}
 	for i := range qCtx.R.Answer {
 		if cname, ok := qCtx.R.Answer[i].(*dns.CNAME); ok {
-			if c.matcherGroup.Match(cname.Target) {
+			if _, ok := c.matcherGroup.Match(cname.Target); ok {
 				return true
 			}
 		}
