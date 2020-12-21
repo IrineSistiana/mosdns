@@ -37,8 +37,9 @@ func init() {
 var _ handler.PipelinePlugin = (*cachePipeLine)(nil)
 
 type Args struct {
-	Size            int `yaml:"size"`
-	CleanerInterval int `yaml:"cleaner_interval"`
+	Size            int  `yaml:"size"`
+	CleanerInterval int  `yaml:"cleaner_interval"`
+	CacheECS        bool `yaml:"cache_ecs"`
 }
 
 type cachePipeLine struct {
@@ -59,7 +60,7 @@ func (c *cachePipeLine) Connect(ctx context.Context, qCtx *handler.Context, pipe
 		return nil
 	}
 
-	cacheable := qCtx.Q.IsEdns0() == nil && len(qCtx.Q.Question) == 1
+	cacheable := len(qCtx.Q.Question) == 1
 	var key string
 	if cacheable {
 		key, err = utils.GetMsgKey(qCtx.Q)
