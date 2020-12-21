@@ -21,7 +21,6 @@ import (
 	"context"
 	"github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
-	"time"
 )
 
 type ServerHandler interface {
@@ -43,12 +42,11 @@ type DefaultServerHandler struct {
 
 // ServeDNS: see DefaultServerHandler.
 func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *Context, w ResponseWriter) {
-	start := time.Now()
 	err := Walk(ctx, qCtx, h.Entry)
 	if err != nil {
-		h.Logger.Warnf("entry %s returned after %d ms with err: %v", h.Entry, time.Since(start).Milliseconds(), err)
+		h.Logger.Warnf("%v: entry %s returned with err: %v", qCtx, h.Entry, err)
 	} else {
-		h.Logger.Debugf("entry %s returned after %d ms", h.Entry, time.Since(start).Milliseconds())
+		h.Logger.Debugf("%v: entry %s returned", qCtx, h.Entry)
 	}
 
 	var r *dns.Msg

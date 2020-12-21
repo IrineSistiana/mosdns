@@ -71,10 +71,10 @@ func loadConfig(f string, depth int) error {
 			mlog.Entry().Warnf("plugin at index %d has a empty tag, ignore it", i)
 			continue
 		}
+		mlog.Entry().Infof("loading plugin %s", pluginConfig.Tag)
 		if err := handler.InitAndRegPlugin(pluginConfig); err != nil {
 			return fmt.Errorf("failed to register plugin %d %s: %w", i, pluginConfig.Tag, err)
 		}
-		mlog.Entry().Infof("plugin %s loaded", pluginConfig.Tag)
 	}
 
 	for _, include := range c.Include {

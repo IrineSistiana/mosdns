@@ -64,11 +64,11 @@ func (ctx *Context) String() string {
 		return "<nil>"
 	}
 	sb := new(strings.Builder)
-	sb.Grow(64)
+	sb.Grow(128)
 
-	sb.WriteString(fmt.Sprintf("%v: t: %d ms", ctx.Q.Question, time.Since(ctx.startTime).Milliseconds()))
+	sb.WriteString(fmt.Sprintf("%v, id: %d, t: %d ms", ctx.Q.Question, ctx.Q.Id, time.Since(ctx.startTime).Milliseconds()))
 	if ctx.From != nil {
-		sb.WriteString(fmt.Sprintf(", from: %s, network: %s", ctx.From.String(), ctx.From.Network()))
+		sb.WriteString(fmt.Sprintf(", from: %s://%s", ctx.From.Network(), ctx.From.String()))
 	}
 	return sb.String()
 }
