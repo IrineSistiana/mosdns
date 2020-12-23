@@ -98,19 +98,28 @@ type executable interface {
 	exec(ctx context.Context, qCtx *handler.Context, logger *logrus.Entry) (goTwo string, err error)
 }
 
-type functionalPlugin string
+type executablePlugin string
 
-func (tag functionalPlugin) exec(ctx context.Context, qCtx *handler.Context, logger *logrus.Entry) (goTwo string, err error) {
+func (tag executablePlugin) exec(ctx context.Context, qCtx *handler.Context, logger *logrus.Entry) (goTwo string, err error) {
 	if len(tag) == 0 {
 		return "", nil
 	}
-	logger.Debugf("%v: exec functional plugin %s", qCtx, tag)
 
-	p, err := handler.GetFunctionalPlugin(string(tag))
+	v, err := handler.GetPlugin(string(tag))
 	if err != nil {
 		return "", err
 	}
-	return "", p.Do(ctx, qCtx)
+
+	switch p := v.(type) {
+	case handler.FunctionalPlugin:
+		logger.Debugf("%v: exec functional plugin %s", qCtx, tag)
+		return "", p.Do(ctx, qCtx)
+	case handler.RouterPlugin:
+		logger.Debugf("%v: exec router plugin %s", qCtx, tag)
+		return "", handler.Walk(ctx, qCtx, string(tag))
+	default:
+		return "", fmt.Errorf("plugin %s can not be used here", tag)
+	}
 }
 
 type IfBlockConfig struct {
@@ -178,7 +187,7 @@ func parse(in []interface{}, out *[]executable) error {
 	for i := range in {
 		switch v := in[i].(type) {
 		case string:
-			*out = append(*out, functionalPlugin(v))
+			*out = append(*out, executablePlugin(v))
 		case map[string]interface{}:
 			c := new(IfBlockConfig)
 			err := handler.WeakDecode(v, c)
@@ -213,7 +222,7 @@ func walk(ctx context.Context, qCtx *handler.Context, sequence []executable, log
 		}
 		goTwo, err := e.exec(ctx, qCtx, logger)
 		if err != nil {
-			if tag, ok := e.(functionalPlugin); ok {
+			if tag, ok := e.(executablePlugin); ok {
 				return "", handler.NewErrFromTemplate(handler.ETPluginErr, tag, err)
 			}
 			return "", err
