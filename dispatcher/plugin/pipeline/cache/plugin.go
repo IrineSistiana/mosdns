@@ -32,6 +32,11 @@ const (
 
 func init() {
 	handler.RegInitFunc(PluginType, Init)
+
+	handler.MustRegPlugin(&cachePipeLine{
+		tag: "_default_cache",
+		c:   newCache(1024, time.Second*10),
+	})
 }
 
 var _ handler.PipelinePlugin = (*cachePipeLine)(nil)
