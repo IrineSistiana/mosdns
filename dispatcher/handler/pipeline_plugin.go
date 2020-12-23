@@ -60,6 +60,12 @@ func (c *PipeContext) ExecNextPlugin(ctx context.Context, qCtx *Context) error {
 			if err != nil {
 				return err
 			}
+		case RouterPlugin:
+			c.logger.Debugf("%v: exec router plugin %s", qCtx, tag)
+			err := Walk(ctx, qCtx, p.Tag())
+			if err != nil {
+				return err
+			}
 		default:
 			return fmt.Errorf("plugin %s has a unsupported class", tag)
 		}

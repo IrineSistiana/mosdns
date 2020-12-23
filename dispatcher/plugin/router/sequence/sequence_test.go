@@ -18,8 +18,8 @@ func Test_switchPlugin_Do(t *testing.T) {
 	matched := "matched"
 	matchErr := "match_err"
 
-	exec := functionalPlugin("exec")
-	execErr := functionalPlugin("exec_err")
+	exec := executablePlugin("exec")
+	execErr := executablePlugin("exec_err")
 	type args struct {
 		executable []executable
 		Next       string
