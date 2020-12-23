@@ -38,10 +38,17 @@ type elem struct {
 	expirationTime time.Time
 }
 
-// newCache init a cache. If cleanerInterval < 0, cache cleaner is disabled.
+// newCache returns a cache object.
+// If cleanerInterval < 0, cache cleaner is disabled.
+// if size <= 0, a default value is used.
+// Default size is 1024. Default cleaner interval is 10 sec.
 func newCache(size int, cleanerInterval time.Duration) *cache {
-	if size < 1 {
-		panic("cache: invalid size")
+	if size <= 0 {
+		size = 1024
+	}
+
+	if cleanerInterval == 0 {
+		cleanerInterval = time.Second * 10
 	}
 
 	return &cache{
@@ -107,10 +114,10 @@ func (c *cache) get(key string) (r *dns.Msg) {
 	defer c.RUnlock()
 
 	if e, ok := c.m[key]; ok {
-		if ttl := time.Until(e.expirationTime); ttl > 0 {
+		if ttl := uint32(time.Until(e.expirationTime).Seconds()); ttl > 0 {
 			m := new(dns.Msg)
 			e.v.CopyTo(m)
-			setTTL(m, uint32(ttl.Seconds()))
+			setTTL(m, ttl)
 			return m
 		}
 	}

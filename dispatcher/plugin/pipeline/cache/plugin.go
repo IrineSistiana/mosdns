@@ -98,10 +98,6 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
 	}
 
-	if args.Size <= 0 {
-		args.Size = 1024
-	}
-
 	return &cachePipeLine{
 		tag: tag,
 		c:   newCache(args.Size, time.Duration(args.CleanerInterval)*time.Second),
