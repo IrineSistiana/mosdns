@@ -35,7 +35,6 @@ type Context struct {
 	R *dns.Msg
 
 	startTime time.Time
-	id        uint32
 }
 
 func NewContext(q *dns.Msg) *Context {
@@ -55,6 +54,7 @@ func (ctx *Context) Copy() *Context {
 		newCtx.R = ctx.R.Copy()
 	}
 	newCtx.From = ctx.From
+	newCtx.startTime = ctx.startTime
 
 	return newCtx
 }
