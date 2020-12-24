@@ -15,32 +15,33 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package blackhole
+package ipset
 
 import (
 	"context"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/miekg/dns"
+	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
+	"github.com/sirupsen/logrus"
 )
 
-const PluginType = "blackhole"
+const PluginType = "ipset"
 
 func init() {
 	handler.RegInitFunc(PluginType, Init)
-
-	handler.MustRegPlugin(handler.WrapFunctionalPlugin("_drop_response", PluginType, &blackhole{rCode: -1}))
-	handler.MustRegPlugin(handler.WrapFunctionalPlugin("_block_with_servfail", PluginType, &blackhole{rCode: dns.RcodeServerFailure}))
-	handler.MustRegPlugin(handler.WrapFunctionalPlugin("_block_with_nxdomain", PluginType, &blackhole{rCode: dns.RcodeNameError}))
 }
 
-var _ handler.Functional = (*blackhole)(nil)
-
-type blackhole struct {
-	rCode int
-}
+var _ handler.Executable = (*ipsetPlugin)(nil)
 
 type Args struct {
-	RCode int `yaml:"rcode"`
+	SetName4 string `yaml:"set_name4"`
+	SetName6 string `yaml:"set_name6"`
+	Mask4    uint8  `yaml:"mask4"`
+	Mask6    uint8  `yaml:"mask6"`
+}
+
+type ipsetPlugin struct {
+	logger *logrus.Entry
+	args   *Args
 }
 
 func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err error) {
@@ -50,28 +51,25 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
 	}
 
-	b := new(blackhole)
-	b.rCode = args.RCode
+	ipsetPlugin := &ipsetPlugin{
+		logger: mlog.NewPluginLogger(tag),
+		args:   args,
+	}
 
-	return handler.WrapFunctionalPlugin(tag, PluginType, b), nil
+	return handler.WrapExecutablePlugin(tag, PluginType, ipsetPlugin), nil
 }
 
-// Do drops or replaces qCtx.R with a simple denial response.
-// It never returns a err.
-func (b *blackhole) Do(_ context.Context, qCtx *handler.Context) (err error) {
-	if qCtx == nil || qCtx.Q == nil {
+// Do tries to add all qCtx.R IPs to system ipset.
+// If an error occurred, Do will just log it.
+// Therefore, Do will never return an err.
+func (p *ipsetPlugin) Exec(_ context.Context, qCtx *handler.Context) (err error) {
+	if qCtx == nil || qCtx.R == nil {
 		return nil
 	}
 
-	switch {
-	case b.rCode >= 0:
-		r := new(dns.Msg)
-		r.SetReply(qCtx.Q)
-		r.Rcode = b.rCode
-		qCtx.R = r
-	default:
-		qCtx.R = nil
+	er := p.addIPSet(qCtx.R)
+	if er != nil {
+		p.logger.Warnf("%v: failed to add response IP to ipset: %v", qCtx, er)
 	}
-
 	return nil
 }

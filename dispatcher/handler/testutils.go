@@ -34,30 +34,12 @@ func (d *DummyMatcher) Match(_ context.Context, _ *Context) (matched bool, err e
 	return d.Matched, d.WantErr
 }
 
-type DummyFunctional struct {
+type DummyExecutable struct {
 	WantErr error
 }
 
-func (d *DummyFunctional) Do(_ context.Context, _ *Context) (err error) {
+func (d *DummyExecutable) Exec(_ context.Context, _ *Context) (err error) {
 	return d.WantErr
-}
-
-type DummyRouterPlugin struct {
-	TagStr   string
-	WantNext string
-	WantErr  error
-}
-
-func (d *DummyRouterPlugin) Tag() string {
-	return d.TagStr
-}
-
-func (d *DummyRouterPlugin) Type() string {
-	return "dummy_router_plugin"
-}
-
-func (d *DummyRouterPlugin) Do(_ context.Context, _ *Context) (next string, err error) {
-	return d.WantNext, d.WantErr
 }
 
 type DummyServerHandler struct {

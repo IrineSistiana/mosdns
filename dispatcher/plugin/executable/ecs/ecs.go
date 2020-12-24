@@ -33,10 +33,10 @@ const PluginType = "ecs"
 func init() {
 	handler.RegInitFunc(PluginType, Init)
 
-	handler.MustRegPlugin(handler.WrapFunctionalPlugin("_no_ecs", PluginType, &noECS{}))
+	handler.MustRegPlugin(handler.WrapExecutablePlugin("_no_ecs", PluginType, &noECS{}))
 }
 
-var _ handler.Functional = (*ecsPlugin)(nil)
+var _ handler.Executable = (*ecsPlugin)(nil)
 
 type Args struct {
 	// Automatically append client address as ecs.
@@ -100,13 +100,13 @@ func newPlugin(tag string, args *Args) (p handler.Plugin, err error) {
 		}
 	}
 
-	return handler.WrapFunctionalPlugin(tag, PluginType, ep), nil
+	return handler.WrapExecutablePlugin(tag, PluginType, ep), nil
 }
 
 // Do tries to append ECS to qCtx.Q.
 // If an error occurred, Do will just log it.
 // Therefore, Do will never return a err.
-func (e ecsPlugin) Do(_ context.Context, qCtx *handler.Context) (err error) {
+func (e ecsPlugin) Exec(_ context.Context, qCtx *handler.Context) (err error) {
 	if qCtx == nil || qCtx.Q == nil {
 		return nil
 	}
@@ -151,9 +151,9 @@ func checkQueryType(m *dns.Msg, typ uint16) bool {
 
 type noECS struct{}
 
-var _ handler.Functional = (*noECS)(nil)
+var _ handler.Executable = (*noECS)(nil)
 
-func (n noECS) Do(_ context.Context, qCtx *handler.Context) (_ error) {
+func (n noECS) Exec(_ context.Context, qCtx *handler.Context) (_ error) {
 	if qCtx == nil {
 		return nil
 	}

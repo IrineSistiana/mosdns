@@ -48,8 +48,8 @@ ipv6: '2001:dd8:1a::'
 		t.Fatal(err)
 	}
 
-	fpw := p.(*handler.FunctionalPluginWrapper)
-	ecs := fpw.Functional.(*ecsPlugin)
+	fpw := p.(*handler.ExecutablePluginWrapper)
+	ecs := fpw.Executable.(*ecsPlugin)
 	ctx := context.Background()
 	from := utils.NewNetAddr("test", "192.168.0.1:0")
 
@@ -72,7 +72,7 @@ ipv6: '2001:dd8:1a::'
 				}
 			}
 
-			err = fpw.Do(ctx, &handler.Context{Q: m, From: from})
+			err = fpw.Exec(ctx, &handler.Context{Q: m, From: from})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -101,7 +101,7 @@ func Test_ecs_auto(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fpw := p.(*handler.FunctionalPluginWrapper)
+	fpw := p.(*handler.ExecutablePluginWrapper)
 
 	testFunc := func(presetECS bool) {
 		typ := []uint16{dns.TypeA, dns.TypeAAAA}
@@ -128,7 +128,7 @@ func Test_ecs_auto(t *testing.T) {
 				}
 			}
 
-			err = fpw.Do(context.Background(), &handler.Context{Q: m, From: from[i]})
+			err = fpw.Exec(context.Background(), &handler.Context{Q: m, From: from[i]})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -154,7 +154,7 @@ func Test_remove_ecs(t *testing.T) {
 	setECS(m, ecs)
 
 	p := &noECS{}
-	err := p.Do(context.Background(), &handler.Context{Q: m})
+	err := p.Exec(context.Background(), &handler.Context{Q: m})
 	if err != nil {
 		t.Fatal(err)
 	}

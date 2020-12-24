@@ -42,7 +42,11 @@ type DefaultServerHandler struct {
 
 // ServeDNS: see DefaultServerHandler.
 func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *Context, w ResponseWriter) {
-	err := Walk(ctx, qCtx, h.Entry)
+	p, err := GetExecutablePlugin(h.Entry)
+	if err != nil {
+		h.Logger.Errorf("%v: cannot execute entry %s: %v", qCtx, h.Entry, err)
+	}
+	err = p.Exec(ctx, qCtx)
 	if err != nil {
 		h.Logger.Warnf("%v: entry %s returned with err: %v", qCtx, h.Entry, err)
 	} else {

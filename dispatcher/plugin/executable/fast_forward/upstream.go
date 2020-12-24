@@ -20,7 +20,7 @@ package fastforward
 import (
 	"fmt"
 	"github.com/AdguardTeam/dnsproxy/upstream"
-	"github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/fast_forward/cpool"
+	"github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/fast_forward/cpool"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
 	"net"

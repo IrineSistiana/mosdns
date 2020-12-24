@@ -54,14 +54,14 @@ func (r *pluginRegister) regPlugin(p Plugin) error {
 	return nil
 }
 
-func (r *pluginRegister) getFunctionalPlugin(tag string) (p FunctionalPlugin, err error) {
+func (r *pluginRegister) getExecutablePlugin(tag string) (p ExecutablePlugin, err error) {
 	r.RLock()
 	defer r.RUnlock()
 	if gp, ok := r.register[tag]; ok {
-		if p, ok := gp.(FunctionalPlugin); ok {
+		if p, ok := gp.(ExecutablePlugin); ok {
 			return p, nil
 		}
-		return nil, fmt.Errorf("plugin %s is not a functional plugin", tag)
+		return nil, fmt.Errorf("plugin %s is not an executable plugin", tag)
 	}
 
 	return nil, NewErrFromTemplate(ETTagNotDefined, tag)
@@ -78,26 +78,14 @@ func (r *pluginRegister) getMatcherPlugin(tag string) (p MatcherPlugin, err erro
 	return nil, NewErrFromTemplate(ETTagNotDefined, tag)
 }
 
-func (r *pluginRegister) getRouterPlugin(tag string) (p RouterPlugin, err error) {
+func (r *pluginRegister) getContextPlugin(tag string) (p ContextPlugin, err error) {
 	r.RLock()
 	defer r.RUnlock()
 	if gp, ok := r.register[tag]; ok {
-		if p, ok := gp.(RouterPlugin); ok {
+		if p, ok := gp.(ContextPlugin); ok {
 			return p, nil
 		}
-		return nil, fmt.Errorf("plugin %s is not a router plugin", tag)
-	}
-	return nil, NewErrFromTemplate(ETTagNotDefined, tag)
-}
-
-func (r *pluginRegister) getChainPlugin(tag string) (p PipelinePlugin, err error) {
-	r.RLock()
-	defer r.RUnlock()
-	if gp, ok := r.register[tag]; ok {
-		if p, ok := gp.(PipelinePlugin); ok {
-			return p, nil
-		}
-		return nil, fmt.Errorf("plugin %s is not a pipeline plugin", tag)
+		return nil, fmt.Errorf("plugin %s is not a context plugin", tag)
 	}
 	return nil, NewErrFromTemplate(ETTagNotDefined, tag)
 }
@@ -192,20 +180,16 @@ func GetAllPluginTag() []string {
 	return pluginTagRegister.getAllPluginTag()
 }
 
-func GetFunctionalPlugin(tag string) (p FunctionalPlugin, err error) {
-	return pluginTagRegister.getFunctionalPlugin(tag)
+func GetExecutablePlugin(tag string) (p ExecutablePlugin, err error) {
+	return pluginTagRegister.getExecutablePlugin(tag)
 }
 
 func GetMatcherPlugin(tag string) (p MatcherPlugin, err error) {
 	return pluginTagRegister.getMatcherPlugin(tag)
 }
 
-func GetRouterPlugin(tag string) (p RouterPlugin, err error) {
-	return pluginTagRegister.getRouterPlugin(tag)
-}
-
-func GetChainPlugin(tag string) (p PipelinePlugin, err error) {
-	return pluginTagRegister.getChainPlugin(tag)
+func GetContextPlugin(tag string) (p ContextPlugin, err error) {
+	return pluginTagRegister.getContextPlugin(tag)
 }
 
 // PurgePluginRegister should only be used in test.

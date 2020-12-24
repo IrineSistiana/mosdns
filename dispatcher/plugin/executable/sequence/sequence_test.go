@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"testing"
 )
 
@@ -18,11 +19,10 @@ func Test_switchPlugin_Do(t *testing.T) {
 	matched := "matched"
 	matchErr := "match_err"
 
-	exec := executablePlugin("exec")
-	execErr := executablePlugin("exec_err")
+	exec := executablePluginTag("exec")
+	execErr := executablePluginTag("exec_err")
 	type args struct {
 		executable []executable
-		Next       string
 	}
 
 	var tests = []struct {
@@ -31,7 +31,7 @@ func Test_switchPlugin_Do(t *testing.T) {
 		wantNext string
 		wantErr  error
 	}{
-		{name: "try to reach next 1", args: &args{
+		{name: "try to reach empty end", args: &args{
 			executable: []executable{exec, exec,
 				&ifBlock{
 					ifMather:   []string{"!" + matched, notMatched},
@@ -39,8 +39,7 @@ func Test_switchPlugin_Do(t *testing.T) {
 					gotoRouter: "goto",
 				},
 			},
-			Next: "no_rd",
-		}, wantNext: "no_rd", wantErr: nil},
+		}, wantNext: "", wantErr: nil},
 
 		{name: "try to reach goto 1", args: &args{
 			executable: []executable{exec, exec,
@@ -62,7 +61,6 @@ func Test_switchPlugin_Do(t *testing.T) {
 					gotoRouter: "goto3",
 				},
 			},
-			Next: "no_rd",
 		}, wantNext: "goto2", wantErr: nil},
 
 		{name: "matcher err", args: &args{
@@ -73,7 +71,6 @@ func Test_switchPlugin_Do(t *testing.T) {
 					gotoRouter: "goto",
 				},
 			},
-			Next: "no_rd",
 		}, wantNext: "", wantErr: mErr},
 		{name: "exec err", args: &args{
 			executable: []executable{exec, exec,
@@ -83,7 +80,6 @@ func Test_switchPlugin_Do(t *testing.T) {
 					gotoRouter: "goto",
 				},
 			},
-			Next: "no_rd",
 		}, wantNext: "", wantErr: eErr},
 	}
 
@@ -99,8 +95,8 @@ func Test_switchPlugin_Do(t *testing.T) {
 	)))
 
 	// do something
-	mustSuccess(handler.RegPlugin(handler.WrapFunctionalPlugin(string(exec), "",
-		&handler.DummyFunctional{WantErr: nil},
+	mustSuccess(handler.RegPlugin(handler.WrapExecutablePlugin(string(exec), "",
+		&handler.DummyExecutable{WantErr: nil},
 	)))
 
 	// matched
@@ -112,15 +108,13 @@ func Test_switchPlugin_Do(t *testing.T) {
 	mustSuccess(handler.RegPlugin(handler.WrapMatcherPlugin(matchErr, "",
 		&handler.DummyMatcher{Matched: false, WantErr: mErr},
 	)))
-	mustSuccess(handler.RegPlugin(handler.WrapFunctionalPlugin(string(execErr), "",
-		&handler.DummyFunctional{WantErr: eErr},
+	mustSuccess(handler.RegPlugin(handler.WrapExecutablePlugin(string(execErr), "",
+		&handler.DummyExecutable{WantErr: eErr},
 	)))
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-
-			s := newSequencePlugin("", tt.args.executable, tt.args.Next)
-			gotNext, err := s.Do(context.Background(), nil)
+			gotNext, err := walk(context.Background(), nil, tt.args.executable, mlog.NewPluginLogger("test"))
 
 			if (err != nil || tt.wantErr != nil) && !errors.Is(err, tt.wantErr) {
 				t.Errorf("Do() error = %v, wantErr %v", err, tt.wantErr)

@@ -19,35 +19,35 @@ package handler
 
 import "context"
 
-type FunctionalPlugin interface {
+type ExecutablePlugin interface {
 	Plugin
-	Functional
+	Executable
 }
 
-type Functional interface {
-	Do(ctx context.Context, qCtx *Context) (err error)
+type Executable interface {
+	Exec(ctx context.Context, qCtx *Context) (err error)
 }
 
-type FunctionalPluginWrapper struct {
+type ExecutablePluginWrapper struct {
 	tag string
 	typ string
 
-	Functional
+	Executable
 }
 
-func (p *FunctionalPluginWrapper) Tag() string {
+func (p *ExecutablePluginWrapper) Tag() string {
 	return p.tag
 }
 
-func (p *FunctionalPluginWrapper) Type() string {
+func (p *ExecutablePluginWrapper) Type() string {
 	return p.typ
 }
 
-// WrapFunctionalPlugin returns a *FunctionalPluginWrapper which implements Plugin and FunctionalPlugin.
-func WrapFunctionalPlugin(tag, typ string, functional Functional) *FunctionalPluginWrapper {
-	return &FunctionalPluginWrapper{
+// WrapExecutablePlugin returns a *ExecutablePluginWrapper which implements Plugin and ExecutablePlugin.
+func WrapExecutablePlugin(tag, typ string, executable Executable) *ExecutablePluginWrapper {
+	return &ExecutablePluginWrapper{
 		tag:        tag,
 		typ:        typ,
-		Functional: functional,
+		Executable: executable,
 	}
 }

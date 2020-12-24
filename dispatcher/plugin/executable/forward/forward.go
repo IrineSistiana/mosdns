@@ -38,7 +38,7 @@ func init() {
 	handler.RegInitFunc(PluginType, Init)
 }
 
-var _ handler.Functional = (*forwarder)(nil)
+var _ handler.Executable = (*forwarder)(nil)
 
 type forwarder struct {
 	upstream []upstream.Upstream
@@ -113,13 +113,13 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		f.upstream = append(f.upstream, u)
 	}
 
-	return handler.WrapFunctionalPlugin(tag, PluginType, f), nil
+	return handler.WrapExecutablePlugin(tag, PluginType, f), nil
 }
 
 // Do forwards qCtx.Q to upstreams, and sets qCtx.R.
 // If qCtx.Q is nil, or upstreams failed, qCtx.R will be a simple response
 // with RCODE = 2.
-func (f *forwarder) Do(_ context.Context, qCtx *handler.Context) (err error) {
+func (f *forwarder) Exec(_ context.Context, qCtx *handler.Context) (err error) {
 	if qCtx == nil {
 		return
 	}

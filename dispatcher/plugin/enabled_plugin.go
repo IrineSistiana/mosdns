@@ -19,12 +19,15 @@ package plugin
 
 import (
 	// import all plugins
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/blackhole"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/ecs"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/fallback"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/fast_forward"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/forward"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/ipset"
+	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/cache"
+	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/blackhole"
+	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/ecs"
+	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/fallback"
+	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/fast_forward"
+	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/forward"
+	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/ipset"
+	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/pipeline"
+	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/sequence"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/hosts"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/http_server"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/logger"
@@ -32,8 +35,5 @@ import (
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/ip_matcher"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/qtype_matcher"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/simple_matcher"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/pipeline/cache"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/plain_server"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/router/pipeline"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/router/sequence"
 )

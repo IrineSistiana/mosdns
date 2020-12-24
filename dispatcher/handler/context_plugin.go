@@ -23,23 +23,22 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// PipelinePlugin
-type PipelinePlugin interface {
+// ContextPlugin
+type ContextPlugin interface {
 	Plugin
 
-	// Connect connects the pipe plugin to its predecessor.
-	Connect(ctx context.Context, qCtx *Context, pipCtx *PipeContext) (err error)
+	// Connect connects this ContextPlugin to its predecessor.
+	Connect(ctx context.Context, qCtx *Context, pipeCtx *PipeContext) (err error)
 }
 type PipeContext struct {
-	logger     *logrus.Entry
-	s          []string
-	nextRouter string
+	logger *logrus.Entry
+	s      []string
 
 	index int
 }
 
-func NewPipeContext(s []string, nextRouter string, logger *logrus.Entry) *PipeContext {
-	return &PipeContext{s: s, nextRouter: nextRouter, logger: logger}
+func NewPipeContext(s []string, logger *logrus.Entry) *PipeContext {
+	return &PipeContext{s: s, logger: logger}
 }
 
 func (c *PipeContext) ExecNextPlugin(ctx context.Context, qCtx *Context) error {
@@ -51,29 +50,18 @@ func (c *PipeContext) ExecNextPlugin(ctx context.Context, qCtx *Context) error {
 		}
 		c.index++
 		switch p := i.(type) {
-		case PipelinePlugin:
-			c.logger.Debugf("%v: exec pipeline plugin %s", qCtx, tag)
+		case ContextPlugin:
+			c.logger.Debugf("%v: exec context plugin %s", qCtx, tag)
 			return p.Connect(ctx, qCtx, c)
-		case FunctionalPlugin:
-			c.logger.Debugf("%v: exec functional plugin %s", qCtx, tag)
-			err := p.Do(ctx, qCtx)
-			if err != nil {
-				return err
-			}
-		case RouterPlugin:
-			c.logger.Debugf("%v: exec router plugin %s", qCtx, tag)
-			err := Walk(ctx, qCtx, p.Tag())
+		case ExecutablePlugin:
+			c.logger.Debugf("%v: exec executable plugin %s", qCtx, tag)
+			err := p.Exec(ctx, qCtx)
 			if err != nil {
 				return err
 			}
 		default:
 			return fmt.Errorf("plugin %s has a unsupported class", tag)
 		}
-	}
-
-	if len(c.nextRouter) != 0 {
-		c.logger.Debugf("%v: exec next router plugin %s", qCtx, c.nextRouter)
-		return Walk(ctx, qCtx, c.nextRouter)
 	}
 	return nil
 }

@@ -33,7 +33,7 @@ func init() {
 	handler.RegInitFunc(PluginType, Init)
 }
 
-var _ handler.Functional = (*fallback)(nil)
+var _ handler.Executable = (*fallback)(nil)
 
 type fallback struct {
 	args   *Args
@@ -72,7 +72,7 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 	if err != nil {
 		return nil, err
 	}
-	return handler.WrapFunctionalPlugin(tag, PluginType, f), nil
+	return handler.WrapExecutablePlugin(tag, PluginType, f), nil
 }
 
 func newFallback(tag string, args *Args) (*fallback, error) {
@@ -99,7 +99,7 @@ func newFallback(tag string, args *Args) (*fallback, error) {
 	}, nil
 }
 
-func (f *fallback) Do(ctx context.Context, qCtx *handler.Context) (err error) {
+func (f *fallback) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
 	if f.primaryIsOk() {
 		f.logger.Debugf("%v: primary is ok", qCtx)
 		return f.doPrimary(ctx, qCtx)
@@ -158,24 +158,11 @@ func (f *fallback) doSecondary(ctx context.Context, qCtx *handler.Context) (err 
 
 func (f *fallback) do(ctx context.Context, qCtx *handler.Context, sequence []string) (err error) {
 	for _, tag := range sequence {
-		v, err := handler.GetPlugin(tag)
+		p, err := handler.GetExecutablePlugin(tag)
 		if err != nil {
 			return err
 		}
-
-		switch p := v.(type) {
-		case handler.FunctionalPlugin:
-			f.logger.Debugf("%v: exec functional plugin %s", qCtx, p.Tag())
-			err = p.Do(ctx, qCtx)
-		case handler.RouterPlugin:
-			f.logger.Debugf("%v: exec router plugin %s", qCtx, p.Tag())
-			err = handler.Walk(ctx, qCtx, p.Tag())
-		default:
-			err = fmt.Errorf("plugin %s can not be used here", p.Tag())
-		}
-		if err != nil {
-			return handler.NewErrFromTemplate(handler.ETPluginErr, err)
-		}
+		return p.Exec(ctx, qCtx)
 	}
 	return nil
 }

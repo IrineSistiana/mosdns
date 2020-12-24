@@ -43,7 +43,7 @@ const (
 	tcpIdleTimeout      = time.Second * 5
 )
 
-var _ handler.Functional = (*fastForward)(nil)
+var _ handler.Executable = (*fastForward)(nil)
 
 type fastForward struct {
 	upstream []upstream.Upstream
@@ -74,7 +74,7 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		}
 		f.upstream = append(f.upstream, newFastUpstream(host, preferTCP))
 	}
-	return handler.WrapFunctionalPlugin(tag, PluginType, f), nil
+	return handler.WrapExecutablePlugin(tag, PluginType, f), nil
 }
 
 func parseAddr(addr string) (host string, preferTCP bool, err error) {
@@ -97,7 +97,7 @@ func parseAddr(addr string) (host string, preferTCP bool, err error) {
 // Do forwards qCtx.Q to upstreams, and sets qCtx.R.
 // If qCtx.Q is nil, or upstreams failed, qCtx.R will be a simple response
 // with RCODE = 2.
-func (f *fastForward) Do(_ context.Context, qCtx *handler.Context) (err error) {
+func (f *fastForward) Exec(_ context.Context, qCtx *handler.Context) (err error) {
 	if qCtx == nil {
 		return
 	}

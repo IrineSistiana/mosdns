@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"reflect"
-	"strconv"
 	"testing"
 )
 
@@ -56,7 +55,7 @@ func TestRegPlugin(t *testing.T) {
 	PurgePluginRegister()
 	defer PurgePluginRegister()
 
-	fp := WrapFunctionalPlugin("fp", "", &DummyFunctional{})
+	fp := WrapExecutablePlugin("fp", "", &DummyExecutable{})
 	mp := WrapMatcherPlugin("wp", "", &DummyMatcher{})
 	sp := &dummySequencePlugin{}
 
@@ -92,45 +91,4 @@ func TestRegPlugin(t *testing.T) {
 			}
 		})
 	}
-}
-
-func BenchmarkHandler(b *testing.B) {
-	PurgePluginRegister()
-	defer PurgePluginRegister()
-
-	for i := 0; i < 40; i++ {
-		p := &DummyRouterPlugin{
-			TagStr:   strconv.Itoa(i),
-			WantNext: strconv.Itoa(i + 1),
-			WantErr:  nil,
-		}
-		err := RegPlugin(p)
-		if err != nil {
-			b.Fatal(err)
-		}
-	}
-	err := RegPlugin(&DummyRouterPlugin{
-		TagStr:   strconv.Itoa(40),
-		WantNext: "",
-		WantErr:  nil,
-	})
-	if err != nil {
-		b.Fatal(err)
-	}
-
-	b.ResetTimer()
-	b.ReportAllocs()
-
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			err := Walk(context.Background(), nil, "0")
-			if err != nil {
-				panic(err.Error())
-			}
-		}
-	})
-
-	r := pluginTagRegister
-	r.Lock()
-	r.Unlock()
 }

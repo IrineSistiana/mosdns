@@ -15,33 +15,33 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package ipset
+package pipeline
 
 import (
 	"context"
+	"errors"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/sirupsen/logrus"
 )
 
-const PluginType = "ipset"
+const PluginType = "pipeline"
 
 func init() {
 	handler.RegInitFunc(PluginType, Init)
 }
 
-var _ handler.Functional = (*ipsetPlugin)(nil)
+var _ handler.ExecutablePlugin = (*pipelineRouter)(nil)
 
-type Args struct {
-	SetName4 string `yaml:"set_name4"`
-	SetName6 string `yaml:"set_name6"`
-	Mask4    uint8  `yaml:"mask4"`
-	Mask6    uint8  `yaml:"mask6"`
+type pipelineRouter struct {
+	tag    string
+	logger *logrus.Entry
+
+	args *Args
 }
 
-type ipsetPlugin struct {
-	logger *logrus.Entry
-	args   *Args
+type Args struct {
+	Pipe []string `yaml:"pipe"`
 }
 
 func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err error) {
@@ -51,25 +51,25 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
 	}
 
-	ipsetPlugin := &ipsetPlugin{
+	if len(args.Pipe) == 0 {
+		return nil, errors.New("empty pipeline")
+	}
+
+	return &pipelineRouter{
+		tag:    tag,
 		logger: mlog.NewPluginLogger(tag),
 		args:   args,
-	}
-
-	return handler.WrapFunctionalPlugin(tag, PluginType, ipsetPlugin), nil
+	}, nil
 }
 
-// Do tries to add all qCtx.R IPs to system ipset.
-// If an error occurred, Do will just log it.
-// Therefore, Do will never return an err.
-func (p *ipsetPlugin) Do(_ context.Context, qCtx *handler.Context) (err error) {
-	if qCtx == nil || qCtx.R == nil {
-		return nil
-	}
+func (s *pipelineRouter) Tag() string {
+	return s.tag
+}
 
-	er := p.addIPSet(qCtx.R)
-	if er != nil {
-		p.logger.Warnf("%v: failed to add response IP to ipset: %v", qCtx, er)
-	}
-	return nil
+func (s *pipelineRouter) Type() string {
+	return PluginType
+}
+
+func (s *pipelineRouter) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
+	return handler.NewPipeContext(s.args.Pipe, s.logger).ExecNextPlugin(ctx, qCtx)
 }

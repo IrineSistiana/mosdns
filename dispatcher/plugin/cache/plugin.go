@@ -33,13 +33,13 @@ const (
 func init() {
 	handler.RegInitFunc(PluginType, Init)
 
-	handler.MustRegPlugin(&cachePipeLine{
+	handler.MustRegPlugin(&cachePlugin{
 		tag: "_default_cache",
 		c:   newCache(1024, time.Second*10),
 	})
 }
 
-var _ handler.PipelinePlugin = (*cachePipeLine)(nil)
+var _ handler.ContextPlugin = (*cachePlugin)(nil)
 
 type Args struct {
 	Size            int  `yaml:"size"`
@@ -47,20 +47,20 @@ type Args struct {
 	CacheECS        bool `yaml:"cache_ecs"`
 }
 
-type cachePipeLine struct {
+type cachePlugin struct {
 	tag string
 	c   *cache
 }
 
-func (c *cachePipeLine) Tag() string {
+func (c *cachePlugin) Tag() string {
 	return c.tag
 }
 
-func (c *cachePipeLine) Type() string {
+func (c *cachePlugin) Type() string {
 	return PluginType
 }
 
-func (c *cachePipeLine) Connect(ctx context.Context, qCtx *handler.Context, pipeCtx *handler.PipeContext) (err error) {
+func (c *cachePlugin) Connect(ctx context.Context, qCtx *handler.Context, pipeCtx *handler.PipeContext) (err error) {
 	if qCtx == nil || qCtx.Q == nil || pipeCtx == nil {
 		return nil
 	}
@@ -103,7 +103,7 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
 	}
 
-	return &cachePipeLine{
+	return &cachePlugin{
 		tag: tag,
 		c:   newCache(args.Size, time.Duration(args.CleanerInterval)*time.Second),
 	}, nil

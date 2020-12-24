@@ -33,12 +33,12 @@ const PluginType = "sequence"
 func init() {
 	handler.RegInitFunc(PluginType, Init)
 
-	handler.MustRegPlugin(&sequencePlugin{tag: "_end"})
+	handler.MustRegPlugin(&sequenceRouter{tag: "_end"})
 }
 
-var _ handler.RouterPlugin = (*sequencePlugin)(nil)
+var _ handler.ExecutablePlugin = (*sequenceRouter)(nil)
 
-type sequencePlugin struct {
+type sequenceRouter struct {
 	tag        string
 	executable []executable
 	next       string
@@ -71,55 +71,52 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 	return s, nil
 }
 
-func (s *sequencePlugin) Tag() string {
+func (s *sequenceRouter) Tag() string {
 	return s.tag
 }
 
-func (s *sequencePlugin) Type() string {
+func (s *sequenceRouter) Type() string {
 	return PluginType
 }
 
-func (s *sequencePlugin) Do(ctx context.Context, qCtx *handler.Context) (next string, err error) {
+func (s *sequenceRouter) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
 	goTwo, err := walk(ctx, qCtx, s.executable, s.logger)
 	if err != nil {
-		return "", err
+		return err
 	}
+
 	if len(goTwo) != 0 {
-		return goTwo, nil
+		s.logger.Debugf("%v: goto plugin %s", qCtx, goTwo)
+		p, err := handler.GetExecutablePlugin(goTwo)
+		if err != nil {
+			return err
+		}
+		return p.Exec(ctx, qCtx)
 	}
-	return s.next, nil
+	return nil
 }
 
-func newSequencePlugin(tag string, executable []executable, next string) *sequencePlugin {
-	return &sequencePlugin{tag: tag, executable: executable, next: next, logger: mlog.NewPluginLogger(tag)}
+func newSequencePlugin(tag string, executable []executable, next string) *sequenceRouter {
+	return &sequenceRouter{tag: tag, executable: executable, next: next, logger: mlog.NewPluginLogger(tag)}
 }
 
 type executable interface {
 	exec(ctx context.Context, qCtx *handler.Context, logger *logrus.Entry) (goTwo string, err error)
 }
 
-type executablePlugin string
+type executablePluginTag string
 
-func (tag executablePlugin) exec(ctx context.Context, qCtx *handler.Context, logger *logrus.Entry) (goTwo string, err error) {
+func (tag executablePluginTag) exec(ctx context.Context, qCtx *handler.Context, logger *logrus.Entry) (goTwo string, err error) {
 	if len(tag) == 0 {
 		return "", nil
 	}
 
-	v, err := handler.GetPlugin(string(tag))
+	p, err := handler.GetExecutablePlugin(string(tag))
 	if err != nil {
 		return "", err
 	}
-
-	switch p := v.(type) {
-	case handler.FunctionalPlugin:
-		logger.Debugf("%v: exec functional plugin %s", qCtx, tag)
-		return "", p.Do(ctx, qCtx)
-	case handler.RouterPlugin:
-		logger.Debugf("%v: exec router plugin %s", qCtx, tag)
-		return "", handler.Walk(ctx, qCtx, string(tag))
-	default:
-		return "", fmt.Errorf("plugin %s can not be used here", tag)
-	}
+	logger.Debugf("%v: exec plugin %s", qCtx, tag)
+	return "", p.Exec(ctx, qCtx)
 }
 
 type IfBlockConfig struct {
@@ -135,6 +132,10 @@ type ifBlock struct {
 }
 
 func (b *ifBlock) exec(ctx context.Context, qCtx *handler.Context, logger *logrus.Entry) (goTwo string, err error) {
+	if b == nil {
+		return "", nil
+	}
+
 	If := true
 	for _, tag := range b.ifMather {
 		if len(tag) == 0 {
@@ -187,7 +188,7 @@ func parse(in []interface{}, out *[]executable) error {
 	for i := range in {
 		switch v := in[i].(type) {
 		case string:
-			*out = append(*out, executablePlugin(v))
+			*out = append(*out, executablePluginTag(v))
 		case map[string]interface{}:
 			c := new(IfBlockConfig)
 			err := handler.WeakDecode(v, c)
@@ -215,14 +216,14 @@ func parse(in []interface{}, out *[]executable) error {
 	return nil
 }
 
-func walk(ctx context.Context, qCtx *handler.Context, sequence []executable, logger *logrus.Entry) (next string, err error) {
+func walk(ctx context.Context, qCtx *handler.Context, sequence []executable, logger *logrus.Entry) (goTwo string, err error) {
 	for _, e := range sequence {
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
-		goTwo, err := e.exec(ctx, qCtx, logger)
+		goTwo, err = e.exec(ctx, qCtx, logger)
 		if err != nil {
-			if tag, ok := e.(executablePlugin); ok {
+			if tag, ok := e.(executablePluginTag); ok {
 				return "", handler.NewErrFromTemplate(handler.ETPluginErr, tag, err)
 			}
 			return "", err

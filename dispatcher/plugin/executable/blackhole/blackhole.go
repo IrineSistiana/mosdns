@@ -15,34 +15,32 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package pipeline
+package blackhole
 
 import (
 	"context"
-	"errors"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
-	"github.com/sirupsen/logrus"
+	"github.com/miekg/dns"
 )
 
-const PluginType = "pipeline"
+const PluginType = "blackhole"
 
 func init() {
 	handler.RegInitFunc(PluginType, Init)
+
+	handler.MustRegPlugin(handler.WrapExecutablePlugin("_drop_response", PluginType, &blackhole{rCode: -1}))
+	handler.MustRegPlugin(handler.WrapExecutablePlugin("_block_with_servfail", PluginType, &blackhole{rCode: dns.RcodeServerFailure}))
+	handler.MustRegPlugin(handler.WrapExecutablePlugin("_block_with_nxdomain", PluginType, &blackhole{rCode: dns.RcodeNameError}))
 }
 
-var _ handler.RouterPlugin = (*pipelineRouter)(nil)
+var _ handler.Executable = (*blackhole)(nil)
 
-type pipelineRouter struct {
-	tag    string
-	logger *logrus.Entry
-
-	args *Args
+type blackhole struct {
+	rCode int
 }
 
 type Args struct {
-	Pipe []string `yaml:"pipe"`
-	Next string   `yaml:"next"`
+	RCode int `yaml:"rcode"`
 }
 
 func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err error) {
@@ -52,26 +50,28 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
 	}
 
-	if len(args.Pipe) == 0 {
-		return nil, errors.New("empty pipeline")
+	b := new(blackhole)
+	b.rCode = args.RCode
+
+	return handler.WrapExecutablePlugin(tag, PluginType, b), nil
+}
+
+// Do drops or replaces qCtx.R with a simple denial response.
+// It never returns a err.
+func (b *blackhole) Exec(_ context.Context, qCtx *handler.Context) (err error) {
+	if qCtx == nil || qCtx.Q == nil {
+		return nil
 	}
 
-	return &pipelineRouter{
-		tag:    tag,
-		logger: mlog.NewPluginLogger(tag),
-		args:   args,
-	}, nil
-}
+	switch {
+	case b.rCode >= 0:
+		r := new(dns.Msg)
+		r.SetReply(qCtx.Q)
+		r.Rcode = b.rCode
+		qCtx.R = r
+	default:
+		qCtx.R = nil
+	}
 
-func (s *pipelineRouter) Tag() string {
-	return s.tag
-}
-
-func (s *pipelineRouter) Type() string {
-	return PluginType
-}
-
-func (s *pipelineRouter) Do(ctx context.Context, qCtx *handler.Context) (next string, err error) {
-	pipeCtx := handler.NewPipeContext(s.args.Pipe, s.args.Next, s.logger)
-	return "", pipeCtx.ExecNextPlugin(ctx, qCtx)
+	return nil
 }

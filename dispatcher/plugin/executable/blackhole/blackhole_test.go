@@ -33,7 +33,7 @@ func Test_blackhole_Do(t *testing.T) {
 			qCtx.Q = q
 			qCtx.R = r
 
-			err := b.Do(ctx, qCtx)
+			err := b.Exec(ctx, qCtx)
 			if err != nil {
 				t.Fatal(err)
 			}

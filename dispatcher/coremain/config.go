@@ -19,10 +19,10 @@ package coremain
 
 import (
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/plugin/functional/forward"
+	"github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/forward"
+	"github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/sequence"
 	"github.com/IrineSistiana/mosdns/dispatcher/plugin/logger"
 	plainserver "github.com/IrineSistiana/mosdns/dispatcher/plugin/plain_server"
-	"github.com/IrineSistiana/mosdns/dispatcher/plugin/router/sequence"
 	"gopkg.in/yaml.v3"
 	"io/ioutil"
 	"os"
