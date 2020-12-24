@@ -56,8 +56,10 @@ func (r *pluginRegister) regPlugin(p Plugin) error {
 
 func (r *pluginRegister) getExecutablePlugin(tag string) (p ExecutablePlugin, err error) {
 	r.RLock()
-	defer r.RUnlock()
-	if gp, ok := r.register[tag]; ok {
+	gp, ok := r.register[tag]
+	r.RUnlock()
+
+	if ok {
 		if p, ok := gp.(ExecutablePlugin); ok {
 			return p, nil
 		}
@@ -68,8 +70,10 @@ func (r *pluginRegister) getExecutablePlugin(tag string) (p ExecutablePlugin, er
 }
 func (r *pluginRegister) getMatcherPlugin(tag string) (p MatcherPlugin, err error) {
 	r.RLock()
-	defer r.RUnlock()
-	if gp, ok := r.register[tag]; ok {
+	gp, ok := r.register[tag]
+	r.RUnlock()
+
+	if ok {
 		if p, ok := gp.(MatcherPlugin); ok {
 			return p, nil
 		}
@@ -80,8 +84,10 @@ func (r *pluginRegister) getMatcherPlugin(tag string) (p MatcherPlugin, err erro
 
 func (r *pluginRegister) getContextPlugin(tag string) (p ContextPlugin, err error) {
 	r.RLock()
-	defer r.RUnlock()
-	if gp, ok := r.register[tag]; ok {
+	gp, ok := r.register[tag]
+	r.RUnlock()
+
+	if ok {
 		if p, ok := gp.(ContextPlugin); ok {
 			return p, nil
 		}
