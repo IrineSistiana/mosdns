@@ -154,7 +154,7 @@ func getMinimalTTL(m *dns.Msg) uint32 {
 	ttl := ^uint32(0)
 	for _, r := range [][]dns.RR{m.Answer, m.Ns, m.Extra} {
 		for i := range r {
-			t := m.Answer[i].Header().Ttl
+			t := r[i].Header().Ttl
 			if t < ttl {
 				ttl = t
 			}
@@ -171,7 +171,7 @@ func setTTL(m *dns.Msg, ttl uint32) {
 
 	for _, r := range [][]dns.RR{m.Answer, m.Ns, m.Extra} {
 		for i := range r {
-			m.Answer[i].Header().Ttl = ttl
+			r[i].Header().Ttl = ttl
 		}
 	}
 }
