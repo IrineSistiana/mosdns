@@ -41,11 +41,12 @@ func init() {
 var _ handler.Executable = (*forwarder)(nil)
 
 type forwarder struct {
-	upstream []upstream.Upstream
-
-	deduplicate bool
-	sfGroup     singleflight.Group
+	tag         string
 	logger      *logrus.Entry
+	upstream    []upstream.Upstream
+	deduplicate bool
+
+	sfGroup singleflight.Group
 }
 
 type Args struct {
@@ -76,6 +77,7 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 	}
 
 	f := new(forwarder)
+	f.tag = tag
 	f.logger = mlog.NewPluginLogger(tag)
 	f.deduplicate = args.Deduplicate
 
@@ -113,19 +115,31 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		f.upstream = append(f.upstream, u)
 	}
 
-	return handler.WrapExecutablePlugin(tag, PluginType, f), nil
+	return f, nil
+}
+
+func (f *forwarder) Tag() string {
+	return f.tag
+}
+
+func (f *forwarder) Type() string {
+	return PluginType
 }
 
 // Do forwards qCtx.Q to upstreams, and sets qCtx.R.
 // If qCtx.Q is nil, or upstreams failed, qCtx.R will be a simple response
 // with RCODE = 2.
-func (f *forwarder) Exec(_ context.Context, qCtx *handler.Context) (err error) {
+func (f *forwarder) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
+	err = f.exec(ctx, qCtx)
+	if err != nil {
+		err = handler.NewPluginError(f.tag, err)
+	}
+	return nil
+}
+
+func (f *forwarder) exec(_ context.Context, qCtx *handler.Context) (err error) {
 	if qCtx == nil {
 		return
-	}
-
-	if qCtx.Q == nil {
-		return errors.New("invalid qCtx, qCtx.Q is nil")
 	}
 
 	var r *dns.Msg

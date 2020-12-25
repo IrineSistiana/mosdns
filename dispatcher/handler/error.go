@@ -22,12 +22,16 @@ import (
 )
 
 type Error struct {
-	plugin string
-	err    error
+	tag string
+	err error
+}
+
+func NewPluginError(tag string, err error) *Error {
+	return &Error{tag: tag, err: err}
 }
 
 func (e *Error) Error() string {
-	return fmt.Sprintf("%s: %v", e.plugin, e.err)
+	return fmt.Sprintf("%s: %v", e.tag, e.err)
 }
 
 func (e *Error) Unwrap() error {
@@ -42,7 +46,6 @@ func NewErrFromTemplate(t ErrTemplate, args ...interface{}) error {
 
 const (
 	ETInvalidArgs    = "invalid args: %w"
-	ETPluginErr      = "plugin %s reported an err: %w"
 	ETTypeNotDefined = "plugin type %s not defined"
 	ETTagNotDefined  = "plugin tag %s not defined"
 )

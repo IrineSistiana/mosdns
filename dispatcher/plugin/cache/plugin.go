@@ -19,8 +19,10 @@ package cache
 import (
 	"context"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
+	"github.com/sirupsen/logrus"
 	"time"
 )
 
@@ -33,23 +35,20 @@ const (
 func init() {
 	handler.RegInitFunc(PluginType, Init)
 
-	handler.MustRegPlugin(&cachePlugin{
-		tag: "_default_cache",
-		c:   newCache(1024, time.Second*10),
-	})
+	handler.MustRegPlugin(newCachePlugin("_default_cache", &Args{Size: 1024, CleanerInterval: 10}))
 }
 
 var _ handler.ContextPlugin = (*cachePlugin)(nil)
 
 type Args struct {
-	Size            int  `yaml:"size"`
-	CleanerInterval int  `yaml:"cleaner_interval"`
-	CacheECS        bool `yaml:"cache_ecs"`
+	Size            int `yaml:"size"`
+	CleanerInterval int `yaml:"cleaner_interval"`
 }
 
 type cachePlugin struct {
-	tag string
-	c   *cache
+	tag    string
+	logger *logrus.Entry
+	c      *cache
 }
 
 func (c *cachePlugin) Tag() string {
@@ -61,6 +60,14 @@ func (c *cachePlugin) Type() string {
 }
 
 func (c *cachePlugin) Connect(ctx context.Context, qCtx *handler.Context, pipeCtx *handler.PipeContext) (err error) {
+	err = c.connect(ctx, qCtx, pipeCtx)
+	if err != nil {
+		return handler.NewPluginError(c.tag, err)
+	}
+	return nil
+}
+
+func (c *cachePlugin) connect(ctx context.Context, qCtx *handler.Context, pipeCtx *handler.PipeContext) (err error) {
 	if qCtx == nil || qCtx.Q == nil || pipeCtx == nil {
 		return nil
 	}
@@ -70,13 +77,16 @@ func (c *cachePlugin) Connect(ctx context.Context, qCtx *handler.Context, pipeCt
 	if cacheable {
 		key, err = utils.GetMsgKey(qCtx.Q)
 		if err != nil {
-			return err
-		}
-
-		if r := c.c.get(key); r != nil { // if cache hit
-			r.Id = qCtx.Q.Id
-			qCtx.R = r
-			return nil
+			c.logger.Warnf("%v: unable to get msg key, skip the cache: %v", qCtx, err)
+			cacheable = false
+		} else {
+			if r, ttl := c.c.get(key); r != nil { // if cache hit
+				c.logger.Warnf("%v: cache hit", qCtx)
+				r.Id = qCtx.Q.Id
+				setTTL(r, uint32(ttl/time.Second))
+				qCtx.R = r
+				return nil
+			}
 		}
 	}
 
@@ -103,8 +113,13 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
 	}
 
+	return newCachePlugin(tag, args), nil
+}
+
+func newCachePlugin(tag string, args *Args) *cachePlugin {
 	return &cachePlugin{
-		tag: tag,
-		c:   newCache(args.Size, time.Duration(args.CleanerInterval)*time.Second),
-	}, nil
+		tag:    tag,
+		logger: mlog.NewPluginLogger(tag),
+		c:      newCache(args.Size, time.Duration(args.CleanerInterval)*time.Second),
+	}
 }

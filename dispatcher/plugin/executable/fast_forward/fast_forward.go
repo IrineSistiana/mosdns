@@ -46,8 +46,8 @@ const (
 var _ handler.Executable = (*fastForward)(nil)
 
 type fastForward struct {
-	upstream []upstream.Upstream
 	logger   *logrus.Entry
+	upstream []upstream.Upstream
 }
 
 type Args struct {
@@ -72,7 +72,7 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		if err != nil {
 			return nil, err
 		}
-		f.upstream = append(f.upstream, newFastUpstream(host, preferTCP))
+		f.upstream = append(f.upstream, newFastUpstream(host, preferTCP, f.logger))
 	}
 	return handler.WrapExecutablePlugin(tag, PluginType, f), nil
 }
@@ -95,18 +95,14 @@ func parseAddr(addr string) (host string, preferTCP bool, err error) {
 }
 
 // Do forwards qCtx.Q to upstreams, and sets qCtx.R.
-// If qCtx.Q is nil, or upstreams failed, qCtx.R will be a simple response
+// If all upstreams failed, qCtx.R will be set as a simple response
 // with RCODE = 2.
 func (f *fastForward) Exec(_ context.Context, qCtx *handler.Context) (err error) {
 	if qCtx == nil {
 		return
 	}
 
-	if qCtx.Q == nil {
-		return errors.New("invalid qCtx, qCtx.Q is nil")
-	}
-
-	r, err := f.forward(qCtx.Q)
+	r, u, err := upstream.ExchangeParallel(f.upstream, qCtx.Q)
 	if err != nil {
 		f.logger.Warnf("%v: upstream failed: %v", qCtx, err)
 		r = new(dns.Msg)
@@ -115,11 +111,8 @@ func (f *fastForward) Exec(_ context.Context, qCtx *handler.Context) (err error)
 		qCtx.R = r
 		return nil
 	}
+
+	f.logger.Debugf("%v: received respose from upstream %s", qCtx, u.Address())
 	qCtx.R = r
 	return nil
-}
-
-func (f *fastForward) forward(q *dns.Msg) (r *dns.Msg, err error) {
-	r, _, err = upstream.ExchangeParallel(f.upstream, q)
-	return r, err
 }

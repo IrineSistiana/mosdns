@@ -62,14 +62,18 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 	}, nil
 }
 
-func (s *pipelineRouter) Tag() string {
-	return s.tag
+func (pr *pipelineRouter) Tag() string {
+	return pr.tag
 }
 
-func (s *pipelineRouter) Type() string {
+func (pr *pipelineRouter) Type() string {
 	return PluginType
 }
 
-func (s *pipelineRouter) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
-	return handler.NewPipeContext(s.args.Pipe, s.logger).ExecNextPlugin(ctx, qCtx)
+func (pr *pipelineRouter) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
+	err = handler.NewPipeContext(pr.args.Pipe, pr.logger).ExecNextPlugin(ctx, qCtx)
+	if err != nil {
+		return handler.NewPluginError(pr.tag, err)
+	}
+	return nil
 }

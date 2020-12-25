@@ -59,7 +59,7 @@ func newCache(size int, cleanerInterval time.Duration) *cache {
 }
 
 func (c *cache) add(key string, ttl uint32, r *dns.Msg) {
-	if r == nil {
+	if ttl == 0 || r == nil {
 		return
 	}
 
@@ -92,13 +92,15 @@ func (c *cache) add(key string, ttl uint32, r *dns.Msg) {
 	}
 
 	// remove some entries if cache is full.
-	n := len(c.m) - c.size
-	for key := range c.m {
-		if n < 0 {
-			break
+	n := len(c.m) - c.size + 1
+	if n > 0 {
+		for key := range c.m {
+			if n <= 0 {
+				break
+			}
+			delete(c.m, key)
+			n--
 		}
-		delete(c.m, key)
-		n--
 	}
 
 	c.m[key] = elem{
@@ -109,19 +111,18 @@ func (c *cache) add(key string, ttl uint32, r *dns.Msg) {
 	return
 }
 
-func (c *cache) get(key string) (r *dns.Msg) {
+func (c *cache) get(key string) (r *dns.Msg, ttl time.Duration) {
 	c.RLock()
 	defer c.RUnlock()
 
 	if e, ok := c.m[key]; ok {
-		if ttl := uint32(time.Until(e.expirationTime).Seconds()); ttl > 0 {
+		if ttl = time.Until(e.expirationTime); ttl > 0 {
 			m := new(dns.Msg)
 			e.v.CopyTo(m)
-			setTTL(m, ttl)
-			return m
+			return m, ttl
 		}
 	}
-	return nil
+	return nil, 0
 }
 
 func (c *cache) clean() (remain, cleaned int) {

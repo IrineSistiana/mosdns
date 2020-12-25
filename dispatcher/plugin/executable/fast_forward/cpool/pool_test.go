@@ -18,6 +18,7 @@
 package cpool
 
 import (
+	"github.com/sirupsen/logrus"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -26,9 +27,9 @@ import (
 
 func Test_Pool(t *testing.T) {
 	conn, _ := net.Pipe()
-
+	logger := logrus.NewEntry(logrus.StandardLogger())
 	var cp *Pool
-	cp = New(0, 0, time.Second)
+	cp = New(0, 0, time.Second, logger)
 	if cp != nil {
 		t.Fatal("cp should nil")
 	}
@@ -36,7 +37,7 @@ func Test_Pool(t *testing.T) {
 		t.Fatal("nil cp should have 0 connection")
 	}
 
-	cp = New(8, time.Millisecond*500, time.Millisecond*250)
+	cp = New(8, time.Millisecond*500, time.Millisecond*250, logger)
 	if c := cp.Get(); c != nil {
 		t.Fatal("cp should be empty")
 	}

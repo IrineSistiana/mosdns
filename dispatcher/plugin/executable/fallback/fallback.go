@@ -36,8 +36,9 @@ func init() {
 var _ handler.Executable = (*fallback)(nil)
 
 type fallback struct {
-	args   *Args
+	tag    string
 	logger *logrus.Entry
+	args   *Args
 
 	l      sync.RWMutex
 	status []stat
@@ -93,13 +94,22 @@ func newFallback(tag string, args *Args) (*fallback, error) {
 	}
 
 	return &fallback{
-		args:   args,
+		tag:    tag,
 		logger: mlog.NewPluginLogger(tag),
+		args:   args,
 		status: make([]stat, args.StatLength),
 	}, nil
 }
 
 func (f *fallback) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
+	err = f.exec(ctx, qCtx)
+	if err != nil {
+		return handler.NewPluginError(f.tag, err)
+	}
+	return nil
+}
+
+func (f *fallback) exec(ctx context.Context, qCtx *handler.Context) (err error) {
 	if f.primaryIsOk() {
 		f.logger.Debugf("%v: primary is ok", qCtx)
 		return f.doPrimary(ctx, qCtx)
@@ -110,7 +120,7 @@ func (f *fallback) Exec(ctx context.Context, qCtx *handler.Context) (err error) 
 
 func (f *fallback) doPrimary(ctx context.Context, qCtx *handler.Context) (err error) {
 	err = f.do(ctx, qCtx, f.args.Primary)
-	if err != nil || (qCtx.R != nil && qCtx.R.Rcode != dns.RcodeSuccess) {
+	if err != nil || qCtx.R == nil || (qCtx.R != nil && qCtx.R.Rcode != dns.RcodeSuccess) {
 		f.updatePrimaryStat(failed)
 	} else {
 		f.updatePrimaryStat(success)
@@ -118,41 +128,61 @@ func (f *fallback) doPrimary(ctx context.Context, qCtx *handler.Context) (err er
 	return err
 }
 
+type fallbackResult struct {
+	qCtx *handler.Context
+	err  error
+	from string
+}
+
 func (f *fallback) doSecondary(ctx context.Context, qCtx *handler.Context) (err error) {
-	c := make(chan *handler.Context, 1)
+	c := make(chan *fallbackResult, 2) // buf size is 2, avoid block.
+	var errs []error
+
 	go func() {
 		qCtxCopy := qCtx.Copy()
 		err := f.doPrimary(ctx, qCtxCopy)
-		if err == nil && qCtx.R != nil && qCtx.R.Rcode == dns.RcodeSuccess {
-			select {
-			case c <- qCtx:
-			default:
-			}
-		}
-		if err != nil {
-			f.logger.Warnf("%v: %v", qCtx, handler.NewErrFromTemplate(handler.ETPluginErr, err))
+		c <- &fallbackResult{
+			qCtx: qCtxCopy,
+			err:  err,
+			from: "primary",
 		}
 	}()
 
 	go func() {
-		err := f.do(ctx, qCtx, f.args.Secondary)
-		if err == nil && qCtx.R != nil && qCtx.R.Rcode == dns.RcodeSuccess {
-			select {
-			case c <- qCtx:
-			default:
-			}
-		}
-		if err != nil {
-			f.logger.Warnf("%v: %v", qCtx, handler.NewErrFromTemplate(handler.ETPluginErr, err))
+		qCtxCopy := qCtx.Copy()
+		err := f.do(ctx, qCtxCopy, f.args.Secondary)
+		c <- &fallbackResult{
+			qCtx: qCtxCopy,
+			err:  err,
+			from: "secondary",
 		}
 	}()
 
-	select {
-	case q := <-c:
-		*qCtx = *q
-	case <-ctx.Done():
-		return ctx.Err()
+	for i := 0; i < 2; i++ {
+		select {
+		case r := <-c:
+			if r.err != nil {
+				errs = append(errs, err)
+				f.logger.Warnf("%v: %s sequence failed with err: %v", qCtx, r.from, r.err)
+			} else if r.qCtx.R == nil {
+				f.logger.Warnf("%v: %s sequence returned with an empty response", qCtx, r.from)
+			} else if r.qCtx.R.Rcode != dns.RcodeSuccess {
+				f.logger.Warnf("%v: %s sequence responded with an err rcode: %d", qCtx, r.from, r.qCtx.R.Rcode)
+			} else {
+				f.logger.Debugf("%v: %s sequence returned a valid response", qCtx, r.from)
+				*qCtx = *r.qCtx
+				return nil
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
+
+	// Don't return an err even if all sequences failed. Instead, we set qCtx.R with dns.RcodeServerFailure.
+	r := new(dns.Msg)
+	r.SetReply(qCtx.Q)
+	r.Rcode = dns.RcodeServerFailure
+	qCtx.R = r
 	return nil
 }
 

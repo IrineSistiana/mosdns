@@ -57,8 +57,8 @@ type Args struct {
 
 type ecsPlugin struct {
 	args       *Args
-	ipv4, ipv6 *dns.EDNS0_SUBNET
 	logger     *logrus.Entry
+	ipv4, ipv6 *dns.EDNS0_SUBNET
 }
 
 func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err error) {
@@ -105,7 +105,7 @@ func newPlugin(tag string, args *Args) (p handler.Plugin, err error) {
 
 // Do tries to append ECS to qCtx.Q.
 // If an error occurred, Do will just log it.
-// Therefore, Do will never return a err.
+// Therefore, Do will never return an err.
 func (e ecsPlugin) Exec(_ context.Context, qCtx *handler.Context) (err error) {
 	if qCtx == nil || qCtx.Q == nil {
 		return nil

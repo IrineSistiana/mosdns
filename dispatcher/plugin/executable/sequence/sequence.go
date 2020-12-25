@@ -80,6 +80,14 @@ func (s *sequenceRouter) Type() string {
 }
 
 func (s *sequenceRouter) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
+	err = s.exec(ctx, qCtx)
+	if err != nil {
+		return handler.NewPluginError(s.tag, err)
+	}
+	return nil
+}
+
+func (s *sequenceRouter) exec(ctx context.Context, qCtx *handler.Context) (err error) {
 	goTwo, err := walk(ctx, qCtx, s.executable, s.logger)
 	if err != nil {
 		return err
@@ -107,10 +115,6 @@ type executable interface {
 type executablePluginTag string
 
 func (tag executablePluginTag) exec(ctx context.Context, qCtx *handler.Context, logger *logrus.Entry) (goTwo string, err error) {
-	if len(tag) == 0 {
-		return "", nil
-	}
-
 	p, err := handler.GetExecutablePlugin(string(tag))
 	if err != nil {
 		return "", err
@@ -128,7 +132,7 @@ type IfBlockConfig struct {
 type ifBlock struct {
 	ifMather   []string
 	executable []executable
-	gotoRouter string
+	goTwo      string
 }
 
 func (b *ifBlock) exec(ctx context.Context, qCtx *handler.Context, logger *logrus.Entry) (goTwo string, err error) {
@@ -153,7 +157,7 @@ func (b *ifBlock) exec(ctx context.Context, qCtx *handler.Context, logger *logru
 		}
 		matched, err := m.Match(ctx, qCtx)
 		if err != nil {
-			return "", handler.NewErrFromTemplate(handler.ETPluginErr, tag, err)
+			return "", err
 		}
 		logger.Debugf("%v: exec matcher plugin %s, returned: %v", qCtx, tag, matched)
 
@@ -176,8 +180,8 @@ func (b *ifBlock) exec(ctx context.Context, qCtx *handler.Context, logger *logru
 	}
 
 	// goto
-	if len(b.gotoRouter) != 0 { // if block has a goto, return it
-		return b.gotoRouter, nil
+	if len(b.goTwo) != 0 { // if block has a goto, return it
+		return b.goTwo, nil
 	}
 
 	return "", nil
@@ -199,7 +203,7 @@ func parse(in []interface{}, out *[]executable) error {
 			ifBlock := &ifBlock{
 				ifMather:   c.If,
 				executable: make([]executable, 0, len(c.Exec)),
-				gotoRouter: c.Goto,
+				goTwo:      c.Goto,
 			}
 
 			if len(c.Exec) != 0 {
@@ -223,9 +227,6 @@ func walk(ctx context.Context, qCtx *handler.Context, sequence []executable, log
 		}
 		goTwo, err = e.exec(ctx, qCtx, logger)
 		if err != nil {
-			if tag, ok := e.(executablePluginTag); ok {
-				return "", handler.NewErrFromTemplate(handler.ETPluginErr, tag, err)
-			}
 			return "", err
 		}
 		if len(goTwo) != 0 {

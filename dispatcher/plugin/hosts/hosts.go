@@ -80,12 +80,20 @@ func (h *hostsContainer) Type() string {
 	return PluginType
 }
 
-func (h *hostsContainer) Connect(ctx context.Context, qCtx *handler.Context, pipCtx *handler.PipeContext) (err error) {
+func (h *hostsContainer) Connect(ctx context.Context, qCtx *handler.Context, pipeCtx *handler.PipeContext) (err error) {
+	err = h.connect(ctx, qCtx, pipeCtx)
+	if err != nil {
+		return handler.NewPluginError(h.tag, err)
+	}
+	return nil
+}
+
+func (h *hostsContainer) connect(ctx context.Context, qCtx *handler.Context, pipeCtx *handler.PipeContext) (err error) {
 	if ok := h.matchAndSet(qCtx); ok {
 		return nil
 	}
 
-	return pipCtx.ExecNextPlugin(ctx, qCtx)
+	return pipeCtx.ExecNextPlugin(ctx, qCtx)
 }
 
 // Match matches domain in the hosts file and set its response.
@@ -174,7 +182,7 @@ func (h *hostsContainer) load(file string) error {
 		}
 
 		if len(e) == 1 {
-			mlog.Entry().Warnf("invalid host record at line %d: %s", line, t)
+			h.logger.Warnf("invalid host record at line %d: %s", line, t)
 			continue
 		}
 
@@ -183,7 +191,7 @@ func (h *hostsContainer) load(file string) error {
 		for _, ipStr := range ips {
 			ip := net.ParseIP(ipStr)
 			if ip == nil {
-				mlog.Entry().Warnf("invalid ip addr %s at line %d: ", ipStr, line)
+				h.logger.Warnf("invalid ip addr %s at line %d: ", ipStr, line)
 				continue
 			}
 
@@ -192,7 +200,7 @@ func (h *hostsContainer) load(file string) error {
 			} else if ipv6 := ip.To16(); ipv6 != nil {
 				h.aaaa[host] = append(h.aaaa[host], ipv6)
 			} else {
-				mlog.Entry().Warnf("invalid ip addr %s at line %d: ", ipStr, line)
+				h.logger.Warnf("invalid ip addr %s at line %d: ", ipStr, line)
 				continue
 			}
 		}

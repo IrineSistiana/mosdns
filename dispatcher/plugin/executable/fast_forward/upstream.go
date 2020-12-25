@@ -23,6 +23,7 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/fast_forward/cpool"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
+	"github.com/sirupsen/logrus"
 	"net"
 	"time"
 )
@@ -30,16 +31,17 @@ import (
 type fastUpstream struct {
 	preferTCP bool
 	addr      string
+	logger    *logrus.Entry
 	udpPool   *cpool.Pool
 	tcpPool   *cpool.Pool
 }
 
-func newFastUpstream(addr string, preferTCP bool) upstream.Upstream {
+func newFastUpstream(addr string, preferTCP bool, logger *logrus.Entry) upstream.Upstream {
 	return &fastUpstream{
 		preferTCP: preferTCP,
 		addr:      addr,
-		udpPool:   cpool.New(0xffff, time.Second*30, time.Second*5),
-		tcpPool:   cpool.New(0xffff, tcpIdleTimeout, time.Second*2),
+		udpPool:   cpool.New(0xffff, time.Second*30, time.Second*5, logger),
+		tcpPool:   cpool.New(0xffff, tcpIdleTimeout, time.Second*2, logger),
 	}
 }
 

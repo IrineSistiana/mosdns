@@ -36,7 +36,7 @@ func Test_switchPlugin_Do(t *testing.T) {
 				&ifBlock{
 					ifMather:   []string{"!" + matched, notMatched},
 					executable: []executable{execErr},
-					gotoRouter: "goto",
+					goTwo:      "goto",
 				},
 			},
 		}, wantNext: "", wantErr: nil},
@@ -46,7 +46,7 @@ func Test_switchPlugin_Do(t *testing.T) {
 				&ifBlock{
 					ifMather:   []string{"!" + matched, notMatched}, // not matched
 					executable: []executable{execErr},
-					gotoRouter: "goto1",
+					goTwo:      "goto1",
 				},
 				&ifBlock{
 					ifMather: []string{"!" + matched, matched, matchErr}, // matched, no err
@@ -55,10 +55,10 @@ func Test_switchPlugin_Do(t *testing.T) {
 						&ifBlock{
 							ifMather:   []string{"!" + matched, notMatched, matched}, // matched
 							executable: []executable{exec},
-							gotoRouter: "goto2", // reached here
+							goTwo:      "goto2", // reached here
 						},
 					},
-					gotoRouter: "goto3",
+					goTwo: "goto3",
 				},
 			},
 		}, wantNext: "goto2", wantErr: nil},
@@ -68,7 +68,7 @@ func Test_switchPlugin_Do(t *testing.T) {
 				&ifBlock{
 					ifMather:   []string{"!" + matched, notMatched, matchErr},
 					executable: []executable{exec},
-					gotoRouter: "goto",
+					goTwo:      "goto",
 				},
 			},
 		}, wantNext: "", wantErr: mErr},
@@ -77,7 +77,7 @@ func Test_switchPlugin_Do(t *testing.T) {
 				&ifBlock{
 					ifMather:   []string{"!" + matched, matched},
 					executable: []executable{execErr},
-					gotoRouter: "goto",
+					goTwo:      "goto",
 				},
 			},
 		}, wantNext: "", wantErr: eErr},

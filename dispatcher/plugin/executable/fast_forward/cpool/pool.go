@@ -20,8 +20,8 @@ package cpool
 import (
 	"container/list"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
+	"github.com/sirupsen/logrus"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -32,6 +32,7 @@ type Pool struct {
 	maxSize         int
 	ttl             time.Duration
 	cleanerInterval time.Duration
+	logger          *logrus.Entry
 
 	cleanerStatus int32
 	sync.Mutex
@@ -48,7 +49,7 @@ const (
 	cleanerOnline
 )
 
-func New(size int, ttl, cleanerInterval time.Duration) *Pool {
+func New(size int, ttl, cleanerInterval time.Duration, logger *logrus.Entry) *Pool {
 	if cleanerInterval <= 0 {
 		panic(fmt.Sprintf("cpool: pool cleaner interval should greater than 0, but got %d", cleanerInterval))
 	}
@@ -61,6 +62,7 @@ func New(size int, ttl, cleanerInterval time.Duration) *Pool {
 		maxSize:         size,
 		ttl:             ttl,
 		cleanerInterval: cleanerInterval,
+		logger:          logger,
 		pool:            list.New(),
 		cleanerStatus:   cleanerOffline,
 	}
@@ -136,8 +138,8 @@ func (p *Pool) tryStartCleanerGoroutine() {
 }
 
 func (p *Pool) startCleaner() {
-	mlog.Entry().Debugf("pool cleaner %p started", p)
-	defer mlog.Entry().Debugf("pool cleaner %p exited", p)
+	p.logger.Debugf("cpool cleaner %p started", p)
+	defer p.logger.Debugf("cpool cleaner %p exited", p)
 
 	timer := utils.GetTimer(p.cleanerInterval)
 	defer utils.ReleaseTimer(timer)
@@ -159,7 +161,7 @@ func (p *Pool) startCleaner() {
 			interval = p.cleanerInterval
 		}
 		utils.ResetAndDrainTimer(timer, interval)
-		mlog.Entry().Debugf("pool cleaner %p removed conn: %d, remain: %d, interval: %.2f", p, connCleaned, connRemain, interval.Seconds())
+		p.logger.Debugf("cpool cleaner %p removed conn: %d, remain: %d, interval: %.2f", p, connCleaned, connRemain, interval.Seconds())
 	}
 }
 

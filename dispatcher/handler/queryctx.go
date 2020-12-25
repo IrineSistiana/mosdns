@@ -26,7 +26,7 @@ import (
 )
 
 // Context is a query context that pass through plugins
-// A Context MUST has a non-nil Q.
+// A Context will always have a non-nil Q.
 // Context MUST be created by NewContext.
 type Context struct {
 	Q    *dns.Msg

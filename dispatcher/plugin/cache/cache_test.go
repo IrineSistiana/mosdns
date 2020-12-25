@@ -16,7 +16,7 @@ func Test_cache(t *testing.T) {
 	}
 
 	for i := 0; i < 8; i++ {
-		r := c.get(strconv.Itoa(i))
+		r, _ := c.get(strconv.Itoa(i))
 		if r.Question[0].Name != strconv.Itoa(i)+"." {
 			t.Fatal()
 		}

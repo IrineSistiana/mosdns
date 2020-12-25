@@ -57,7 +57,7 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 }
 
 // Do drops or replaces qCtx.R with a simple denial response.
-// It never returns a err.
+// It never returns an err.
 func (b *blackhole) Exec(_ context.Context, qCtx *handler.Context) (err error) {
 	if qCtx == nil || qCtx.Q == nil {
 		return nil

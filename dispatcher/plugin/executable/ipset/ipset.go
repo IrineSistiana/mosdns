@@ -59,9 +59,9 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 	return handler.WrapExecutablePlugin(tag, PluginType, ipsetPlugin), nil
 }
 
-// Do tries to add all qCtx.R IPs to system ipset.
-// If an error occurred, Do will just log it.
-// Therefore, Do will never return an err.
+// Exec tries to add all qCtx.R IPs to system ipset.
+// If an error occurred, Exec will just log it.
+// Therefore, Exec will never return an err.
 func (p *ipsetPlugin) Exec(_ context.Context, qCtx *handler.Context) (err error) {
 	if qCtx == nil || qCtx.R == nil {
 		return nil
