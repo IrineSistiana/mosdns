@@ -54,10 +54,6 @@ func New(size int, ttl, cleanerInterval time.Duration, logger *logrus.Entry) *Po
 		panic(fmt.Sprintf("cpool: pool cleaner interval should greater than 0, but got %d", cleanerInterval))
 	}
 
-	if size <= 0 || ttl <= 0 {
-		return nil
-	}
-
 	return &Pool{
 		maxSize:         size,
 		ttl:             ttl,
@@ -69,7 +65,7 @@ func New(size int, ttl, cleanerInterval time.Duration, logger *logrus.Entry) *Po
 }
 
 func (p *Pool) Put(c net.Conn) {
-	if p == nil {
+	if p.maxSize <= 0 || p.ttl <= 0 {
 		c.Close()
 		return
 	}
@@ -93,7 +89,7 @@ func (p *Pool) Put(c net.Conn) {
 }
 
 func (p *Pool) Get() (c net.Conn) {
-	if p == nil {
+	if p.maxSize <= 0 || p.ttl <= 0 {
 		return nil
 	}
 
@@ -118,10 +114,6 @@ func (p *Pool) Get() (c net.Conn) {
 }
 
 func (p *Pool) ConnRemain() int {
-	if p == nil {
-		return 0
-	}
-
 	p.Lock()
 	defer p.Unlock()
 

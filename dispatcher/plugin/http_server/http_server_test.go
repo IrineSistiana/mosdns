@@ -38,10 +38,10 @@ func TestHttp_server(t *testing.T) {
 	echoMsg.SetQuestion("example.com.", dns.TypeA)
 
 	s, err := startNewServer("test", args)
-	s.dnsHandler = &handler.DummyServerHandler{T: t, EchoMsg: echoMsg}
 	if err != nil {
 		t.Fatal(err)
 	}
+	s.dnsHandler = &handler.DummyServerHandler{T: t, EchoMsg: echoMsg}
 	defer s.close()
 
 	u, err := upstream.AddressToUpstream("https://127.0.0.1:51234/my-path", upstream.Options{
