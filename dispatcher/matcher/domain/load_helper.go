@@ -22,7 +22,6 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
-	"github.com/miekg/dns"
 	"io"
 	"strings"
 	"time"
@@ -38,8 +37,11 @@ const (
 	cacheTTL = time.Second * 30
 )
 
-// NewMixMatcherFormFile loads a list matcher or a v2fly matcher from file.
-// if file has a ':' and has format like 'geosite:cn', a v2fly matcher will be returned.
+// NewMixMatcherFormFile loads a matcher from file.
+// File can be a text file or a v2ray data file.
+// v2ray data file needs to specify the data category by using ':', e.g. 'geosite:cn'
+// v2ray data file can also have multiple @attr. e.g. 'geosite:cn@attr1@attr2'.
+// Only the domain with all of the @attr will be used.
 func NewMixMatcherFormFile(file string) (Matcher, error) {
 	e, ok := matcherCache.Load(file)
 	if ok {
@@ -50,10 +52,13 @@ func NewMixMatcherFormFile(file string) (Matcher, error) {
 
 	var m Matcher
 	var err error
-	if strings.Contains(file, ":") {
-		tmp := strings.SplitN(file, ":", 2)
-		m, err = NewMixMatcherFormTextDAT(tmp[0], tmp[1]) // file and tag
-	} else {
+	if tmp := strings.SplitN(file, ":", 2); len(tmp) == 2 { // is a v2ray data file
+		filePath := tmp[0]
+		tmp := strings.Split(tmp[1], "@")
+		category := tmp[0]
+		attr := tmp[1:]
+		m, err = NewMixMatcherFormTextDAT(filePath, category, attr)
+	} else { // is a text file
 		m, err = NewMixMatcherFormTextFile(file, true)
 	}
 	if err != nil {
@@ -95,22 +100,27 @@ func NewMixMatcherFormTextReader(r io.Reader, continueOnInvalidString bool) (Mat
 			continue
 		}
 
+		t := strings.Split(line, " ")
+		data := t[0]
+
+		// TODO: support @attr
+
 		var err error
 		switch {
-		case strings.HasPrefix(line, "domain:"):
-			s := line[len("domain:"):]
-			err = mixMatcher.AddElem(router.Domain_Domain, dns.Fqdn(s), nil)
-		case strings.HasPrefix(line, "keyword:"):
-			s := line[len("keyword:"):]
+		case strings.HasPrefix(data, "domain:"):
+			s := data[len("domain:"):]
+			err = mixMatcher.AddElem(router.Domain_Domain, s, nil)
+		case strings.HasPrefix(data, "keyword:"):
+			s := data[len("keyword:"):]
 			err = mixMatcher.AddElem(router.Domain_Plain, s, nil)
-		case strings.HasPrefix(line, "regexp:"):
-			s := line[len("regexp:"):]
+		case strings.HasPrefix(data, "regexp:"):
+			s := data[len("regexp:"):]
 			err = mixMatcher.AddElem(router.Domain_Regex, s, nil)
-		case strings.HasPrefix(line, "full:"):
-			s := line[len("full:"):]
-			err = mixMatcher.AddElem(router.Domain_Full, dns.Fqdn(s), nil)
+		case strings.HasPrefix(data, "full:"):
+			s := data[len("full:"):]
+			err = mixMatcher.AddElem(router.Domain_Full, s, nil)
 		default:
-			err = mixMatcher.AddElem(router.Domain_Domain, dns.Fqdn(line), nil)
+			err = mixMatcher.AddElem(router.Domain_Domain, data, nil)
 		}
 		if err != nil {
 			if continueOnInvalidString {
@@ -124,7 +134,7 @@ func NewMixMatcherFormTextReader(r io.Reader, continueOnInvalidString bool) (Mat
 	return mixMatcher, nil
 }
 
-func NewMixMatcherFormTextDAT(file, tag string) (Matcher, error) {
+func NewMixMatcherFormTextDAT(file, tag string, attr []string) (Matcher, error) {
 	domains, err := loadV2DomainsFromDAT(file, tag)
 	if err != nil {
 		return nil, err
@@ -132,12 +142,39 @@ func NewMixMatcherFormTextDAT(file, tag string) (Matcher, error) {
 
 	mixMatcher := NewMixMatcher()
 	for _, d := range domains {
+		if len(attr) != 0 && !containAttr(d.Attribute, attr) {
+			continue
+		}
 		err := mixMatcher.AddElem(d.Type, d.Value, nil)
 		if err != nil {
 			return nil, err
 		}
 	}
 	return mixMatcher, nil
+}
+
+// containAttr checks if d has all attrs.
+func containAttr(attr []*router.Domain_Attribute, want []string) bool {
+	if len(want) == 0 {
+		return true
+	}
+	if len(attr) == 0 {
+		return false
+	}
+
+	for _, want := range want {
+		ok := false
+		for _, got := range attr {
+			if got.Key == want {
+				ok = true
+				break
+			}
+		}
+		if !ok { // this attr is not in d.
+			return false
+		}
+	}
+	return true
 }
 
 func NewV2MatcherFromFile(file, tag string) (Matcher, error) {
@@ -162,9 +199,10 @@ func loadGeoSiteFromDAT(file, tag string) (*router.GeoSite, error) {
 		return nil, err
 	}
 
+	tag = strings.ToUpper(tag)
 	entry := geoSiteList.GetEntry()
 	for i := range entry {
-		if strings.ToUpper(entry[i].CountryCode) == strings.ToUpper(tag) {
+		if strings.ToUpper(entry[i].CountryCode) == tag {
 			return entry[i], nil
 		}
 	}

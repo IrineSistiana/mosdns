@@ -48,7 +48,8 @@ func NewDomainMatcher(mode MatchMode) *DomainMatcher {
 	}
 }
 
-func (m *DomainMatcher) Add(fqdn string, v interface{}) {
+func (m *DomainMatcher) Add(domain string, v interface{}) {
+	fqdn := dns.Fqdn(domain)
 	n := len(fqdn)
 
 	switch {
