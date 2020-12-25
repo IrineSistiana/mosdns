@@ -238,7 +238,7 @@ func benchIPList(f string) error {
 }
 
 func benchDomainList(f string) error {
-	list, err := domain.NewDomainMatcherFormFile(f)
+	list, err := domain.NewMixMatcherFormFile(f)
 	if err != nil {
 		return err
 	}

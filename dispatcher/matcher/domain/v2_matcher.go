@@ -18,6 +18,7 @@
 package domain
 
 import (
+	"fmt"
 	"strings"
 	"v2ray.com/core/app/router"
 )
@@ -27,10 +28,11 @@ type V2Matcher struct {
 }
 
 func (m *V2Matcher) Match(fqdn string) (v interface{}, ok bool) {
-	if strings.HasSuffix(fqdn, ".") {
-		fqdn = fqdn[:len(fqdn)-1]
+	domain := fqdn
+	if strings.HasSuffix(domain, ".") {
+		domain = domain[:len(domain)-1]
 	}
-	return nil, m.dm.ApplyDomain(fqdn)
+	return nil, m.dm.ApplyDomain(domain)
 }
 
 func NewV2Matcher(domains []*router.Domain) (*V2Matcher, error) {
@@ -39,4 +41,56 @@ func NewV2Matcher(domains []*router.Domain) (*V2Matcher, error) {
 		return nil, err
 	}
 	return &V2Matcher{dm: dm}, nil
+}
+
+type MixMatcher struct {
+	keyword *KeywordMatcher
+	regex   *RegexMatcher
+	domain  *DomainMatcher
+	full    *DomainMatcher
+}
+
+func NewMixMatcher() *MixMatcher {
+	return &MixMatcher{
+		keyword: NewKeywordMatcher(),
+		regex:   NewRegexMatcher(),
+		domain:  NewDomainMatcher(MatchModeDomain),
+		full:    NewDomainMatcher(MatchModeFull),
+	}
+}
+
+func (m *MixMatcher) AddElem(typ router.Domain_Type, s string, v interface{}) error {
+	switch typ {
+	case router.Domain_Plain:
+		m.keyword.Add(s, v)
+	case router.Domain_Regex:
+		err := m.regex.Add(s, v)
+		if err != nil {
+			return err
+		}
+	case router.Domain_Domain:
+		m.domain.Add(s, v)
+	case router.Domain_Full:
+		m.full.Add(s, v)
+	default:
+		return fmt.Errorf("invalid type %d", typ)
+	}
+	return nil
+}
+
+func (m *MixMatcher) Match(fqdn string) (v interface{}, ok bool) {
+	// it seems v2ray match full matcher first, then domain, reg and keyword matcher.
+	if v, ok = m.full.Match(fqdn); ok {
+		return
+	}
+	if v, ok = m.domain.Match(fqdn); ok {
+		return
+	}
+	if v, ok = m.regex.Match(fqdn); ok {
+		return
+	}
+	if v, ok = m.keyword.Match(fqdn); ok {
+		return
+	}
+	return
 }

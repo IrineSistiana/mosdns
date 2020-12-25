@@ -18,46 +18,67 @@
 package domain
 
 import (
+	"fmt"
 	"github.com/miekg/dns"
+	"regexp"
+	"strings"
 )
 
 type DomainMatcher struct {
+	mode MatchMode
+
 	s map[[16]byte]interface{}
 	m map[[32]byte]interface{}
 	l map[[256]byte]interface{}
 }
 
-func NewListMatcher() *DomainMatcher {
+type MatchMode uint8
+
+const (
+	MatchModeDomain MatchMode = iota
+	MatchModeFull
+)
+
+func NewDomainMatcher(mode MatchMode) *DomainMatcher {
 	return &DomainMatcher{
-		s: make(map[[16]byte]interface{}),
-		m: make(map[[32]byte]interface{}),
-		l: make(map[[256]byte]interface{}),
+		mode: mode,
+		s:    make(map[[16]byte]interface{}),
+		m:    make(map[[32]byte]interface{}),
+		l:    make(map[[256]byte]interface{}),
 	}
 }
 
-func (l *DomainMatcher) Add(fqdn string, v interface{}) {
+func (m *DomainMatcher) Add(fqdn string, v interface{}) {
 	n := len(fqdn)
 
 	switch {
 	case n <= 16:
 		var b [16]byte
 		copy(b[:], fqdn)
-		l.s[b] = v
+		m.s[b] = v
 	case n <= 32:
 		var b [32]byte
 		copy(b[:], fqdn)
-		l.m[b] = v
+		m.m[b] = v
 	default:
 		var b [256]byte
 		copy(b[:], fqdn)
-		l.l[b] = v
+		m.l[b] = v
 	}
 }
 
-func (l *DomainMatcher) Match(fqdn string) (v interface{}, ok bool) {
-	if fqdn == "." {
-		return nil, false
+func (m *DomainMatcher) Match(fqdn string) (v interface{}, ok bool) {
+	switch m.mode {
+	case MatchModeFull:
+		return m.fullMatch(fqdn)
+	case MatchModeDomain:
+		return m.domainMatch(fqdn)
+	default:
+		panic(fmt.Sprintf("domain: invalid match mode %d", m.mode))
 	}
+}
+
+func (m *DomainMatcher) domainMatch(fqdn string) (v interface{}, ok bool) {
 	idx := make([]int, 1, 6)
 	off := 0
 	end := false
@@ -72,34 +93,110 @@ func (l *DomainMatcher) Match(fqdn string) (v interface{}, ok bool) {
 
 	for i := range idx {
 		p := idx[len(idx)-1-i]
-		if v, ok = l.fullMatch(fqdn[p:]); ok {
+		if v, ok = m.fullMatch(fqdn[p:]); ok {
 			return v, true
 		}
 	}
 	return nil, false
 }
 
-func (l *DomainMatcher) fullMatch(fqdn string) (v interface{}, ok bool) {
+func (m *DomainMatcher) fullMatch(fqdn string) (v interface{}, ok bool) {
 	n := len(fqdn)
 	switch {
 	case n <= 16:
 		var b [16]byte
 		copy(b[:], fqdn)
-		v, ok = l.s[b]
+		v, ok = m.s[b]
 		return
 	case n <= 32:
 		var b [32]byte
 		copy(b[:], fqdn)
-		v, ok = l.m[b]
+		v, ok = m.m[b]
 		return
 	default:
 		var b [256]byte
 		copy(b[:], fqdn)
-		v, ok = l.l[b]
+		v, ok = m.l[b]
 		return
 	}
 }
 
-func (l *DomainMatcher) Len() int {
-	return len(l.l) + len(l.m) + len(l.s)
+func (m *DomainMatcher) Len() int {
+	return len(m.l) + len(m.m) + len(m.s)
+}
+
+type KeywordMatcher struct {
+	kws []*kwElem
+}
+
+type kwElem struct {
+	s string
+	v interface{}
+}
+
+func NewKeywordMatcher() *KeywordMatcher {
+	return &KeywordMatcher{
+		kws: make([]*kwElem, 0),
+	}
+}
+
+func (m *KeywordMatcher) Add(keyword string, v interface{}) {
+	m.kws = append(m.kws, &kwElem{s: keyword, v: v})
+}
+
+func (m *KeywordMatcher) Match(fqdn string) (v interface{}, ok bool) {
+	for _, e := range m.kws {
+		if strings.Contains(fqdn, e.s) {
+			return e.v, true
+		}
+	}
+	return nil, false
+}
+
+type RegexMatcher struct {
+	regs []*regElem
+}
+
+type regElem struct {
+	reg *regexp.Regexp
+	v   interface{}
+}
+
+func NewRegexMatcher() *RegexMatcher {
+	return &RegexMatcher{regs: make([]*regElem, 0)}
+}
+
+func (m *RegexMatcher) Add(expr string, v interface{}) error {
+	reg, err := regexp.Compile(expr)
+	if err != nil {
+		return err
+	}
+	m.regs = append(m.regs, &regElem{reg: reg, v: v})
+	return nil
+}
+
+func (m *RegexMatcher) Match(fqdn string) (v interface{}, ok bool) {
+	for _, e := range m.regs {
+		if e.reg.MatchString(fqdn) {
+			return e.v, true
+		}
+	}
+	return nil, false
+}
+
+type MatcherGroup struct {
+	m []Matcher
+}
+
+func (mg *MatcherGroup) Match(fqdn string) (v interface{}, ok bool) {
+	for _, m := range mg.m {
+		if v, ok = m.Match(fqdn); ok {
+			return
+		}
+	}
+	return nil, false
+}
+
+func NewMatcherGroup(m []Matcher) *MatcherGroup {
+	return &MatcherGroup{m: m}
 }

@@ -18,23 +18,32 @@
 package domain
 
 import (
+	"reflect"
 	"testing"
 )
 
-func Test_DomainList(t *testing.T) {
-	l := NewListMatcher()
+func assertFunc(t *testing.T, m Matcher) func(fqdn string, wantBool bool, wantV interface{}) {
+	return func(fqdn string, wantBool bool, wantV interface{}) {
+		v, ok := m.Match(fqdn)
+		if ok != wantBool || !reflect.DeepEqual(v, wantV) {
+			t.Fatal()
+		}
+	}
+}
 
+func Test_DomainMatcher(t *testing.T) {
+	m := NewDomainMatcher(MatchModeDomain)
 	add := func(fqdn string) {
-		l.Add(fqdn, fqdn)
+		m.Add(fqdn, fqdn)
 	}
 	assertMatched := func(fqdn, base string) {
-		v, ok := l.Match(fqdn)
+		v, ok := m.Match(fqdn)
 		if !ok || base != v.(string) {
 			t.Fatal()
 		}
 	}
 	assertNotMatched := func(fqdn string) {
-		v, ok := l.Match(fqdn)
+		v, ok := m.Match(fqdn)
 		if ok || v != nil {
 			t.Fatal()
 		}
@@ -55,4 +64,53 @@ func Test_DomainList(t *testing.T) {
 	assertNotMatched("us.")
 	assertNotMatched("c.com.")
 	assertNotMatched("a.c.com.")
+
+	m.mode = MatchModeFull
+	assertNotMatched("a.cn.")
+	assertMatched("a.com.", "a.com.")
+	assertNotMatched("b.a.com.")
+}
+
+func Test_KeywordMatcher(t *testing.T) {
+	m := NewKeywordMatcher()
+	add := func(keyword string) {
+		m.Add(keyword, keyword)
+	}
+
+	assert := assertFunc(t, m)
+
+	add("123")
+	assert("123456.cn.", true, "123")
+	assert("456.cn.", false, nil)
+	add("example.com")
+	assert("sub.example.com.", true, "example.com")
+	assert("example_sub.com.", false, nil)
+}
+
+func Test_RegexMatcher(t *testing.T) {
+	m := NewRegexMatcher()
+	add := func(expr string, wantErr bool) {
+		err := m.Add(expr, expr)
+		if err != nil && !wantErr {
+			t.Fatal(err)
+		}
+	}
+
+	assert := assertFunc(t, m)
+
+	s := "^github-production-release-asset-[0-9a-za-z]{6}\\.s3\\.amazonaws\\.com$"
+	add(s, false)
+	assert("github-production-release-asset-000000.s3.amazonaws.com", true, s)
+	assert("github-production-release-asset-aaaaaa.s3.amazonaws.com", true, s)
+	assert("github-production-release-asset-aa.s3.amazonaws.com", false, nil)
+	assert("prefix_github-production-release-asset-000000.s3.amazonaws.com", false, nil)
+	assert("github-production-release-asset-000000.s3.amazonaws.com.suffix", false, nil)
+
+	s = "^example"
+	add(s, false)
+	assert("example.com", true, s)
+	assert("sub.example.com", false, nil)
+
+	s = "*"
+	add(s, true)
 }

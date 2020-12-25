@@ -68,7 +68,7 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 	m.logger = mlog.NewPluginLogger(tag)
 	mg := make([]domain.Matcher, 0, len(args.Domain))
 	for _, f := range args.Domain {
-		matcher, err := domain.NewDomainMatcherFormFile(f)
+		matcher, err := domain.NewMixMatcherFormFile(f)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load domain file %s: %w", f, err)
 		}

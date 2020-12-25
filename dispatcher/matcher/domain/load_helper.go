@@ -22,13 +22,13 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
+	"github.com/miekg/dns"
 	"io"
 	"strings"
 	"time"
 
 	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/golang/protobuf/proto"
-	"github.com/miekg/dns"
 	"v2ray.com/core/app/router"
 )
 
@@ -38,9 +38,9 @@ const (
 	cacheTTL = time.Second * 30
 )
 
-// NewDomainMatcherFormFile loads a list matcher or a v2fly matcher from file.
+// NewMixMatcherFormFile loads a list matcher or a v2fly matcher from file.
 // if file has a ':' and has format like 'geosite:cn', a v2fly matcher will be returned.
-func NewDomainMatcherFormFile(file string) (Matcher, error) {
+func NewMixMatcherFormFile(file string) (Matcher, error) {
 	e, ok := matcherCache.Load(file)
 	if ok {
 		if m, ok := e.(Matcher); ok {
@@ -52,9 +52,9 @@ func NewDomainMatcherFormFile(file string) (Matcher, error) {
 	var err error
 	if strings.Contains(file, ":") {
 		tmp := strings.SplitN(file, ":", 2)
-		m, err = NewV2MatcherFromFile(tmp[0], tmp[1]) // file and tag
+		m, err = NewMixMatcherFormTextDAT(tmp[0], tmp[1]) // file and tag
 	} else {
-		m, err = NewDomainListMatcherFormFile(file, true)
+		m, err = NewMixMatcherFormTextFile(file, true)
 	}
 	if err != nil {
 		return nil, err
@@ -64,7 +64,7 @@ func NewDomainMatcherFormFile(file string) (Matcher, error) {
 	return m, nil
 }
 
-func NewDomainListMatcherFormFile(file string, continueOnInvalidString bool) (Matcher, error) {
+func NewMixMatcherFormTextFile(file string, continueOnInvalidString bool) (Matcher, error) {
 	data, raw, err := matcherCache.LoadFromCacheOrRawDisk(file)
 	if err != nil {
 		return nil, err
@@ -73,7 +73,7 @@ func NewDomainListMatcherFormFile(file string, continueOnInvalidString bool) (Ma
 	if m, ok := data.(Matcher); ok {
 		return m, nil
 	}
-	m, err := NewDomainListMatcherFormReader(bytes.NewBuffer(raw), continueOnInvalidString)
+	m, err := NewMixMatcherFormTextReader(bytes.NewBuffer(raw), continueOnInvalidString)
 	if err != nil {
 		return nil, err
 	}
@@ -81,32 +81,63 @@ func NewDomainListMatcherFormFile(file string, continueOnInvalidString bool) (Ma
 	return m, nil
 }
 
-func NewDomainListMatcherFormReader(r io.Reader, continueOnInvalidString bool) (Matcher, error) {
-	l := NewListMatcher()
+func NewMixMatcherFormTextReader(r io.Reader, continueOnInvalidString bool) (Matcher, error) {
+	mixMatcher := NewMixMatcher()
 
 	lineCounter := 0
-	s := bufio.NewScanner(r)
-	for s.Scan() {
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
 		lineCounter++
-		line := strings.TrimSpace(s.Text())
+		line := strings.TrimSpace(scanner.Text())
 
 		//ignore lines begin with # and empty lines
 		if len(line) == 0 || strings.HasPrefix(line, "#") {
 			continue
 		}
 
-		fqdn := dns.Fqdn(line)
-		if _, ok := dns.IsDomainName(fqdn); !ok {
+		var err error
+		switch {
+		case strings.HasPrefix(line, "domain:"):
+			s := line[len("domain:"):]
+			err = mixMatcher.AddElem(router.Domain_Domain, dns.Fqdn(s), nil)
+		case strings.HasPrefix(line, "keyword:"):
+			s := line[len("keyword:"):]
+			err = mixMatcher.AddElem(router.Domain_Plain, s, nil)
+		case strings.HasPrefix(line, "regexp:"):
+			s := line[len("regexp:"):]
+			err = mixMatcher.AddElem(router.Domain_Regex, s, nil)
+		case strings.HasPrefix(line, "full:"):
+			s := line[len("full:"):]
+			err = mixMatcher.AddElem(router.Domain_Full, dns.Fqdn(s), nil)
+		default:
+			err = mixMatcher.AddElem(router.Domain_Domain, dns.Fqdn(line), nil)
+		}
+		if err != nil {
 			if continueOnInvalidString {
-				mlog.Entry().Warnf("invalid domain [%s] at line %d", line, lineCounter)
+				mlog.Entry().Warnf("invalid record [%s] at line %d", line, lineCounter)
 			} else {
-				return nil, fmt.Errorf("invalid domain [%s] at line %d", line, lineCounter)
+				return nil, fmt.Errorf("invalid record [%s] at line %d", line, lineCounter)
 			}
 		}
-		l.Add(fqdn, nil)
-
 	}
-	return l, nil
+
+	return mixMatcher, nil
+}
+
+func NewMixMatcherFormTextDAT(file, tag string) (Matcher, error) {
+	domains, err := loadV2DomainsFromDAT(file, tag)
+	if err != nil {
+		return nil, err
+	}
+
+	mixMatcher := NewMixMatcher()
+	for _, d := range domains {
+		err := mixMatcher.AddElem(d.Type, d.Value, nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return mixMatcher, nil
 }
 
 func NewV2MatcherFromFile(file, tag string) (Matcher, error) {
