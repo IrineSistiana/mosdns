@@ -81,9 +81,11 @@ func (s *sequenceRouter) Type() string {
 }
 
 func (s *sequenceRouter) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
-	err = s.executableCmd.Exec(ctx, qCtx, s.logger)
-	if err != nil {
-		return handler.NewPluginError(s.tag, err)
+	if s.executableCmd != nil {
+		err = s.executableCmd.Exec(ctx, qCtx, s.logger)
+		if err != nil {
+			return handler.NewPluginError(s.tag, err)
+		}
 	}
 	return nil
 }
