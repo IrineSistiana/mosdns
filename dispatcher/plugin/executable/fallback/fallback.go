@@ -36,9 +36,11 @@ func init() {
 var _ handler.Executable = (*fallback)(nil)
 
 type fallback struct {
-	tag    string
-	logger *logrus.Entry
-	args   *Args
+	tag       string
+	logger    *logrus.Entry
+	args      *Args
+	primary   *handler.ExecutableCmdSequence
+	secondary *handler.ExecutableCmdSequence
 
 	l      sync.RWMutex
 	status []stat
@@ -54,9 +56,9 @@ const (
 
 type Args struct {
 	// Primary exec sequence, must have at least one element.
-	Primary []string `yaml:"primary"`
+	Primary []interface{} `yaml:"primary"`
 	// Secondary exec sequence, must have at least one element.
-	Secondary []string `yaml:"secondary"`
+	Secondary []interface{} `yaml:"secondary"`
 
 	StatLength uint `yaml:"stat_length"` // default is 10
 	Threshold  uint `yaml:"threshold"`   // default is 5
@@ -93,10 +95,23 @@ func newFallback(tag string, args *Args) (*fallback, error) {
 		args.Threshold = 5
 	}
 
+	primary := handler.NewExecutableCmdSequence()
+	if err := primary.Parse(args.Primary); err != nil {
+		return nil, fmt.Errorf("invalid primary sequence: %w", err)
+	}
+
+	secondary := handler.NewExecutableCmdSequence()
+	if err := secondary.Parse(args.Secondary); err != nil {
+		return nil, fmt.Errorf("invalid secondary sequence: %w", err)
+	}
+
 	return &fallback{
-		tag:    tag,
-		logger: mlog.NewPluginLogger(tag),
-		args:   args,
+		tag:       tag,
+		logger:    mlog.NewPluginLogger(tag),
+		args:      args,
+		primary:   primary,
+		secondary: secondary,
+
 		status: make([]stat, args.StatLength),
 	}, nil
 }
@@ -119,7 +134,7 @@ func (f *fallback) exec(ctx context.Context, qCtx *handler.Context) (err error) 
 }
 
 func (f *fallback) doPrimary(ctx context.Context, qCtx *handler.Context) (err error) {
-	err = f.do(ctx, qCtx, f.args.Primary)
+	err = f.primary.Exec(ctx, qCtx, f.logger)
 	if err != nil || qCtx.R == nil || (qCtx.R != nil && qCtx.R.Rcode != dns.RcodeSuccess) {
 		f.updatePrimaryStat(failed)
 	} else {
@@ -140,7 +155,7 @@ func (f *fallback) doSecondary(ctx context.Context, qCtx *handler.Context) (err 
 
 	go func() {
 		qCtxCopy := qCtx.Copy()
-		err := f.doPrimary(ctx, qCtxCopy)
+		err := f.doPrimary(ctx, qCtx)
 		c <- &fallbackResult{
 			qCtx: qCtxCopy,
 			err:  err,
@@ -150,7 +165,7 @@ func (f *fallback) doSecondary(ctx context.Context, qCtx *handler.Context) (err 
 
 	go func() {
 		qCtxCopy := qCtx.Copy()
-		err := f.do(ctx, qCtxCopy, f.args.Secondary)
+		err := f.secondary.Exec(ctx, qCtx, f.logger)
 		c <- &fallbackResult{
 			qCtx: qCtxCopy,
 			err:  err,
@@ -183,17 +198,6 @@ func (f *fallback) doSecondary(ctx context.Context, qCtx *handler.Context) (err 
 	r.SetReply(qCtx.Q)
 	r.Rcode = dns.RcodeServerFailure
 	qCtx.R = r
-	return nil
-}
-
-func (f *fallback) do(ctx context.Context, qCtx *handler.Context, sequence []string) (err error) {
-	for _, tag := range sequence {
-		p, err := handler.GetExecutablePlugin(tag)
-		if err != nil {
-			return err
-		}
-		return p.Exec(ctx, qCtx)
-	}
 	return nil
 }
 

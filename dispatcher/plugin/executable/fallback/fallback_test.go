@@ -24,8 +24,8 @@ func Test_fallback_updatePrimaryStat(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f, err := newFallback("", &Args{
-				Primary:    []string{""},
-				Secondary:  []string{""},
+				Primary:    []interface{}{""},
+				Secondary:  []interface{}{""},
 				StatLength: 4,
 				Threshold:  3,
 			})
