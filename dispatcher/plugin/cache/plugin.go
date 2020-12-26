@@ -81,7 +81,7 @@ func (c *cachePlugin) connect(ctx context.Context, qCtx *handler.Context, pipeCt
 			cacheable = false
 		} else {
 			if r, ttl := c.c.get(key); r != nil { // if cache hit
-				c.logger.Warnf("%v: cache hit", qCtx)
+				c.logger.Debugf("%v: cache hit", qCtx)
 				r.Id = qCtx.Q.Id
 				setTTL(r, uint32(ttl/time.Second))
 				qCtx.R = r
