@@ -57,11 +57,12 @@ func (s *httpServer) Type() string {
 }
 
 type Args struct {
-	Listen string `yaml:"listen"`
-	Path   string `yaml:"path"`
-	Cert   string `yaml:"cert"`
-	Key    string `yaml:"key"`
-	Entry  string `yaml:"entry"`
+	Listen               string `yaml:"listen"`
+	Path                 string `yaml:"path"`
+	Cert                 string `yaml:"cert"`
+	Key                  string `yaml:"key"`
+	Entry                string `yaml:"entry"`
+	MaxConcurrentQueries int    `yaml:"max_concurrent_queries"`
 }
 
 func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err error) {
@@ -84,10 +85,14 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 func startNewServer(tag string, args *Args) (*httpServer, error) {
 	logger := mlog.NewPluginLogger(tag)
 	s := &httpServer{
-		tag:        tag,
-		path:       args.Path,
-		logger:     logger,
-		dnsHandler: &handler.DefaultServerHandler{Entry: args.Entry, Logger: mlog.NewPluginLogger(tag)},
+		tag:    tag,
+		path:   args.Path,
+		logger: logger,
+		dnsHandler: handler.NewDefaultServerHandler(&handler.DefaultServerHandlerConfig{
+			Logger:          logger,
+			Entry:           args.Entry,
+			ConcurrentLimit: args.MaxConcurrentQueries,
+		}),
 	}
 
 	l, err := net.Listen("tcp", args.Listen)

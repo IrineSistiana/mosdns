@@ -52,8 +52,9 @@ func (s *plainServerPlugin) Type() string {
 }
 
 type Args struct {
-	Listen []string `yaml:"listen"`
-	Entry  string   `yaml:"entry"`
+	Listen               []string `yaml:"listen"`
+	Entry                string   `yaml:"entry"`
+	MaxConcurrentQueries int      `yaml:"max_concurrent_queries"`
 }
 
 func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err error) {
@@ -70,17 +71,19 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		return nil, errors.New("empty entry")
 	}
 
+	logger := mlog.NewPluginLogger(tag)
 	sp := &plainServerPlugin{
 		tag:          tag,
-		logger:       mlog.NewPluginLogger(tag),
+		logger:       logger,
 		args:         args,
 		shutdownChan: make(chan struct{}),
 	}
 
-	h := &handler.DefaultServerHandler{
-		Logger: sp.logger,
-		Entry:  sp.args.Entry,
-	}
+	h := handler.NewDefaultServerHandler(&handler.DefaultServerHandlerConfig{
+		Logger:          logger,
+		Entry:           args.Entry,
+		ConcurrentLimit: args.MaxConcurrentQueries,
+	})
 	server := &singleServer{
 		logger:       sp.logger,
 		shutdownChan: sp.shutdownChan,

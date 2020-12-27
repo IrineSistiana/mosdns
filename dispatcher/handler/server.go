@@ -19,12 +19,13 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
 )
 
 type ServerHandler interface {
-	// ServeDNS use ctx to control deadline, exchange qCtx, and write response to w.
+	// ServeDNS uses ctx to control deadline, exchanges qCtx, and writes response to w.
 	ServeDNS(ctx context.Context, qCtx *Context, w ResponseWriter)
 }
 
@@ -33,26 +34,49 @@ type ResponseWriter interface {
 	Write(m *dns.Msg) (n int, err error)
 }
 
-// DefaultServerHandler
-// If entry returns an err, a SERVFAIL response will be sent back to client.
 type DefaultServerHandler struct {
-	Entry  string
-	Logger *logrus.Entry
+	config *DefaultServerHandlerConfig
+
+	limiter *concurrentLimiter // if it's nil, means no limit.
 }
 
-// ServeDNS: see DefaultServerHandler.
-func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *Context, w ResponseWriter) {
-	p, err := GetExecutablePlugin(h.Entry)
-	if err != nil {
-		h.Logger.Errorf("%v: cannot execute entry %s: %v", qCtx, h.Entry, err)
+type DefaultServerHandlerConfig struct {
+	// Logger is used for logging, it cannot be nil.
+	Logger *logrus.Entry
+	// Entry is the entry ExecutablePlugin's tag. This shouldn't be empty.
+	Entry string
+	// ConcurrentLimit controls the max concurrent queries.
+	// If ConcurrentLimit <= 0, means no limit.
+	ConcurrentLimit int
+}
+
+// NewDefaultServerHandler:
+// concurrentLimit <= 0 means no concurrent limit.
+// Also see DefaultServerHandler.ServeDNS.
+func NewDefaultServerHandler(config *DefaultServerHandlerConfig) *DefaultServerHandler {
+	h := &DefaultServerHandler{config: config}
+
+	if config.ConcurrentLimit > 0 {
+		h.limiter = newConcurrentLimiter(config.ConcurrentLimit)
 	}
-	err = p.Exec(ctx, qCtx)
-	if err != nil {
-		h.Logger.Warnf("%v: entry %s returned with err: %v", qCtx, h.Entry, err)
-	} else {
-		h.Logger.Debugf("%v: entry %s returned", qCtx, h.Entry)
+	return h
+}
+
+// ServeDNS:
+// If entry returns an err, a SERVFAIL response will be sent back to client.
+// If concurrentLimit is reached, the query will block and wait available token until ctx is done.
+func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *Context, w ResponseWriter) {
+	if h.limiter != nil {
+		select {
+		case <-h.limiter.acquire():
+			defer h.limiter.release()
+		case <-ctx.Done():
+			// silently drop this query
+			return
+		}
 	}
 
+	err := h.execEntry(ctx, qCtx)
 	var r *dns.Msg
 	if err != nil {
 		r = new(dns.Msg)
@@ -64,7 +88,55 @@ func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *Context, w Re
 
 	if r != nil {
 		if _, err = w.Write(r); err != nil {
-			h.Logger.Warnf("response might not send back to client: %v", err)
+			h.config.Logger.Warnf("%v: response might not send back to client: %v", qCtx, err)
 		}
 	}
+}
+
+func (h *DefaultServerHandler) execEntry(ctx context.Context, qCtx *Context) error {
+	p, err := GetExecutablePlugin(h.config.Entry)
+	if err != nil {
+		return err
+	}
+	return p.Exec(ctx, qCtx)
+}
+
+// concurrentLimiter
+type concurrentLimiter struct {
+	bucket chan struct{}
+}
+
+// newConcurrentLimiter returns a concurrentLimiter, max must > 0.
+func newConcurrentLimiter(max int) *concurrentLimiter {
+	if max <= 0 {
+		panic(fmt.Sprintf("concurrentLimiter: invalid max arg: %d", max))
+	}
+
+	bucket := make(chan struct{}, max)
+For:
+	for {
+		select {
+		case bucket <- struct{}{}:
+		default:
+			break For
+		}
+	}
+
+	return &concurrentLimiter{bucket: bucket}
+}
+
+func (l *concurrentLimiter) acquire() <-chan struct{} {
+	return l.bucket
+}
+
+func (l *concurrentLimiter) release() {
+	select {
+	case l.bucket <- struct{}{}:
+	default:
+		panic("concurrentLimiter: bucket overflow")
+	}
+}
+
+func (l *concurrentLimiter) available() int {
+	return len(l.bucket)
 }
