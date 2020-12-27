@@ -20,3 +20,6 @@ release/
 # ide
 .vscode/
 .idea/
+
+# test utils
+testutils/
