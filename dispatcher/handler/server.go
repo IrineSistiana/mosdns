@@ -78,7 +78,7 @@ func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *Context, w Re
 
 	err := h.execEntry(ctx, qCtx)
 	var r *dns.Msg
-	if err != nil {
+	if err != nil || qCtx.Status == ContextStatusServerFailed {
 		r = new(dns.Msg)
 		r.SetReply(qCtx.Q)
 		r.Rcode = dns.RcodeServerFailure

@@ -151,7 +151,6 @@ type fallbackResult struct {
 
 func (f *fallback) doSecondary(ctx context.Context, qCtx *handler.Context) (err error) {
 	c := make(chan *fallbackResult, 2) // buf size is 2, avoid block.
-	var errs []error
 
 	go func() {
 		qCtxCopy := qCtx.Copy()
@@ -177,12 +176,9 @@ func (f *fallback) doSecondary(ctx context.Context, qCtx *handler.Context) (err 
 		select {
 		case r := <-c:
 			if r.err != nil {
-				errs = append(errs, err)
 				f.logger.Warnf("%v: %s sequence failed with err: %v", qCtx, r.from, r.err)
-			} else if r.qCtx.R == nil {
-				f.logger.Warnf("%v: %s sequence returned with an empty response", qCtx, r.from)
-			} else if r.qCtx.R.Rcode != dns.RcodeSuccess {
-				f.logger.Warnf("%v: %s sequence responded with an err rcode: %d", qCtx, r.from, r.qCtx.R.Rcode)
+			} else if r.qCtx.Status != handler.ContextStatusResponded {
+				f.logger.Debugf("%v: %s sequence returned with status %s", qCtx, r.from, r.qCtx.Status)
 			} else {
 				f.logger.Debugf("%v: %s sequence returned a valid response", qCtx, r.from)
 				*qCtx = *r.qCtx
@@ -193,11 +189,8 @@ func (f *fallback) doSecondary(ctx context.Context, qCtx *handler.Context) (err 
 		}
 	}
 
-	// Don't return an err even if all sequences failed. Instead, we set qCtx.R with dns.RcodeServerFailure.
-	r := new(dns.Msg)
-	r.SetReply(qCtx.Q)
-	r.Rcode = dns.RcodeServerFailure
-	qCtx.R = r
+	// No valid respond
+	qCtx.SetResponse(nil, handler.ContextStatusServerFailed)
 	return nil
 }
 

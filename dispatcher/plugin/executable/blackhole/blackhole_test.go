@@ -31,7 +31,7 @@ func Test_blackhole_Do(t *testing.T) {
 			r := new(dns.Msg)
 			r.SetReply(q)
 			qCtx.Q = q
-			qCtx.R = r
+			qCtx.SetResponse(r, handler.ContextStatusResponded)
 
 			err := b.Exec(ctx, qCtx)
 			if err != nil {

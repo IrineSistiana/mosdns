@@ -84,7 +84,7 @@ func (c *cachePlugin) connect(ctx context.Context, qCtx *handler.Context, pipeCt
 				c.logger.Debugf("%v: cache hit", qCtx)
 				r.Id = qCtx.Q.Id
 				setTTL(r, uint32(ttl/time.Second))
-				qCtx.R = r
+				qCtx.SetResponse(r, handler.ContextStatusResponded)
 				return nil
 			}
 		}

@@ -68,9 +68,9 @@ func (b *blackhole) Exec(_ context.Context, qCtx *handler.Context) (err error) {
 		r := new(dns.Msg)
 		r.SetReply(qCtx.Q)
 		r.Rcode = b.rCode
-		qCtx.R = r
+		qCtx.SetResponse(r, handler.ContextStatusRejected)
 	default:
-		qCtx.R = nil
+		qCtx.SetResponse(nil, handler.ContextStatusDropped)
 	}
 
 	return nil

@@ -32,13 +32,45 @@ type Context struct {
 	Q    *dns.Msg
 	From net.Addr
 
-	R *dns.Msg
+	Status ContextStatus
+	R      *dns.Msg
 
 	startTime time.Time
 }
 
+type ContextStatus uint8
+
+const (
+	ContextStatusWaitingResponse ContextStatus = iota
+	ContextStatusResponded
+	ContextStatusServerFailed
+	ContextStatusDropped
+	ContextStatusRejected
+)
+
+var statusToStr = map[ContextStatus]string{
+	ContextStatusWaitingResponse: "WaitingResponse",
+	ContextStatusResponded:       "Responded",
+	ContextStatusServerFailed:    "ServerFailed",
+	ContextStatusDropped:         "Dropped",
+	ContextStatusRejected:        "Rejected",
+}
+
+func (status ContextStatus) String() string {
+	s, ok := statusToStr[status]
+	if ok {
+		return s
+	}
+	return fmt.Sprintf("invalid status %d", status)
+}
+
 func NewContext(q *dns.Msg) *Context {
-	return &Context{Q: q, startTime: time.Now()}
+	return &Context{Q: q, Status: ContextStatusWaitingResponse, startTime: time.Now()}
+}
+
+func (ctx *Context) SetResponse(r *dns.Msg, status ContextStatus) {
+	ctx.R = r
+	ctx.Status = status
 }
 
 func (ctx *Context) Copy() *Context {
@@ -47,13 +79,16 @@ func (ctx *Context) Copy() *Context {
 	}
 
 	newCtx := new(Context)
+
 	if ctx.Q != nil {
 		newCtx.Q = ctx.Q.Copy()
 	}
+	newCtx.From = ctx.From
+
+	newCtx.Status = ctx.Status
 	if ctx.R != nil {
 		newCtx.R = ctx.R.Copy()
 	}
-	newCtx.From = ctx.From
 	newCtx.startTime = ctx.startTime
 
 	return newCtx

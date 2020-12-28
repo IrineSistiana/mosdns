@@ -126,7 +126,7 @@ func (h *hostsContainer) matchAndSet(qCtx *handler.Context) (matched bool) {
 				}
 				r.Answer = append(r.Answer, rr)
 			}
-			qCtx.R = r
+			qCtx.SetResponse(r, handler.ContextStatusResponded)
 			return true
 		}
 
@@ -146,7 +146,7 @@ func (h *hostsContainer) matchAndSet(qCtx *handler.Context) (matched bool) {
 				}
 				r.Answer = append(r.Answer, rr)
 			}
-			qCtx.R = r
+			qCtx.SetResponse(r, handler.ContextStatusResponded)
 			return true
 		}
 	}

@@ -150,15 +150,12 @@ func (f *forwarder) exec(_ context.Context, qCtx *handler.Context) (err error) {
 	}
 
 	if err != nil {
-		f.logger.Warnf("%v: upstream failed: %v", qCtx, err)
-		r = new(dns.Msg)
-		r.SetReply(qCtx.Q)
-		r.Rcode = dns.RcodeServerFailure
-		qCtx.R = r
+		f.logger.Warnf("%v: forward failed: %v", qCtx, err)
+		qCtx.SetResponse(nil, handler.ContextStatusServerFailed)
 		return nil
 	}
 
-	qCtx.R = r
+	qCtx.SetResponse(r, handler.ContextStatusResponded)
 	return nil
 }
 
