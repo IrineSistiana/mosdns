@@ -20,7 +20,6 @@ package coremain
 import (
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/forward"
-	"github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/sequence"
 	"github.com/IrineSistiana/mosdns/dispatcher/plugin/logger"
 	plainserver "github.com/IrineSistiana/mosdns/dispatcher/plugin/plain_server"
 	"gopkg.in/yaml.v3"
@@ -107,7 +106,7 @@ func objToGeneral(in interface{}) (out map[string]interface{}, err error) {
 
 func GetTemplateConfig() (*Config, error) {
 	c := new(Config)
-	err := c.AddPlugin("my_logger", logger.PluginType, logger.Args{
+	err := c.AddPlugin("logger", logger.PluginType, logger.Args{
 		Level: "info",
 		File:  "",
 	})
@@ -115,28 +114,20 @@ func GetTemplateConfig() (*Config, error) {
 		return nil, err
 	}
 
-	err = c.AddPlugin("my_server", plainserver.PluginType, plainserver.Args{
+	err = c.AddPlugin("server", plainserver.PluginType, plainserver.Args{
 		Listen: []string{
 			"udp://127.0.0.1:53",
 			"tcp://127.0.0.1:53",
 			"udp://[::1]:53",
 			"tcp://[::1]:53",
 		},
-		Entry: "simple_sequence",
+		Entry: "forward_google_doh",
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	err = c.AddPlugin("simple_sequence", sequence.PluginType, sequence.Args{
-		Exec: []interface{}{"forward_google"},
-		Next: "",
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	err = c.AddPlugin("forward_google", forward.PluginType, forward.Args{
+	err = c.AddPlugin("forward_google_doh", forward.PluginType, forward.Args{
 		Upstream: []forward.Upstream{
 			{
 				Addr:   "https://dns.google/dns-query",

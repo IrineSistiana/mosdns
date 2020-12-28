@@ -38,14 +38,12 @@ var _ handler.ExecutablePlugin = (*sequenceRouter)(nil)
 type sequenceRouter struct {
 	tag           string
 	executableCmd *handler.ExecutableCmdSequence
-	next          string
 
 	logger *logrus.Entry
 }
 
 type Args struct {
 	Exec []interface{} `yaml:"exec"`
-	Next string        `yaml:"next"`
 }
 
 func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err error) {
@@ -64,12 +62,12 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
 	}
 
-	s := newSequencePlugin(tag, ecs, args.Next)
+	s := newSequencePlugin(tag, ecs)
 	return s, nil
 }
 
-func newSequencePlugin(tag string, executable *handler.ExecutableCmdSequence, next string) *sequenceRouter {
-	return &sequenceRouter{tag: tag, executableCmd: executable, next: next, logger: mlog.NewPluginLogger(tag)}
+func newSequencePlugin(tag string, executable *handler.ExecutableCmdSequence) *sequenceRouter {
+	return &sequenceRouter{tag: tag, executableCmd: executable, logger: mlog.NewPluginLogger(tag)}
 }
 
 func (s *sequenceRouter) Tag() string {
