@@ -48,8 +48,10 @@ func (l *logger) Type() string {
 }
 
 type Args struct {
-	Level string `yaml:"level"`
-	File  string `yaml:"file"`
+	Level       string `yaml:"level"`
+	File        string `yaml:"file"`
+	NoColor     bool   `yaml:"no_color"`
+	NoTimestamp bool   `yaml:"no_timestamp"`
 }
 
 var initOnce sync.Once
@@ -80,6 +82,7 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 }
 
 func configLogger(args *Args) error {
+	mlog.Entry().Info("applying logger settings")
 	if len(args.Level) != 0 {
 		level, err := logrus.ParseLevel(args.Level)
 		if err != nil {
@@ -87,15 +90,23 @@ func configLogger(args *Args) error {
 		}
 		mlog.Logger().SetLevel(level)
 	}
+
+	mlog.Logger().SetFormatter(&logrus.TextFormatter{
+		DisableColors:    args.NoColor,
+		DisableTimestamp: args.NoTimestamp,
+	})
+
 	if len(args.File) != 0 {
+		mlog.Entry().Infof("open log file %s", args.File)
 		f, err := os.OpenFile(args.File, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0755)
 		if err != nil {
 			return fmt.Errorf("can not open log file %s: %w", args.File, err)
 		}
-		mlog.Entry().Infof("opened log file %s", args.File)
+
 		logWriter := io.MultiWriter(os.Stdout, f)
 		mlog.Logger().SetOutput(logWriter)
 	}
+
 	if mlog.Logger().IsLevelEnabled(logrus.DebugLevel) {
 		mlog.Logger().SetReportCaller(true)
 		go func() {
