@@ -19,12 +19,10 @@ package cpool
 
 import (
 	"container/list"
-	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/sirupsen/logrus"
 	"net"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -34,9 +32,9 @@ type Pool struct {
 	cleanerInterval time.Duration
 	logger          *logrus.Entry
 
-	cleanerStatus int32
 	sync.Mutex
-	pool *list.List
+	cleanerStatus uint8
+	pool          *list.List
 }
 
 type poolElem struct {
@@ -45,13 +43,16 @@ type poolElem struct {
 }
 
 const (
-	cleanerOffline int32 = iota
+	cleanerOffline uint8 = iota
 	cleanerOnline
 )
 
+// New returns a new *Pool.
+// If size and ttl are <= 0, the Pool will panic.
+// If cleanerInterval is <= 0, the pool cleaner won't be used.
 func New(size int, ttl, cleanerInterval time.Duration, logger *logrus.Entry) *Pool {
-	if cleanerInterval <= 0 {
-		panic(fmt.Sprintf("cpool: pool cleaner interval should greater than 0, but got %d", cleanerInterval))
+	if size <= 0 || ttl <= 0 {
+		panic("invalid pool size or ttl")
 	}
 
 	return &Pool{
@@ -64,12 +65,8 @@ func New(size int, ttl, cleanerInterval time.Duration, logger *logrus.Entry) *Po
 	}
 }
 
+// Put stores c into Pool.
 func (p *Pool) Put(c net.Conn) {
-	if p.maxSize <= 0 || p.ttl <= 0 {
-		c.Close()
-		return
-	}
-
 	var poppedPoolElem *poolElem
 	p.Lock()
 	if p.pool.Len() >= p.maxSize { // if pool is full, pop it's first(oldest) element.
@@ -85,29 +82,34 @@ func (p *Pool) Put(c net.Conn) {
 		poppedPoolElem.c.Close() // release the old connection
 	}
 
-	p.tryStartCleanerGoroutine()
+	if p.cleanerInterval > 0 {
+		p.tryStartCleanerGoroutine()
+	}
+}
+
+func (p *Pool) popLatest() (pe *poolElem) {
+	p.Lock()
+	defer p.Unlock()
+
+	e := p.pool.Back()
+	if e != nil {
+		return p.pool.Remove(e).(*poolElem)
+	}
+	return nil
 }
 
 func (p *Pool) Get() (c net.Conn) {
-	if p.maxSize <= 0 || p.ttl <= 0 {
-		return nil
-	}
-
-	var pe *poolElem
-	p.Lock()
-	e := p.pool.Back()
-	if e != nil {
-		pe = e.Value.(*poolElem)
-		p.pool.Remove(e)
-	}
-	p.Unlock()
-
-	if pe != nil {
-		if time.Now().After(pe.expiredTime) {
-			pe.c.Close() // expired
-			return nil
+	now := time.Now()
+	for {
+		if pe := p.popLatest(); pe != nil {
+			if now.After(pe.expiredTime) {
+				pe.c.Close() // expired
+				continue
+			}
+			return pe.c
+		} else { // pool is empty
+			break
 		}
-		return pe.c
 	}
 
 	return nil // no available connection in pool
@@ -121,11 +123,12 @@ func (p *Pool) ConnRemain() int {
 }
 
 func (p *Pool) tryStartCleanerGoroutine() {
-	if atomic.CompareAndSwapInt32(&p.cleanerStatus, cleanerOffline, cleanerOnline) {
-		go func() {
-			p.startCleaner()
-			atomic.StoreInt32(&p.cleanerStatus, cleanerOffline)
-		}()
+	p.Lock()
+	defer p.Unlock()
+
+	if p.cleanerStatus == cleanerOffline {
+		p.cleanerStatus = cleanerOnline
+		go p.startCleaner()
 	}
 }
 
@@ -141,6 +144,7 @@ func (p *Pool) startCleaner() {
 		p.Lock()
 		connCleaned, connRemain, nextExpire := p.clean()
 		if connRemain == 0 { // no connection in pool, stop the cleaner
+			p.cleanerStatus = cleanerOffline
 			p.Unlock()
 			return
 		}
@@ -153,7 +157,10 @@ func (p *Pool) startCleaner() {
 			interval = p.cleanerInterval
 		}
 		utils.ResetAndDrainTimer(timer, interval)
-		p.logger.Debugf("cpool cleaner %p removed conn: %d, remain: %d, interval: %.2f", p, connCleaned, connRemain, interval.Seconds())
+
+		if connCleaned > 0 {
+			p.logger.Debugf("cpool cleaner %p removed conn: %d, remain: %d, interval: %.2f", p, connCleaned, connRemain, interval.Seconds())
+		}
 	}
 }
 
