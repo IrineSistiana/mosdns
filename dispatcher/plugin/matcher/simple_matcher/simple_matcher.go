@@ -44,7 +44,7 @@ func (m *responseNoValidIPv6) Match(_ context.Context, qCtx *handler.Context) (m
 		return false, nil
 	}
 
-	if qCtx.R.Question[0].Qtype == dns.TypeAAAA { // is AAAA query
+	if qCtx.R.Rcode == dns.RcodeSuccess && qCtx.R.Question[0].Qtype == dns.TypeAAAA { // is AAAA response
 		noIPv6 := true
 		for i := range qCtx.R.Answer {
 			if _, ok := qCtx.R.Answer[i].(*dns.AAAA); ok {
