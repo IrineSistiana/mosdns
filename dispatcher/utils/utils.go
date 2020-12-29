@@ -18,6 +18,7 @@
 package utils
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -27,6 +28,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"github.com/miekg/dns"
+	"golang.org/x/sync/singleflight"
 	"io/ioutil"
 	"math/big"
 	"net"
@@ -185,4 +187,35 @@ func SplitLine(s string) []string {
 // RemoveComment removes comment after "symbol".
 func RemoveComment(s, symbol string) string {
 	return strings.SplitN(s, symbol, 2)[0]
+}
+
+type exchangeFunc func(ctx context.Context, q *dns.Msg) (r *dns.Msg, err error)
+
+type ExchangeSingleFlightGroup struct {
+	singleflight.Group
+}
+
+func (g *ExchangeSingleFlightGroup) Exchange(ctx context.Context, q *dns.Msg, exchange exchangeFunc) (r *dns.Msg, err error) {
+	key, err := GetMsgKey(q)
+	if err != nil {
+		return nil, fmt.Errorf("failed to caculate msg key, %w", err)
+	}
+
+	v, err, shared := g.Do(key, func() (interface{}, error) {
+		defer g.Forget(key)
+		return exchange(ctx, q)
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	rUnsafe := v.(*dns.Msg)
+	if shared && rUnsafe != nil { // shared reply may has different id and is not safe to modify.
+		r = rUnsafe.Copy()
+		r.Id = q.Id
+		return r, nil
+	}
+
+	return rUnsafe, nil
 }

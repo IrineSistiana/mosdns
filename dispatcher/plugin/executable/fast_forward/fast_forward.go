@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
+	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
 	"strings"
@@ -45,13 +46,18 @@ const (
 var _ handler.Executable = (*fastForward)(nil)
 
 type fastForward struct {
-	tag      string
-	logger   *logrus.Entry
+	tag    string
+	logger *logrus.Entry
+	args   *Args
+
 	upstream []*fastUpstream
+
+	sfGroup utils.ExchangeSingleFlightGroup
 }
 
 type Args struct {
-	Upstream []*UpstreamConfig `yaml:"upstream"`
+	Upstream    []*UpstreamConfig `yaml:"upstream"`
+	Deduplicate bool              `yaml:"deduplicate"`
 }
 
 // UpstreamConfig: Note: It is not reusable.
@@ -102,6 +108,7 @@ func newFastForward(tag string, args *Args) (*fastForward, error) {
 	logger := mlog.NewPluginLogger(tag)
 	f := &fastForward{
 		tag:      tag,
+		args:     args,
 		logger:   logger,
 		upstream: make([]*fastUpstream, 0),
 	}
@@ -125,22 +132,26 @@ func (f *fastForward) Type() string {
 	return PluginType
 }
 
-// Do forwards qCtx.Q to upstreams, and sets qCtx.R.
-// If all upstreams failed, qCtx.R will be set as a simple response
-// with RCODE = 2.
+// Exec forwards qCtx.Q to upstreams, and sets qCtx.R.
+// qCtx.Status will be set as
+// - handler.ContextStatusResponded: if it received a response.
+// - handler.ContextStatusServerFailed: if all upstreams failed.
 func (f *fastForward) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
-	if qCtx == nil {
-		return
+	err = f.exec(ctx, qCtx)
+	if err != nil {
+		err = handler.NewPluginError(f.tag, err)
 	}
+	return nil
+}
 
-	r, u, err := f.exchangeParallel(ctx, qCtx.Q)
+func (f *fastForward) exec(ctx context.Context, qCtx *handler.Context) (err error) {
+	r, err := f.exchange(ctx, qCtx.Q)
 	if err != nil {
 		f.logger.Warnf("%v: forward failed: %v", qCtx, err)
 		qCtx.SetResponse(nil, handler.ContextStatusServerFailed)
 		return nil
 	}
 
-	f.logger.Debugf("%v: received respose from upstream %s", qCtx, u.Address())
 	qCtx.SetResponse(r, handler.ContextStatusResponded)
 	return nil
 }
@@ -151,17 +162,24 @@ type parallelResult struct {
 	from *fastUpstream
 }
 
-func (f *fastForward) exchangeParallel(ctx context.Context, q *dns.Msg) (r *dns.Msg, u *fastUpstream, err error) {
+func (f *fastForward) exchange(ctx context.Context, q *dns.Msg) (r *dns.Msg, err error) {
+	if f.args.Deduplicate {
+		return f.sfGroup.Exchange(ctx, q, f.exchangeParallel)
+	}
+	return f.exchangeParallel(ctx, q)
+}
+
+func (f *fastForward) exchangeParallel(ctx context.Context, q *dns.Msg) (r *dns.Msg, err error) {
 	t := len(f.upstream)
 	if t == 0 {
-		return nil, nil, errors.New("no upstream is configured")
+		return nil, errors.New("no upstream is configured")
 	}
 	if t == 1 {
 		r, err = f.upstream[0].Exchange(q)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
-		return r, f.upstream[0], nil
+		return r, nil
 	}
 
 	var errs []string
@@ -192,12 +210,12 @@ func (f *fastForward) exchangeParallel(ctx context.Context, q *dns.Msg) (r *dns.
 				continue
 			}
 
-			return r.r, r.from, nil
+			return r.r, nil
 		case <-ctx.Done():
-			return nil, nil, ctx.Err()
+			return nil, ctx.Err()
 		}
 	}
 
 	// all upstreams are failed
-	return nil, nil, fmt.Errorf("all upstreams are failed: %s", strings.Join(errs, ": "))
+	return nil, fmt.Errorf("all upstreams are failed: %s", strings.Join(errs, ": "))
 }

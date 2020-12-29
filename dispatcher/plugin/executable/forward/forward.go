@@ -27,7 +27,6 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/sync/singleflight"
 	"net"
 	"time"
 )
@@ -46,7 +45,7 @@ type forwarder struct {
 	upstream    []upstream.Upstream
 	deduplicate bool
 
-	sfGroup singleflight.Group
+	sfGroup utils.ExchangeSingleFlightGroup
 }
 
 type Args struct {
@@ -99,9 +98,8 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		opt.Bootstrap = args.Bootstrap
 		opt.ServerIPAddrs = serverIPAddrs
 
-		if args.Timeout <= 0 {
-			opt.Timeout = time.Second * 10
-		} else {
+		opt.Timeout = time.Second * 10
+		if args.Timeout > 0 {
 			opt.Timeout = time.Second * time.Duration(args.Timeout)
 		}
 
@@ -126,9 +124,10 @@ func (f *forwarder) Type() string {
 	return PluginType
 }
 
-// Do forwards qCtx.Q to upstreams, and sets qCtx.R.
-// If qCtx.Q is nil, or upstreams failed, qCtx.R will be a simple response
-// with RCODE = 2.
+// Exec forwards qCtx.Q to upstreams, and sets qCtx.R.
+// qCtx.Status will be set as
+// - handler.ContextStatusResponded: if it received a response.
+// - handler.ContextStatusServerFailed: if all upstreams failed.
 func (f *forwarder) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
 	err = f.exec(ctx, qCtx)
 	if err != nil {
@@ -137,16 +136,13 @@ func (f *forwarder) Exec(ctx context.Context, qCtx *handler.Context) (err error)
 	return nil
 }
 
-func (f *forwarder) exec(_ context.Context, qCtx *handler.Context) (err error) {
-	if qCtx == nil {
-		return
-	}
-
+func (f *forwarder) exec(ctx context.Context, qCtx *handler.Context) error {
 	var r *dns.Msg
+	var err error
 	if f.deduplicate {
-		r, err = f.forwardSingleFlight(qCtx.Q)
+		r, err = f.sfGroup.Exchange(ctx, qCtx.Q, f.exchange)
 	} else {
-		r, err = f.forward(qCtx.Q)
+		r, err = f.exchange(ctx, qCtx.Q)
 	}
 
 	if err != nil {
@@ -159,33 +155,7 @@ func (f *forwarder) exec(_ context.Context, qCtx *handler.Context) (err error) {
 	return nil
 }
 
-func (f *forwarder) forward(q *dns.Msg) (r *dns.Msg, err error) {
+func (f *forwarder) exchange(_ context.Context, q *dns.Msg) (r *dns.Msg, err error) {
 	r, _, err = upstream.ExchangeParallel(f.upstream, q)
 	return r, err
-}
-
-func (f *forwarder) forwardSingleFlight(q *dns.Msg) (r *dns.Msg, err error) {
-	key, err := utils.GetMsgKey(q)
-	if err != nil {
-		return nil, fmt.Errorf("failed to caculate msg key, %w", err)
-	}
-
-	v, err, shared := f.sfGroup.Do(key, func() (interface{}, error) {
-		defer f.sfGroup.Forget(key)
-		return f.forward(q)
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	rUnsafe := v.(*dns.Msg)
-
-	if shared && rUnsafe != nil { // shared reply may has different id and is not safe to modify.
-		r = rUnsafe.Copy()
-		r.Id = q.Id
-		return r, nil
-	}
-
-	return rUnsafe, nil
 }
