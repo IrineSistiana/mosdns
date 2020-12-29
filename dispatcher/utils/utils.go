@@ -30,6 +30,7 @@ import (
 	"io/ioutil"
 	"math/big"
 	"net"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -172,4 +173,16 @@ func GenerateCertificate(dnsName string) (cert tls.Certificate, err error) {
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: b})
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 	return tls.X509KeyPair(certPEM, keyPEM)
+}
+
+var charBlockExpr = regexp.MustCompile("\\S+")
+
+// SplitLine extracts words from s.
+func SplitLine(s string) []string {
+	return charBlockExpr.FindAllString(s, -1)
+}
+
+// RemoveComment removes comment after "symbol".
+func RemoveComment(s, symbol string) string {
+	return strings.SplitN(s, symbol, 2)[0]
 }

@@ -25,8 +25,7 @@ import (
 )
 
 func Test_hostsContainer_Match(t *testing.T) {
-	h := newHostsContainer("test")
-	err := h.load("../../testdata/hosts")
+	h, err := newHostsContainer("test", &Args{Hosts: []string{"../../testdata/hosts"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,6 +44,8 @@ func Test_hostsContainer_Match(t *testing.T) {
 		{"matched A", args{name: "dns.google.", typ: dns.TypeA}, true, false, []string{"8.8.8.8", "8.8.4.4"}},
 		{"matched AAAA", args{name: "dns.google.", typ: dns.TypeAAAA}, true, false, []string{"2001:4860:4860::8844", "2001:4860:4860::8888"}},
 		{"not matched A", args{name: "nxdomain.com.", typ: dns.TypeA}, false, false, nil},
+		{"matched regexp A", args{name: "123456789.text", typ: dns.TypeA}, true, false, []string{"192.168.1.1"}},
+		{"not matched regexp A", args{name: "0123456789.text", typ: dns.TypeA}, false, false, nil},
 	}
 	for _, tt := range tests {
 		q := new(dns.Msg)
@@ -54,11 +55,11 @@ func Test_hostsContainer_Match(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			gotMatched, err := h.Match(nil, qCtx)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("Match() error = %v, wantErr %v", err, tt.wantErr)
+				t.Fatalf("Match() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if gotMatched != tt.wantMatched {
-				t.Errorf("Match() gotMatched = %v, want %v", gotMatched, tt.wantMatched)
+				t.Fatalf("Match() gotMatched = %v, want %v", gotMatched, tt.wantMatched)
 			}
 
 			for _, s := range tt.wantAddr {

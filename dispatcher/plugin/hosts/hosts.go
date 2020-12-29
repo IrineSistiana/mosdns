@@ -18,17 +18,15 @@
 package hosts
 
 import (
-	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/dispatcher/matcher/domain"
 	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
 	"net"
-	"os"
-	"regexp"
-	"strings"
 )
 
 const PluginType = "hosts"
@@ -44,10 +42,9 @@ type Args struct {
 }
 
 type hostsContainer struct {
-	tag    string
-	logger *logrus.Entry
-	a      map[string][]net.IP
-	aaaa   map[string][]net.IP
+	tag     string
+	logger  *logrus.Entry
+	matcher domain.Matcher
 }
 
 func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err error) {
@@ -57,19 +54,27 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
 	}
 
+	return newHostsContainer(tag, args)
+}
+
+func newHostsContainer(tag string, args *Args) (*hostsContainer, error) {
 	if len(args.Hosts) == 0 {
 		return nil, errors.New("no hosts file is configured")
 	}
 
-	h := newHostsContainer(tag)
-	for _, f := range args.Hosts {
-		err := h.load(f)
+	matcher := domain.NewMixMatcher()
+	for _, file := range args.Hosts {
+		err := matcher.LoadFormTextFile(file, parseIP)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to load hosts from file %s: %w", file, err)
 		}
 	}
 
-	return h, nil
+	return &hostsContainer{
+		tag:     tag,
+		logger:  mlog.NewPluginLogger(tag),
+		matcher: matcher,
+	}, nil
 }
 
 func (h *hostsContainer) Tag() string {
@@ -108,16 +113,22 @@ func (h *hostsContainer) matchAndSet(qCtx *handler.Context) (matched bool) {
 	}
 
 	typ := qCtx.Q.Question[0].Qtype
-	domain := qCtx.Q.Question[0].Name
+	fqdn := qCtx.Q.Question[0].Name
+	v, ok := h.matcher.Match(fqdn)
+	if !ok {
+		return false
+	}
+	record := v.(*ipRecord)
+
 	switch typ {
 	case dns.TypeA:
-		if ips, _ := h.a[domain]; len(ips) != 0 {
+		if len(record.ipv4) != 0 {
 			r := new(dns.Msg)
 			r.SetReply(qCtx.Q)
-			for _, ip := range ips {
+			for _, ip := range record.ipv4 {
 				rr := &dns.A{
 					Hdr: dns.RR_Header{
-						Name:   domain,
+						Name:   fqdn,
 						Rrtype: dns.TypeA,
 						Class:  dns.ClassINET,
 						Ttl:    3600,
@@ -131,13 +142,13 @@ func (h *hostsContainer) matchAndSet(qCtx *handler.Context) (matched bool) {
 		}
 
 	case dns.TypeAAAA:
-		if ips, _ := h.aaaa[domain]; len(ips) != 0 {
+		if len(record.ipv6) != 0 {
 			r := new(dns.Msg)
 			r.SetReply(qCtx.Q)
-			for _, ip := range ips {
+			for _, ip := range record.ipv6 {
 				rr := &dns.AAAA{
 					Hdr: dns.RR_Header{
-						Name:   domain,
+						Name:   fqdn,
 						Rrtype: dns.TypeAAAA,
 						Class:  dns.ClassINET,
 						Ttl:    3600,
@@ -153,57 +164,30 @@ func (h *hostsContainer) matchAndSet(qCtx *handler.Context) (matched bool) {
 	return false
 }
 
-func newHostsContainer(tag string) *hostsContainer {
-	return &hostsContainer{
-		tag:    tag,
-		logger: mlog.NewPluginLogger(tag),
-		a:      make(map[string][]net.IP),
-		aaaa:   make(map[string][]net.IP),
-	}
+type ipRecord struct {
+	ipv4 []net.IP
+	ipv6 []net.IP
 }
 
-func (h *hostsContainer) load(file string) error {
-	f, err := os.Open(file)
-	if err != nil {
-		return err
+func parseIP(s []string) (interface{}, error) {
+	if len(s) == 0 {
+		return nil, nil
 	}
-	defer f.Close()
 
-	r := regexp.MustCompile("\\S+")
-	scanner := bufio.NewScanner(f)
-	line := 0
-	for scanner.Scan() {
-		line++
-		t := strings.SplitN(scanner.Text(), "#", 2)[0] // remove strings after #
-
-		e := r.FindAllString(t, -1)
-		if len(e) == 0 {
-			continue
+	record := new(ipRecord)
+	for _, ipStr := range s {
+		ip := net.ParseIP(ipStr)
+		if ip == nil {
+			return nil, fmt.Errorf("invalid ip addr %s", ipStr)
 		}
 
-		if len(e) == 1 {
-			h.logger.Warnf("invalid host record at line %d: %s", line, t)
-			continue
-		}
-
-		host := dns.Fqdn(e[0])
-		ips := e[1:]
-		for _, ipStr := range ips {
-			ip := net.ParseIP(ipStr)
-			if ip == nil {
-				h.logger.Warnf("invalid ip addr %s at line %d: ", ipStr, line)
-				continue
-			}
-
-			if ipv4 := ip.To4(); ipv4 != nil {
-				h.a[host] = append(h.a[host], ipv4)
-			} else if ipv6 := ip.To16(); ipv6 != nil {
-				h.aaaa[host] = append(h.aaaa[host], ipv6)
-			} else {
-				h.logger.Warnf("invalid ip addr %s at line %d: ", ipStr, line)
-				continue
-			}
+		if ipv4 := ip.To4(); ipv4 != nil { // is ipv4
+			record.ipv4 = append(record.ipv4, ipv4)
+		} else if ipv6 := ip.To16(); ipv6 != nil { // is ipv6
+			record.ipv6 = append(record.ipv6, ipv6)
+		} else { // invalid
+			return nil, fmt.Errorf("%s is not an ipv4 or ipv6 addr", ipStr)
 		}
 	}
-	return nil
+	return record, nil
 }

@@ -43,7 +43,7 @@ type Args struct {
 }
 
 type domainMatcher struct {
-	matcherGroup  domain.Matcher
+	matcher       domain.Matcher
 	matchQuestion bool
 	matchCNAME    bool
 	logger        *logrus.Entry
@@ -66,18 +66,17 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 
 	m := new(domainMatcher)
 	m.logger = mlog.NewPluginLogger(tag)
-	mg := make([]domain.Matcher, 0, len(args.Domain))
+	mixMatcher := domain.NewMixMatcher()
 	for _, f := range args.Domain {
-		matcher, err := domain.NewMixMatcherFormFile(f)
+		err := mixMatcher.LoadFormFile(f)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load domain file %s: %w", f, err)
 		}
-		mg = append(mg, matcher)
 	}
 
 	m.matchQuestion = args.CheckQuestion
 	m.matchCNAME = args.CheckCNAME
-	m.matcherGroup = domain.NewMatcherGroup(mg)
+	m.matcher = mixMatcher
 
 	return handler.WrapMatcherPlugin(tag, PluginType, m), nil
 }
@@ -86,7 +85,7 @@ func (c *domainMatcher) matchQ(qCtx *handler.Context) bool {
 	if qCtx == nil || qCtx.Q == nil || len(qCtx.Q.Question) == 0 {
 		return false
 	}
-	_, ok := c.matcherGroup.Match(qCtx.Q.Question[0].Name)
+	_, ok := c.matcher.Match(qCtx.Q.Question[0].Name)
 	return ok
 }
 
@@ -96,7 +95,7 @@ func (c *domainMatcher) matchC(qCtx *handler.Context) bool {
 	}
 	for i := range qCtx.R.Answer {
 		if cname, ok := qCtx.R.Answer[i].(*dns.CNAME); ok {
-			if _, ok := c.matcherGroup.Match(cname.Target); ok {
+			if _, ok := c.matcher.Match(cname.Target); ok {
 				return true
 			}
 		}

@@ -238,7 +238,8 @@ func benchIPList(f string) error {
 }
 
 func benchDomainList(f string) error {
-	list, err := domain.NewMixMatcherFormFile(f)
+	matcher := domain.NewMixMatcher()
+	err := matcher.LoadFormFile(f)
 	if err != nil {
 		return err
 	}
@@ -247,7 +248,7 @@ func benchDomainList(f string) error {
 	var n int = 1e6
 
 	for i := 0; i < n; i++ {
-		list.Match("com.")
+		matcher.Match("com.")
 	}
 	timeCost := time.Since(start)
 
