@@ -15,7 +15,7 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package plainserver
+package server
 
 import (
 	"context"
@@ -28,51 +28,65 @@ import (
 )
 
 type udpResponseWriter struct {
-	c  net.PacketConn
-	to net.Addr
+	c       net.PacketConn
+	to      net.Addr
+	maxSize int
+}
+
+func getMaxSizeFromQuery(m *dns.Msg) int {
+	if opt := m.IsEdns0(); opt != nil && opt.Hdr.Class > dns.MinMsgSize {
+		return int(opt.Hdr.Class)
+	} else {
+		return dns.MinMsgSize
+	}
 }
 
 func (u *udpResponseWriter) Write(m *dns.Msg) (n int, err error) {
-	var maxSize int
-	if opt := m.IsEdns0(); opt != nil {
-		maxSize = int(opt.Hdr.Class)
-	} else {
-		maxSize = dns.MinMsgSize
-	}
-
-	m.Truncate(maxSize)
+	m.Truncate(u.maxSize)
 	return utils.WriteUDPMsgTo(m, u.c, u.to)
 }
 
-// serveUDP: if server was closed, the err would be nil.
-func (s *singleServer) serveUDP(c net.PacketConn, h handler.ServerHandler) error {
+func (s *Server) serveUDP() error {
+	c, err := net.ListenPacket("udp", s.Config.Addr)
+	if err != nil {
+		return err
+	}
+
+	s.l.Lock()
+	s.packetConn = c
+	s.l.Unlock()
+	defer func() {
+		s.l.Lock()
+		c.Close()
+		s.l.Unlock()
+	}()
+
 	listenerCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	for {
 		q, from, _, err := utils.ReadUDPMsgFrom(c, utils.IPv4UdpMaxPayload)
 		if err != nil {
-			select {
-			case <-s.shutdownChan:
-				return err
-			default:
+			if s.isDone() {
+				return nil
 			}
 			netErr, ok := err.(net.Error)
 			if ok { // is a net err
 				if netErr.Temporary() {
-					s.logger.Warnf("udp server: listener temporary err: %v", err)
+					s.Logger.Warnf("listener temporary err: %v", err)
 					time.Sleep(time.Second * 5)
 					continue
 				} else {
-					return fmt.Errorf("udp server: unexpected listener err: %w", err)
+					return fmt.Errorf("unexpected listener err: %w", err)
 				}
 			} else { // invalid msg
 				continue
 			}
 		}
 		w := &udpResponseWriter{
-			c:  c,
-			to: from,
+			c:       c,
+			to:      from,
+			maxSize: getMaxSizeFromQuery(q),
 		}
 		qCtx := handler.NewContext(q)
 		qCtx.From = from
@@ -80,7 +94,7 @@ func (s *singleServer) serveUDP(c net.PacketConn, h handler.ServerHandler) error
 		go func() {
 			queryCtx, cancel := context.WithTimeout(listenerCtx, time.Second*5)
 			defer cancel()
-			h.ServeDNS(queryCtx, qCtx, w)
+			s.Handler.ServeDNS(queryCtx, qCtx, w)
 		}()
 	}
 }

@@ -21,7 +21,7 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/forward"
 	"github.com/IrineSistiana/mosdns/dispatcher/plugin/logger"
-	plainserver "github.com/IrineSistiana/mosdns/dispatcher/plugin/plain_server"
+	"github.com/IrineSistiana/mosdns/dispatcher/plugin/server"
 	"gopkg.in/yaml.v3"
 	"io/ioutil"
 	"os"
@@ -114,12 +114,12 @@ func GetTemplateConfig() (*Config, error) {
 		return nil, err
 	}
 
-	err = c.AddPlugin("server", plainserver.PluginType, plainserver.Args{
-		Listen: []string{
-			"udp://127.0.0.1:53",
-			"tcp://127.0.0.1:53",
-			"udp://[::1]:53",
-			"tcp://[::1]:53",
+	err = c.AddPlugin("server", server.PluginType, server.Args{
+		Server: []*server.ServerConfig{
+			{Protocol: "udp", Addr: "127.0.0.1:53"},
+			{Protocol: "tcp", Addr: "127.0.0.1:53"},
+			{Protocol: "udp", Addr: "[::1]:53"},
+			{Protocol: "tcp", Addr: "[::1]:53"},
 		},
 		Entry: "forward_google_doh",
 	})
