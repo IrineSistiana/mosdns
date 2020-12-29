@@ -127,11 +127,11 @@ func (p *parallel) exec(ctx context.Context, qCtx *handler.Context) (err error) 
 		select {
 		case r := <-c:
 			if r.err != nil {
-				p.logger.Warnf("%v: parallel sequence %d failed with err: %v", qCtx, r.from, r.err)
-			} else if r.qCtx.Status != handler.ContextStatusResponded {
-				p.logger.Debugf("%v: parallel sequence %d returned with status %s", qCtx, r.from, r.qCtx.Status)
+				p.logger.Warnf("%v: parallel sequence %d failed: %v", qCtx, r.from, r.err)
+			} else if r.qCtx.R == nil {
+				p.logger.Debugf("%v: parallel sequence %d returned with an empty response", qCtx, r.from)
 			} else {
-				p.logger.Debugf("%v: parallel sequence %d returned a good response", qCtx, r.from)
+				p.logger.Debugf("%v: parallel sequence %d returned a response", qCtx, r.from)
 				*qCtx = *r.qCtx
 				return nil
 			}
@@ -140,7 +140,7 @@ func (p *parallel) exec(ctx context.Context, qCtx *handler.Context) (err error) 
 		}
 	}
 
-	// No valid respond, all parallel sequences failed. Set qCtx.R with dns.RcodeServerFailure.
+	// No valid response, all parallel sequences are failed.
 	qCtx.SetResponse(nil, handler.ContextStatusServerFailed)
 	return nil
 }

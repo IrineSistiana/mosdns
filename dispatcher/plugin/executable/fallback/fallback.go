@@ -176,11 +176,11 @@ func (f *fallback) doSecondary(ctx context.Context, qCtx *handler.Context) (err 
 		select {
 		case r := <-c:
 			if r.err != nil {
-				f.logger.Warnf("%v: %s sequence failed with err: %v", qCtx, r.from, r.err)
-			} else if r.qCtx.Status != handler.ContextStatusResponded {
-				f.logger.Debugf("%v: %s sequence returned with status %s", qCtx, r.from, r.qCtx.Status)
+				f.logger.Warnf("%v: %s sequence failed: %v", qCtx, r.from, r.err)
+			} else if r.qCtx.R == nil {
+				f.logger.Debugf("%v: %s sequence returned with an empty response ", qCtx, r.from)
 			} else {
-				f.logger.Debugf("%v: %s sequence returned a valid response", qCtx, r.from)
+				f.logger.Debugf("%v: %s sequence returned a response", qCtx, r.from)
 				*qCtx = *r.qCtx
 				return nil
 			}
@@ -189,7 +189,7 @@ func (f *fallback) doSecondary(ctx context.Context, qCtx *handler.Context) (err 
 		}
 	}
 
-	// No valid respond
+	// No response
 	qCtx.SetResponse(nil, handler.ContextStatusServerFailed)
 	return nil
 }
