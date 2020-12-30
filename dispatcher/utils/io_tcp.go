@@ -81,20 +81,8 @@ func WriteRawMsgToTCP(c io.Writer, b []byte) (n int, err error) {
 
 	wb := getTCPWriteBuf()
 	defer releaseTCPWriteBuf(wb)
-
-	wb[0] = byte(len(b) >> 8)
-	wb[1] = byte(len(b))
-	nc := copy(wb[2:], b)
-	nw, err := c.Write(wb[:2+nc]) // write first chunk
-	n = n + nw
-	if err != nil {
-		return
-	}
-
-	if len(b) > nw { // write remaining data
-		nw, err := c.Write(b[nc:])
-		n = n + nw
-		return n, err
-	}
-	return
+	wb.WriteByte(byte(len(b) >> 8))
+	wb.WriteByte(byte(len(b)))
+	wb.Write(b)
+	return c.Write(wb.Bytes())
 }

@@ -18,6 +18,7 @@
 package utils
 
 import (
+	"bytes"
 	"github.com/miekg/dns"
 	"sync"
 )
@@ -31,7 +32,9 @@ var (
 
 	tcpWriteBufPool = sync.Pool{
 		New: func() interface{} {
-			return make([]byte, 512)
+			b := new(bytes.Buffer)
+			b.Grow(dns.MinMsgSize)
+			return b
 		},
 	}
 )
@@ -44,12 +47,12 @@ func releaseTCPHeaderBuf(buf []byte) {
 	tcpHeaderBufPool.Put(buf)
 }
 
-// getTCPWriteBuf returns a 2048-byte slice buf
-func getTCPWriteBuf() []byte {
-	return tcpWriteBufPool.Get().([]byte)
+// getTCPWriteBuf returns a byte.Buffer
+func getTCPWriteBuf() *bytes.Buffer {
+	return tcpWriteBufPool.Get().(*bytes.Buffer)
 }
 
-func releaseTCPWriteBuf(buf []byte) {
+func releaseTCPWriteBuf(buf *bytes.Buffer) {
 	tcpWriteBufPool.Put(buf)
 }
 
