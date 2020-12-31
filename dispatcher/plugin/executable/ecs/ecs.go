@@ -47,8 +47,8 @@ type Args struct {
 	ForceOverwrite bool `yaml:"force_overwrite"`
 
 	// mask for ecs
-	Mask4 uint8 `yaml:"mask4"`
-	Mask6 uint8 `yaml:"mask6"`
+	Mask4 uint8 `yaml:"mask4"` // default 24
+	Mask6 uint8 `yaml:"mask6"` // default 48
 
 	// pre-set address
 	IPv4 string `yaml:"ipv4"`
@@ -73,8 +73,14 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 
 func newPlugin(tag string, args *Args) (p handler.Plugin, err error) {
 	ep := new(ecsPlugin)
-	ep.args = args
 	ep.logger = mlog.NewPluginLogger(tag)
+	if args.Mask4 == 0 {
+		args.Mask4 = 24
+	}
+	if args.Mask6 == 0 {
+		args.Mask6 = 48
+	}
+	ep.args = args
 
 	if len(args.IPv4) != 0 {
 		ip := net.ParseIP(args.IPv4)
