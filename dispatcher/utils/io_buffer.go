@@ -53,6 +53,7 @@ func getTCPWriteBuf() *bytes.Buffer {
 }
 
 func releaseTCPWriteBuf(buf *bytes.Buffer) {
+	buf.Reset()
 	tcpWriteBufPool.Put(buf)
 }
 
