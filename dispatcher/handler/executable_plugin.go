@@ -74,46 +74,38 @@ func (tag executablePluginTag) ExecCmd(ctx context.Context, qCtx *Context, logge
 }
 
 type IfBlockConfig struct {
-	If   []string      `yaml:"if"`
-	Exec []interface{} `yaml:"exec"`
-	Goto string        `yaml:"goto"`
+	If    []string      `yaml:"if"`
+	IfAnd []string      `yaml:"if_and"`
+	Exec  []interface{} `yaml:"exec"`
+	Goto  string        `yaml:"goto"`
 }
 
 type ifBlock struct {
-	ifMather      []string
+	ifMatcher     []string
+	ifAndMatcher  []string
 	executableCmd ExecutableCmd
 	goTwo         string
 }
 
 func (b *ifBlock) ExecCmd(ctx context.Context, qCtx *Context, logger *logrus.Entry) (goTwo string, err error) {
-	If := true
-	for _, tag := range b.ifMather {
-		if len(tag) == 0 {
-			continue
-		}
-
-		reverse := false
-		if reverse = strings.HasPrefix(tag, "!"); reverse {
-			tag = strings.TrimPrefix(tag, "!")
-		}
-
-		m, err := GetMatcherPlugin(tag)
+	if len(b.ifMatcher) > 0 {
+		If, err := ifCondition(ctx, qCtx, logger, b.ifMatcher, false)
 		if err != nil {
 			return "", err
 		}
-		matched, err := m.Match(ctx, qCtx)
-		if err != nil {
-			return "", err
-		}
-		logger.Debugf("%v: exec matcher plugin %s, returned: %v", qCtx, tag, matched)
-
-		If = matched != reverse
-		if If == true {
-			break // if one of the case is true, skip others.
+		if If == false {
+			return "", nil // if case returns false, skip this block.
 		}
 	}
-	if If == false {
-		return "", nil // if case returns false, skip this block.
+
+	if len(b.ifAndMatcher) > 0 {
+		If, err := ifCondition(ctx, qCtx, logger, b.ifAndMatcher, true)
+		if err != nil {
+			return "", err
+		}
+		if If == false {
+			return "", nil
+		}
 	}
 
 	// exec
@@ -135,6 +127,46 @@ func (b *ifBlock) ExecCmd(ctx context.Context, qCtx *Context, logger *logrus.Ent
 	return "", nil
 }
 
+func ifCondition(ctx context.Context, qCtx *Context, logger *logrus.Entry, p []string, isAnd bool) (ok bool, err error) {
+	if len(p) == 0 {
+		return false, err
+	}
+
+	for _, tag := range p {
+		if len(tag) == 0 {
+			continue
+		}
+
+		reverse := false
+		if reverse = strings.HasPrefix(tag, "!"); reverse {
+			tag = strings.TrimPrefix(tag, "!")
+		}
+
+		m, err := GetMatcherPlugin(tag)
+		if err != nil {
+			return false, err
+		}
+		matched, err := m.Match(ctx, qCtx)
+		if err != nil {
+			return false, err
+		}
+		logger.Debugf("%v: exec matcher plugin %s, returned: %v", qCtx, tag, matched)
+
+		res := matched != reverse
+		if !isAnd {
+			if res == true {
+				return true, nil // or: if one of the case is true, skip others.
+			}
+		} else {
+			if res == false {
+				return false, nil // and: if one of the case is false, skip others.
+			}
+		}
+		ok = res
+	}
+	return ok, nil
+}
+
 type ExecutableCmdSequence []ExecutableCmd
 
 func NewExecutableCmdSequence() *ExecutableCmdSequence {
@@ -154,8 +186,9 @@ func (es *ExecutableCmdSequence) Parse(in []interface{}) error {
 			}
 
 			ifBlock := &ifBlock{
-				ifMather: c.If,
-				goTwo:    c.Goto,
+				ifMatcher:    c.If,
+				ifAndMatcher: c.IfAnd,
+				goTwo:        c.Goto,
 			}
 
 			if len(c.Exec) != 0 {

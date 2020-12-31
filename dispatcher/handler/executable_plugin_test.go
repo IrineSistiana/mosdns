@@ -33,33 +33,52 @@ func Test_switchPlugin_Do(t *testing.T) {
 		{name: "try to reach empty end", args: &args{
 			executable: &ExecutableCmdSequence{exec, exec,
 				&ifBlock{
-					ifMather:      []string{"!" + matched, notMatched},
+					ifMatcher:     []string{"!" + matched, notMatched}, // not matched
 					executableCmd: &ExecutableCmdSequence{execErr},
 					goTwo:         "goto",
 				},
 			},
 		}, wantNext: "", wantErr: nil},
 
-		{name: "try to reach goto 1", args: &args{
+		{name: "test if_and", args: &args{
 			executable: &ExecutableCmdSequence{exec, exec,
 				&ifBlock{
-					ifMather:      []string{"!" + matched, notMatched}, // not matched
-					executableCmd: &ExecutableCmdSequence{execErr},
-					goTwo:         "goto1",
+					ifAndMatcher: []string{matched, notMatched}, // not matched
+					goTwo:        "goto1",
 				},
 				&ifBlock{
-					ifMather:      []string{matched, notMatched}, // matched
-					executableCmd: nil,
-					goTwo:         "",
+					ifAndMatcher: []string{matched, notMatched, matchErr}, // not matched, early stop, no err
+					goTwo:        "goto2",
 				},
 				&ifBlock{
-					ifMather: []string{"!" + matched, matched, matchErr}, // matched, no err
+					ifAndMatcher: []string{matched, matched, matched}, // matched
+					goTwo:        "goto3",
+				},
+			},
+		}, wantNext: "goto3", wantErr: nil},
+
+		{name: "test if_and err", args: &args{
+			executable: &ExecutableCmdSequence{exec, exec,
+				&ifBlock{
+					ifAndMatcher: []string{matched, matchErr}, // err
+					goTwo:        "goto1",
+				},
+			},
+		}, wantNext: "", wantErr: mErr},
+
+		{name: "test if", args: &args{
+			executable: &ExecutableCmdSequence{exec, exec,
+				&ifBlock{
+					ifMatcher: []string{"!" + matched, notMatched}, // test ! prefix, not matched
+					goTwo:     "goto1",
+				},
+				&ifBlock{
+					ifMatcher: []string{matched, matchErr}, // matched, early stop, no err.
 					executableCmd: &ExecutableCmdSequence{
 						exec,
 						&ifBlock{
-							ifMather:      []string{"!" + matched, notMatched, matched}, // matched
-							executableCmd: &ExecutableCmdSequence{exec},
-							goTwo:         "goto2", // reached here
+							ifMatcher: []string{"!" + notMatched, matchErr}, // // test ! prefix, matched, early stop, no err.
+							goTwo:     "goto2",                              // reached here
 						},
 					},
 					goTwo: "goto3",
@@ -67,19 +86,20 @@ func Test_switchPlugin_Do(t *testing.T) {
 			},
 		}, wantNext: "goto2", wantErr: nil},
 
-		{name: "matcher err", args: &args{
+		{name: "test if matcher err", args: &args{
 			executable: &ExecutableCmdSequence{exec, exec,
 				&ifBlock{
-					ifMather:      []string{"!" + matched, notMatched, matchErr},
+					ifMatcher:     []string{"!" + matched, notMatched, matchErr}, // matcher err
 					executableCmd: &ExecutableCmdSequence{exec},
 					goTwo:         "goto",
 				},
 			},
 		}, wantNext: "", wantErr: mErr},
-		{name: "exec err", args: &args{
+
+		{name: "test exec err", args: &args{
 			executable: &ExecutableCmdSequence{exec, exec,
 				&ifBlock{
-					ifMather:      []string{"!" + matched, matched},
+					ifMatcher:     []string{"!" + matched, matched},
 					executableCmd: &ExecutableCmdSequence{execErr},
 					goTwo:         "goto",
 				},
