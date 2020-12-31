@@ -62,14 +62,10 @@ func newHostsContainer(tag string, args *Args) (*hostsContainer, error) {
 		return nil, errors.New("no hosts file is configured")
 	}
 
-	matcher := domain.NewMixMatcher()
-	for _, file := range args.Hosts {
-		err := matcher.LoadFormTextFile(file, parseIP)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load hosts from file %s: %w", file, err)
-		}
+	matcher, err := domain.BatchLoadMixMatcher(args.Hosts, nil, parseIP)
+	if err != nil {
+		return nil, err
 	}
-
 	return &hostsContainer{
 		tag:     tag,
 		logger:  mlog.NewPluginLogger(tag),

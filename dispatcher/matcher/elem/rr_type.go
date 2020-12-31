@@ -15,23 +15,23 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package netlist
+package elem
 
-import "net"
-
-type MatcherGroup struct {
-	m []Matcher
+type IntMatcher struct {
+	m map[int]struct{}
 }
 
-func (mg *MatcherGroup) Match(ip net.IP) bool {
-	for _, m := range mg.m {
-		if m.Match(ip) {
-			return true
-		}
+// NewIntMatcher inits a new IntMatcher.
+func NewIntMatcher(elem []int) *IntMatcher {
+	matcher := &IntMatcher{m: make(map[int]struct{})}
+
+	for _, v := range elem {
+		matcher.m[v] = struct{}{}
 	}
-	return false
+	return matcher
 }
 
-func NewMatcherGroup(m []Matcher) *MatcherGroup {
-	return &MatcherGroup{m: m}
+func (m *IntMatcher) Match(v int) bool {
+	_, ok := m.m[v]
+	return ok
 }

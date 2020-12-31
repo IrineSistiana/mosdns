@@ -52,7 +52,7 @@ var (
 )
 
 func TestIPNetList_New_And_Contains(t *testing.T) {
-	ipNetList, err := NewListFromReader(bytes.NewBufferString(rawList), false)
+	ipNetList, err := NewListFromReader(bytes.NewBufferString(rawList))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func BenchmarkListContains(b *testing.B) {
 	}
 	defer f.Close()
 
-	iplist, err := NewListFromReader(f, false)
+	iplist, err := NewListFromReader(f)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func BenchmarkConvIP(b *testing.B) {
 
 func BenchmarkLoadList(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		_, err := NewListFromReader(bytes.NewBufferString(rawList), false)
+		_, err := NewListFromReader(bytes.NewBufferString(rawList))
 		if err != nil {
 			b.Error(err)
 			return

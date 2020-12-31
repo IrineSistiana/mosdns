@@ -30,9 +30,9 @@ func (m *V2Matcher) Match(ip net.IP) bool {
 	return m.m.Match(ip)
 }
 
-func NewV2Matcher(cidrs []*router.CIDR) (*V2Matcher, error) {
+func NewV2Matcher(cidr []*router.CIDR) (*V2Matcher, error) {
 	m := new(router.GeoIPMatcher)
-	err := m.Init(cidrs)
+	err := m.Init(cidr)
 	if err != nil {
 		return nil, err
 	}

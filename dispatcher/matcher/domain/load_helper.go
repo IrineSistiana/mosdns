@@ -20,6 +20,7 @@ package domain
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"io"
@@ -37,23 +38,21 @@ const (
 	cacheTTL = time.Second * 30
 )
 
+// ParseValueFunc parses additional `attr` to an interface. The given []string could have a 0 length or is nil.
 type ParseValueFunc func([]string) (interface{}, error)
 
+// FilterRecordFunc determines whether a record is acceptable. The given []string could have a 0 length or is nil.
+type FilterRecordFunc func([]string) (accept bool, err error)
+
 // LoadFormFile loads data from file.
-// File can be a text file or a v2ray data file.
-// v2ray data file needs to specify the data category by using ':', e.g. 'geosite:cn'
-// v2ray data file can also have multiple @attr. e.g. 'geosite:cn@attr1@attr2'.
-// Only the domain with all of the @attr will be used.
-func (m *MixMatcher) LoadFormFile(file string) error {
+func (m *MixMatcher) LoadFormFile(file string, filterRecord FilterRecordFunc, parseValue ParseValueFunc) error {
 	var err error
 	if tmp := strings.SplitN(file, ":", 2); len(tmp) == 2 { // is a v2ray data file
 		filePath := tmp[0]
-		tmp := strings.Split(tmp[1], "@")
-		countryCode := tmp[0]
-		attr := tmp[1:]
-		err = m.LoadFormDAT(filePath, countryCode, attr)
+		countryCode := tmp[1]
+		err = m.LoadFormDAT(filePath, countryCode, filterRecord, parseValue)
 	} else { // is a text file
-		err = m.LoadFormTextFile(file, nil)
+		err = m.LoadFormTextFile(file, filterRecord, parseValue)
 	}
 	if err != nil {
 		return err
@@ -62,21 +61,79 @@ func (m *MixMatcher) LoadFormFile(file string) error {
 	return nil
 }
 
-func (m *MixMatcher) LoadFormTextFile(file string, parseValue ParseValueFunc) error {
+// LoadFormFileAsV2Matcher loads data from file.
+// File can be a text file or a v2ray data file.
+// v2ray data file needs to specify the data category by using ':', e.g. 'geosite:cn'
+// v2ray data file can also have multiple @attr. e.g. 'geosite:cn@attr1@attr2'.
+// Only the domain with all of the @attr will be used.
+func (m *MixMatcher) LoadFormFileAsV2Matcher(file string) error {
+	var err error
+	if tmp := strings.SplitN(file, ":", 2); len(tmp) == 2 { // is a v2ray data file
+		filePath := tmp[0]
+		tmp := strings.Split(tmp[1], "@")
+		countryCode := tmp[0]
+		wantedAttr := tmp[1:]
+		filterFunc := func(attr []string) (accept bool, err error) {
+			return mustHaveAttr(attr, wantedAttr), nil
+		}
+		err = m.LoadFormDAT(filePath, countryCode, filterFunc, nil)
+	} else { // is a text file
+		err = m.LoadFormTextFile(file, nil, nil)
+	}
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// BatchLoadMixMatcher loads multiple files using MixMatcher.LoadFormFile
+func BatchLoadMixMatcher(f []string, filterRecord FilterRecordFunc, parseValue ParseValueFunc) (Matcher, error) {
+	if len(f) == 0 {
+		return nil, errors.New("no file to load")
+	}
+
+	m := NewMixMatcher()
+	for _, file := range f {
+		err := m.LoadFormFile(file, filterRecord, parseValue)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load file %s: %w", file, err)
+		}
+	}
+	return m, nil
+}
+
+// BatchLoadMixMatcherV2Matcher loads multiple files using MixMatcher.LoadFormFileAsV2Matcher
+func BatchLoadMixMatcherV2Matcher(f []string) (Matcher, error) {
+	if len(f) == 0 {
+		return nil, errors.New("no file to load")
+	}
+
+	m := NewMixMatcher()
+	for _, file := range f {
+		err := m.LoadFormFileAsV2Matcher(file)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load file %s: %w", file, err)
+		}
+	}
+	return m, nil
+}
+
+func (m *MixMatcher) LoadFormTextFile(file string, filterRecord FilterRecordFunc, parseValue ParseValueFunc) error {
 	data, err := ioutil.ReadFile(file)
 	if err != nil {
 		return err
 	}
 
-	return m.LoadFormTextReader(bytes.NewBuffer(data), parseValue)
+	return m.LoadFormTextReader(bytes.NewBuffer(data), filterRecord, parseValue)
 }
 
-func (m *MixMatcher) LoadFormTextReader(r io.Reader, parseValue ParseValueFunc) error {
+func (m *MixMatcher) LoadFormTextReader(r io.Reader, filterRecord FilterRecordFunc, parseValue ParseValueFunc) error {
 	lineCounter := 0
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		lineCounter++
-		err := m.LoadFormText(scanner.Text(), parseValue)
+		err := m.LoadFormText(scanner.Text(), filterRecord, parseValue)
 		if err != nil {
 			return fmt.Errorf("line %d: %v", lineCounter, err)
 		}
@@ -92,7 +149,7 @@ var typeStrToDomainType = map[string]router.Domain_Type{
 	"full":    router.Domain_Full,
 }
 
-func (m *MixMatcher) LoadFormText(s string, parseValue ParseValueFunc) error {
+func (m *MixMatcher) LoadFormText(s string, filterRecord FilterRecordFunc, parseValue ParseValueFunc) error {
 	t := utils.RemoveComment(s, "#")
 	e := utils.SplitLine(t)
 
@@ -115,6 +172,16 @@ func (m *MixMatcher) LoadFormText(s string, parseValue ParseValueFunc) error {
 	if ok {
 		var v interface{}
 		var err error
+		if filterRecord != nil {
+			accept, err := filterRecord(e[1:])
+			if err != nil {
+				return err
+			}
+			if !accept {
+				return nil
+			}
+		}
+
 		if parseValue != nil {
 			v, err = parseValue(e[1:])
 			if err != nil {
@@ -127,17 +194,38 @@ func (m *MixMatcher) LoadFormText(s string, parseValue ParseValueFunc) error {
 	}
 }
 
-func (m *MixMatcher) LoadFormDAT(file, countryCode string, attr []string) error {
+func (m *MixMatcher) LoadFormDAT(file, countryCode string, filterRecord FilterRecordFunc, parseValue ParseValueFunc) error {
 	domains, err := loadV2DomainsFromDAT(file, countryCode)
 	if err != nil {
 		return err
 	}
 
 	for _, d := range domains {
-		if len(attr) != 0 && !containAttr(d.Attribute, attr) {
-			continue
+		attr := make([]string, 0, len(d.Attribute))
+		for _, a := range d.Attribute {
+			attr = append(attr, a.Key)
 		}
-		err := m.AddElem(d.Type, d.Value, nil)
+
+		if filterRecord != nil {
+			accept, err := filterRecord(attr)
+			if err != nil {
+				return err
+			}
+			if !accept {
+				return nil
+			}
+		}
+
+		var v interface{}
+		var err error
+		if parseValue != nil {
+			v, err = parseValue(attr)
+			if err != nil {
+				return err
+			}
+		}
+
+		err = m.AddElem(d.Type, d.Value, v)
 		if err != nil {
 			return err
 		}
@@ -145,19 +233,19 @@ func (m *MixMatcher) LoadFormDAT(file, countryCode string, attr []string) error 
 	return nil
 }
 
-// containAttr checks if d has all attrs.
-func containAttr(attr []*router.Domain_Attribute, want []string) bool {
-	if len(want) == 0 {
+// mustHaveAttr checks if attr has all wanted attrs.
+func mustHaveAttr(attr, wanted []string) bool {
+	if len(wanted) == 0 {
 		return true
 	}
 	if len(attr) == 0 {
 		return false
 	}
 
-	for _, want := range want {
+	for _, w := range wanted {
 		ok := false
 		for _, got := range attr {
-			if got.Key == want {
+			if got == w {
 				ok = true
 				break
 			}

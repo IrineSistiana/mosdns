@@ -2,7 +2,6 @@ package domain
 
 import (
 	"testing"
-	"v2ray.com/core/app/router"
 )
 
 func Test_containAttr(t *testing.T) {
@@ -22,14 +21,9 @@ func Test_containAttr(t *testing.T) {
 		{"5", args{attr: []string{"a", "b", "c"}, want: []string{"a", "d"}}, false},
 	}
 	for _, tt := range tests {
-		var attr []*router.Domain_Attribute
-		for _, key := range tt.args.attr {
-			attr = append(attr, &router.Domain_Attribute{Key: key})
-		}
-
 		t.Run(tt.name, func(t *testing.T) {
-			if got := containAttr(attr, tt.args.want); got != tt.want {
-				t.Errorf("containAttr() = %v, want %v", got, tt.want)
+			if got := mustHaveAttr(tt.args.attr, tt.args.want); got != tt.want {
+				t.Errorf("mustHaveAttr() = %v, want %v", got, tt.want)
 			}
 		})
 	}

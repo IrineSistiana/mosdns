@@ -239,7 +239,7 @@ func benchIPList(f string) error {
 
 func benchDomainList(f string) error {
 	matcher := domain.NewMixMatcher()
-	err := matcher.LoadFormFile(f)
+	err := matcher.LoadFormFileAsV2Matcher(f)
 	if err != nil {
 		return err
 	}
