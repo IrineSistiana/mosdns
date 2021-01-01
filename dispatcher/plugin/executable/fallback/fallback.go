@@ -154,7 +154,7 @@ func (f *fallback) doSecondary(ctx context.Context, qCtx *handler.Context) (err 
 
 	go func() {
 		qCtxCopy := qCtx.Copy()
-		err := f.doPrimary(ctx, qCtx)
+		err := f.doPrimary(ctx, qCtxCopy)
 		c <- &fallbackResult{
 			qCtx: qCtxCopy,
 			err:  err,
@@ -164,7 +164,7 @@ func (f *fallback) doSecondary(ctx context.Context, qCtx *handler.Context) (err 
 
 	go func() {
 		qCtxCopy := qCtx.Copy()
-		err := f.secondary.Exec(ctx, qCtx, f.logger)
+		err := f.secondary.Exec(ctx, qCtxCopy, f.logger)
 		c <- &fallbackResult{
 			qCtx: qCtxCopy,
 			err:  err,
