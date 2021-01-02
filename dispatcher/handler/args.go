@@ -25,6 +25,7 @@ import (
 func WeakDecode(in map[string]interface{}, output interface{}) error {
 	config := &mapstructure.DecoderConfig{
 		Metadata:         nil,
+		ErrorUnused:      true,
 		Result:           output,
 		WeaklyTypedInput: true,
 		TagName:          "yaml",
