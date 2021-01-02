@@ -36,28 +36,29 @@ func init() {
 	handler.RegInitFunc(PluginType, Init)
 
 	handler.MustRegPlugin(preset("_qtype_A_AAAA", &Args{QType: []int{int(dns.TypeA), int(dns.TypeAAAA)}}))
-	handler.MustRegPlugin(preset("_query_is_common", &Args{QType: []int{int(dns.TypeA), int(dns.TypeAAAA)},
-		QClass: []int{dns.ClassINET}}))
+	handler.MustRegPlugin(preset("_query_is_common", &Args{
+		QType:  []int{int(dns.TypeA), int(dns.TypeAAAA)},
+		QClass: []int{dns.ClassINET},
+	}))
 
 }
 
 var _ handler.Matcher = (*queryMatcher)(nil)
 
 type Args struct {
-	ClientIP []string `yaml:"client_ip"` // ip files
-	Domain   []string `yaml:"domain"`    // domain files
-	QType    []int    `yaml:"qtype"`
-	QClass   []int    `yaml:"qclass"`
+	ClientIP     []string `yaml:"client_ip"` // ip files
+	Domain       []string `yaml:"domain"`    // domain files
+	QType        []int    `yaml:"qtype"`
+	QClass       []int    `yaml:"qclass"`
+	IsLogicalAND bool     `yaml:"logical_and"`
 }
 
 type queryMatcher struct {
 	tag    string
 	logger *logrus.Entry
+	args   *Args
 
-	clientIP netlist.Matcher
-	domain   domain.Matcher
-	qClass   *elem.IntMatcher
-	qType    *elem.IntMatcher
+	matcherGroup []handler.Matcher
 }
 
 func (m *queryMatcher) Tag() string {
@@ -68,40 +69,12 @@ func (m *queryMatcher) Type() string {
 	return PluginType
 }
 
-func (m *queryMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, err error) {
-	for i := range qCtx.Q.Question {
-		if m.clientIP != nil && qCtx.From != nil {
-			ip := utils.GetIPFromAddr(qCtx.From)
-			if ip != nil {
-				if m.clientIP.Match(ip) {
-					return true, nil
-				}
-			} else {
-				m.logger.Warnf("internal err: client addr [%s] is invalid", qCtx.From)
-			}
-		}
-
-		if m.domain != nil {
-			_, ok := m.domain.Match(qCtx.Q.Question[i].Name)
-			if ok {
-				return true, nil
-			}
-		}
-
-		if m.qType != nil {
-			if m.qType.Match(int(qCtx.Q.Question[i].Qtype)) {
-				return true, nil
-			}
-		}
-
-		if m.qClass != nil {
-			if m.qClass.Match(int(qCtx.Q.Question[i].Qclass)) {
-				return true, nil
-			}
-		}
+func (m *queryMatcher) Match(ctx context.Context, qCtx *handler.Context) (matched bool, err error) {
+	matched, err = utils.BoolLogic(ctx, qCtx, m.matcherGroup, m.args.IsLogicalAND)
+	if err != nil {
+		err = handler.NewPluginError(m.tag, err)
 	}
-
-	return false, nil
+	return
 }
 
 func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err error) {
@@ -122,26 +95,30 @@ func newQueryMatcher(tag string, args *Args) (m *queryMatcher, err error) {
 	m = new(queryMatcher)
 	m.tag = tag
 	m.logger = mlog.NewPluginLogger(tag)
+	m.args = args
 
 	if len(args.ClientIP) > 0 {
-		m.clientIP, err = netlist.BatchLoad(args.ClientIP)
+		ipMatcher, err := netlist.BatchLoad(args.ClientIP)
 		if err != nil {
 			return nil, err
 		}
+		m.matcherGroup = append(m.matcherGroup, newClientIPMatcher(ipMatcher))
 	}
 	if len(args.Domain) > 0 {
 		mixMatcher, err := domain.BatchLoadMixMatcherV2Matcher(args.Domain)
 		if err != nil {
 			return nil, err
 		}
-		m.domain = mixMatcher
+		m.matcherGroup = append(m.matcherGroup, newQDomainMatcher(mixMatcher))
 	}
 	if len(args.QType) > 0 {
-		m.qType = elem.NewIntMatcher(args.QType)
+		elemMatcher := elem.NewIntMatcher(args.QType)
+		m.matcherGroup = append(m.matcherGroup, newQTypeMatcher(elemMatcher))
 	}
 
 	if len(args.QClass) > 0 {
-		m.qClass = elem.NewIntMatcher(args.QClass)
+		elemMatcher := elem.NewIntMatcher(args.QClass)
+		m.matcherGroup = append(m.matcherGroup, newQClassMatcher(elemMatcher))
 	}
 
 	return m, nil

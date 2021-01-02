@@ -80,9 +80,26 @@ type IfBlockConfig struct {
 	Goto  string        `yaml:"goto"`
 }
 
+type matcher struct {
+	tag    string
+	negate bool
+}
+
+func paresMatcher(s []string) []matcher {
+	m := make([]matcher, 0, len(s))
+	for _, tag := range s {
+		if strings.HasPrefix(tag, "!") {
+			m = append(m, matcher{tag: strings.TrimPrefix(tag, "!"), negate: true})
+		} else {
+			m = append(m, matcher{tag: tag})
+		}
+	}
+	return m
+}
+
 type ifBlock struct {
-	ifMatcher     []string
-	ifAndMatcher  []string
+	ifMatcher     []matcher
+	ifAndMatcher  []matcher
 	executableCmd ExecutableCmd
 	goTwo         string
 }
@@ -127,32 +144,27 @@ func (b *ifBlock) ExecCmd(ctx context.Context, qCtx *Context, logger *logrus.Ent
 	return "", nil
 }
 
-func ifCondition(ctx context.Context, qCtx *Context, logger *logrus.Entry, p []string, isAnd bool) (ok bool, err error) {
+func ifCondition(ctx context.Context, qCtx *Context, logger *logrus.Entry, p []matcher, isAnd bool) (ok bool, err error) {
 	if len(p) == 0 {
 		return false, err
 	}
 
-	for _, tag := range p {
-		if len(tag) == 0 {
+	for _, m := range p {
+		if len(m.tag) == 0 {
 			continue
 		}
 
-		reverse := false
-		if reverse = strings.HasPrefix(tag, "!"); reverse {
-			tag = strings.TrimPrefix(tag, "!")
-		}
-
-		m, err := GetMatcherPlugin(tag)
+		mp, err := GetMatcherPlugin(m.tag)
 		if err != nil {
 			return false, err
 		}
-		matched, err := m.Match(ctx, qCtx)
+		matched, err := mp.Match(ctx, qCtx)
 		if err != nil {
 			return false, err
 		}
-		logger.Debugf("%v: exec matcher plugin %s, returned: %v", qCtx, tag, matched)
+		logger.Debugf("%v: exec matcher plugin %s, returned: %v", qCtx, m.tag, matched)
 
-		res := matched != reverse
+		res := matched != m.negate
 		if !isAnd {
 			if res == true {
 				return true, nil // or: if one of the case is true, skip others.
@@ -186,8 +198,8 @@ func (es *ExecutableCmdSequence) Parse(in []interface{}) error {
 			}
 
 			ifBlock := &ifBlock{
-				ifMatcher:    c.If,
-				ifAndMatcher: c.IfAnd,
+				ifMatcher:    paresMatcher(c.If),
+				ifAndMatcher: paresMatcher(c.IfAnd),
 				goTwo:        c.Goto,
 			}
 

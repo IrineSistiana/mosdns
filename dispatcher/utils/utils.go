@@ -219,3 +219,25 @@ func (g *ExchangeSingleFlightGroup) Exchange(ctx context.Context, q *dns.Msg, ex
 
 	return rUnsafe, nil
 }
+
+func BoolLogic(ctx context.Context, qCtx *handler.Context, fs []handler.Matcher, logicalAND bool) (matched bool, err error) {
+	if len(fs) == 0 {
+		return false, nil
+	}
+
+	for _, m := range fs {
+		matched, err = m.Match(ctx, qCtx)
+		if err != nil {
+			return false, err
+		}
+
+		if matched && !logicalAND {
+			return true, nil
+		}
+		if !matched && logicalAND {
+			return false, nil
+		}
+	}
+
+	return matched, nil
+}

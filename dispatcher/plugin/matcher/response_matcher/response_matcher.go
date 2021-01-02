@@ -25,9 +25,9 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/matcher/elem"
 	"github.com/IrineSistiana/mosdns/dispatcher/matcher/netlist"
 	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
+	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
-	"net"
 )
 
 const PluginType = "response_matcher"
@@ -41,9 +41,10 @@ func init() {
 var _ handler.Matcher = (*responseMatcher)(nil)
 
 type Args struct {
-	Rcode []int    `yaml:"rcode"`
-	IP    []string `yaml:"ip"`    // ip files
-	CNAME []string `yaml:"cname"` // domain files
+	Rcode        []int    `yaml:"rcode"`
+	IP           []string `yaml:"ip"`    // ip files
+	CNAME        []string `yaml:"cname"` // domain files
+	IsLogicalAND bool     `yaml:"logical_and"`
 }
 
 type responseMatcher struct {
@@ -51,9 +52,7 @@ type responseMatcher struct {
 	logger *logrus.Entry
 	args   *Args
 
-	rcodeMatcher *elem.IntMatcher
-	ipMatcher    netlist.Matcher
-	cnameMatcher domain.Matcher
+	matcherGroup []handler.Matcher
 }
 
 func (m *responseMatcher) Tag() string {
@@ -64,48 +63,8 @@ func (m *responseMatcher) Type() string {
 	return PluginType
 }
 
-func (m *responseMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, err error) {
-	return m.match(qCtx), nil
-}
-
-func (m *responseMatcher) match(qCtx *handler.Context) (matched bool) {
-	if qCtx.R == nil {
-		return false
-	}
-
-	r := qCtx.R
-
-	if m.rcodeMatcher != nil && m.rcodeMatcher.Match(r.Rcode) {
-		return true
-	}
-
-	for _, rr := range r.Answer {
-		if m.cnameMatcher != nil {
-			if cname, ok := rr.(*dns.CNAME); ok {
-				if _, ok := m.cnameMatcher.Match(cname.Target); ok {
-					return true
-				}
-			}
-		}
-
-		if m.ipMatcher != nil {
-			var ip net.IP
-			switch rr := rr.(type) {
-			case *dns.A:
-				ip = rr.A
-			case *dns.AAAA:
-				ip = rr.AAAA
-			default:
-				continue
-			}
-
-			if m.ipMatcher.Match(ip) {
-				return true
-			}
-		}
-	}
-
-	return false
+func (m *responseMatcher) Match(ctx context.Context, qCtx *handler.Context) (matched bool, err error) {
+	return utils.BoolLogic(ctx, qCtx, m.matcherGroup, m.args.IsLogicalAND)
 }
 
 func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err error) {
@@ -129,21 +88,23 @@ func newResponseMatcher(tag string, args *Args) (m *responseMatcher, err error) 
 	m.args = args
 
 	if len(args.Rcode) > 0 {
-		m.rcodeMatcher = elem.NewIntMatcher(args.Rcode)
+		m.matcherGroup = append(m.matcherGroup, newRCodeMatcher(elem.NewIntMatcher(args.Rcode)))
 	}
 
 	if len(args.CNAME) > 0 {
-		m.cnameMatcher, err = domain.BatchLoadMixMatcherV2Matcher(args.CNAME)
+		mixMatcher, err := domain.BatchLoadMixMatcherV2Matcher(args.CNAME)
 		if err != nil {
 			return nil, err
 		}
+		m.matcherGroup = append(m.matcherGroup, newCnameMatcher(mixMatcher))
 	}
 
 	if len(args.IP) > 0 {
-		m.ipMatcher, err = netlist.BatchLoad(args.IP)
+		ipMatcher, err := netlist.BatchLoad(args.IP)
 		if err != nil {
 			return nil, err
 		}
+		m.matcherGroup = append(m.matcherGroup, newResponseIPMatcher(ipMatcher))
 	}
 
 	return m, nil
