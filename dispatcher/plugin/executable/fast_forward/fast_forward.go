@@ -145,7 +145,7 @@ func (f *fastForward) Exec(ctx context.Context, qCtx *handler.Context) (err erro
 }
 
 func (f *fastForward) exec(ctx context.Context, qCtx *handler.Context) (err error) {
-	r, err := f.exchange(ctx, qCtx.Q)
+	r, err := f.exchange(ctx, qCtx)
 	if err != nil {
 		f.logger.Warnf("%v: forward failed: %v", qCtx, err)
 		qCtx.SetResponse(nil, handler.ContextStatusServerFailed)
@@ -162,20 +162,20 @@ type parallelResult struct {
 	from *fastUpstream
 }
 
-func (f *fastForward) exchange(ctx context.Context, q *dns.Msg) (r *dns.Msg, err error) {
+func (f *fastForward) exchange(ctx context.Context, qCtx *handler.Context) (r *dns.Msg, err error) {
 	if f.args.Deduplicate {
-		return f.sfGroup.Exchange(ctx, q, f.exchangeParallel)
+		return f.sfGroup.Exchange(ctx, qCtx, f.exchangeParallel)
 	}
-	return f.exchangeParallel(ctx, q)
+	return f.exchangeParallel(ctx, qCtx)
 }
 
-func (f *fastForward) exchangeParallel(ctx context.Context, q *dns.Msg) (r *dns.Msg, err error) {
+func (f *fastForward) exchangeParallel(ctx context.Context, qCtx *handler.Context) (r *dns.Msg, err error) {
 	t := len(f.upstream)
 	if t == 0 {
 		return nil, errors.New("no upstream is configured")
 	}
 	if t == 1 {
-		r, err = f.upstream[0].Exchange(q)
+		r, err = f.upstream[0].Exchange(qCtx.Q)
 		if err != nil {
 			return nil, err
 		}
@@ -187,7 +187,7 @@ func (f *fastForward) exchangeParallel(ctx context.Context, q *dns.Msg) (r *dns.
 	for _, u := range f.upstream {
 		u := u
 		go func() {
-			qCopy := q.Copy() // it is not safe to use the Q directly.
+			qCopy := qCtx.Q.Copy() // it is not safe to use the Q directly.
 			r, err := u.Exchange(qCopy)
 			c <- &parallelResult{
 				r:    r,
@@ -210,6 +210,7 @@ func (f *fastForward) exchangeParallel(ctx context.Context, q *dns.Msg) (r *dns.
 				continue
 			}
 
+			f.logger.Debugf("%v: got response from upstream %s", qCtx, r.from.Address())
 			return r.r, nil
 		case <-ctx.Done():
 			return nil, ctx.Err()

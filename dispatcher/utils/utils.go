@@ -27,6 +27,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
+	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/miekg/dns"
 	"golang.org/x/sync/singleflight"
 	"io/ioutil"
@@ -189,21 +190,21 @@ func RemoveComment(s, symbol string) string {
 	return strings.SplitN(s, symbol, 2)[0]
 }
 
-type exchangeFunc func(ctx context.Context, q *dns.Msg) (r *dns.Msg, err error)
+type exchangeFunc func(ctx context.Context, qCtx *handler.Context) (r *dns.Msg, err error)
 
 type ExchangeSingleFlightGroup struct {
 	singleflight.Group
 }
 
-func (g *ExchangeSingleFlightGroup) Exchange(ctx context.Context, q *dns.Msg, exchange exchangeFunc) (r *dns.Msg, err error) {
-	key, err := GetMsgKey(q)
+func (g *ExchangeSingleFlightGroup) Exchange(ctx context.Context, qCtx *handler.Context, exchange exchangeFunc) (r *dns.Msg, err error) {
+	key, err := GetMsgKey(qCtx.Q)
 	if err != nil {
 		return nil, fmt.Errorf("failed to caculate msg key, %w", err)
 	}
 
 	v, err, shared := g.Do(key, func() (interface{}, error) {
 		defer g.Forget(key)
-		return exchange(ctx, q)
+		return exchange(ctx, qCtx)
 	})
 
 	if err != nil {
@@ -213,7 +214,7 @@ func (g *ExchangeSingleFlightGroup) Exchange(ctx context.Context, q *dns.Msg, ex
 	rUnsafe := v.(*dns.Msg)
 	if shared && rUnsafe != nil { // shared reply may has different id and is not safe to modify.
 		r = rUnsafe.Copy()
-		r.Id = q.Id
+		r.Id = qCtx.Q.Id
 		return r, nil
 	}
 

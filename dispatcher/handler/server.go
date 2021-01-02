@@ -76,6 +76,7 @@ func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *Context, w Re
 		}
 	}
 
+	h.config.Logger.Debugf("%v: exec entry %s", qCtx, h.config.Entry)
 	err := h.execEntry(ctx, qCtx)
 	var r *dns.Msg
 	if err != nil || qCtx.Status == ContextStatusServerFailed {
@@ -85,6 +86,7 @@ func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *Context, w Re
 	} else {
 		r = qCtx.R
 	}
+	h.config.Logger.Debugf("%v: entry %s returned with status: %s", qCtx, h.config.Entry, qCtx.Status)
 
 	if r != nil {
 		if _, err = w.Write(r); err != nil {

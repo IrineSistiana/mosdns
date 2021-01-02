@@ -140,9 +140,9 @@ func (f *forwarder) exec(ctx context.Context, qCtx *handler.Context) error {
 	var r *dns.Msg
 	var err error
 	if f.deduplicate {
-		r, err = f.sfGroup.Exchange(ctx, qCtx.Q, f.exchange)
+		r, err = f.sfGroup.Exchange(ctx, qCtx, f.exchange)
 	} else {
-		r, err = f.exchange(ctx, qCtx.Q)
+		r, err = f.exchange(ctx, qCtx)
 	}
 
 	if err != nil {
@@ -155,7 +155,10 @@ func (f *forwarder) exec(ctx context.Context, qCtx *handler.Context) error {
 	return nil
 }
 
-func (f *forwarder) exchange(_ context.Context, q *dns.Msg) (r *dns.Msg, err error) {
-	r, _, err = upstream.ExchangeParallel(f.upstream, q)
+func (f *forwarder) exchange(_ context.Context, qCtx *handler.Context) (r *dns.Msg, err error) {
+	r, u, err := upstream.ExchangeParallel(f.upstream, qCtx.Q)
+	if err == nil {
+		f.logger.Debugf("%v: got response from upstream %s", qCtx, u.Address())
+	}
 	return r, err
 }

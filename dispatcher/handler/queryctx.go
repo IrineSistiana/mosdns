@@ -22,6 +22,7 @@ import (
 	"github.com/miekg/dns"
 	"net"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -35,6 +36,7 @@ type Context struct {
 	Status ContextStatus
 	R      *dns.Msg
 
+	id        uint32 // random uint to distinguish duplicated msg
 	startTime time.Time
 }
 
@@ -64,8 +66,15 @@ func (status ContextStatus) String() string {
 	return fmt.Sprintf("invalid status %d", status)
 }
 
+var id uint32
+
 func NewContext(q *dns.Msg) *Context {
-	return &Context{Q: q, Status: ContextStatusWaitingResponse, startTime: time.Now()}
+	return &Context{
+		Q:         q,
+		Status:    ContextStatusWaitingResponse,
+		id:        atomic.AddUint32(&id, 1),
+		startTime: time.Now(),
+	}
 }
 
 func (ctx *Context) SetResponse(r *dns.Msg, status ContextStatus) {
@@ -89,21 +98,20 @@ func (ctx *Context) Copy() *Context {
 	if ctx.R != nil {
 		newCtx.R = ctx.R.Copy()
 	}
+
+	newCtx.id = ctx.id
 	newCtx.startTime = ctx.startTime
 
 	return newCtx
 }
 
 func (ctx *Context) String() string {
-	if ctx == nil {
-		return "<nil>"
-	}
 	sb := new(strings.Builder)
 	sb.Grow(128)
 
-	sb.WriteString(fmt.Sprintf("%v, id: %d, t: %d ms", ctx.Q.Question, ctx.Q.Id, time.Since(ctx.startTime).Milliseconds()))
+	sb.WriteString(fmt.Sprintf("%v, id: %d, t: %d ms, c: %d", ctx.Q.Question, ctx.Q.Id, time.Since(ctx.startTime).Milliseconds(), ctx.id))
 	if ctx.From != nil {
-		sb.WriteString(fmt.Sprintf(", from: %s://%s", ctx.From.Network(), ctx.From.String()))
+		sb.WriteString(fmt.Sprintf(", from: %s://%s", ctx.From.Network(), ctx.From))
 	}
 	return sb.String()
 }

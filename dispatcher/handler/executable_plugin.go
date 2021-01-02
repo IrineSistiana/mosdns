@@ -69,7 +69,7 @@ func (tag executablePluginTag) ExecCmd(ctx context.Context, qCtx *Context, logge
 	if err != nil {
 		return "", err
 	}
-	logger.Debugf("%v: exec plugin %s", qCtx, tag)
+	logger.Debugf("%v: exec executable plugin %s", qCtx, tag)
 	return "", p.Exec(ctx, qCtx)
 }
 

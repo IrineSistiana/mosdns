@@ -48,10 +48,11 @@ func (l *logger) Type() string {
 }
 
 type Args struct {
-	Level       string `yaml:"level"`
-	File        string `yaml:"file"`
-	NoColor     bool   `yaml:"no_color"`
-	NoTimestamp bool   `yaml:"no_timestamp"`
+	Level        string `yaml:"level"`
+	File         string `yaml:"file"`
+	NoColor      bool   `yaml:"no_color"`
+	NoTimestamp  bool   `yaml:"no_timestamp"`
+	ReportCaller bool   `yaml:"report_caller"`
 }
 
 var initOnce sync.Once
@@ -102,13 +103,13 @@ func configLogger(args *Args) error {
 		if err != nil {
 			return fmt.Errorf("can not open log file %s: %w", args.File, err)
 		}
-
 		logWriter := io.MultiWriter(os.Stdout, f)
 		mlog.Logger().SetOutput(logWriter)
 	}
 
+	mlog.Logger().SetReportCaller(args.ReportCaller)
+
 	if mlog.Logger().IsLevelEnabled(logrus.DebugLevel) {
-		mlog.Logger().SetReportCaller(true)
 		go func() {
 			m := new(runtime.MemStats)
 			for {
