@@ -89,17 +89,17 @@ func NewNetAddr(str string, network string) *NetAddr {
 }
 
 func (n *NetAddr) Network() string {
-	if len(n.str) == 0 {
+	if len(n.network) == 0 {
 		return "<nil>"
 	}
-	return n.str
+	return n.network
 }
 
 func (n *NetAddr) String() string {
 	if len(n.str) == 0 {
 		return "<nil>"
 	}
-	return n.network
+	return n.str
 }
 
 // GetMsgKey unpacks m and set its id to 0.
