@@ -35,6 +35,7 @@ const PluginType = "query_matcher"
 func init() {
 	handler.RegInitFunc(PluginType, Init)
 
+	handler.MustRegPlugin(preset("_qtype_AAAA", &Args{QType: []int{int(dns.TypeAAAA)}}))
 	handler.MustRegPlugin(preset("_qtype_A_AAAA", &Args{QType: []int{int(dns.TypeA), int(dns.TypeAAAA)}}))
 	handler.MustRegPlugin(preset("_query_is_common", &Args{
 		QType:  []int{int(dns.TypeA), int(dns.TypeAAAA)},
