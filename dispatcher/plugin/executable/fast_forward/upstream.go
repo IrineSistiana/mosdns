@@ -165,7 +165,9 @@ func newFastUpstream(config *UpstreamConfig, logger *logrus.Entry) (*fastUpstrea
 		tlsConfig.RootCAs = u.certPool
 		tlsConfig.InsecureSkipVerify = config.InsecureSkipVerify
 		t := &http.Transport{
-			DialContext:           u.dialContext,
+			DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) { // overwrite server addr
+				return u.dialContext(ctx, network, config.Addr)
+			},
 			TLSClientConfig:       tlsConfig,
 			TLSHandshakeTimeout:   tlsHandshakeTimeout,
 			DisableCompression:    true,
@@ -215,7 +217,6 @@ func (u *fastUpstream) dialTimeout(network, addr string, timeout time.Duration) 
 }
 
 // dialContext dials a connection.
-// If mode is dot or doh, a handshake-ed tls connection will be returned
 // If network is "tcp", "tcp4", "tcp6", and UpstreamConfig.Socks5 is not empty, it will
 // dial through the socks5 server.
 func (u *fastUpstream) dialContext(ctx context.Context, network, addr string) (net.Conn, error) {
