@@ -20,9 +20,10 @@ package blackhole
 import (
 	"context"
 	"fmt"
+	"net"
+
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/miekg/dns"
-	"net"
 )
 
 const PluginType = "blackhole"
@@ -31,6 +32,7 @@ func init() {
 	handler.RegInitFunc(PluginType, Init)
 
 	handler.MustRegPlugin(handler.WrapExecutablePlugin("_drop_response", PluginType, &blackhole{args: &Args{RCode: -1}}))
+	handler.MustRegPlugin(handler.WrapExecutablePlugin("_empty_response", PluginType, &blackhole{args: &Args{RCode: -2}}))
 	handler.MustRegPlugin(handler.WrapExecutablePlugin("_block_with_servfail", PluginType, &blackhole{args: &Args{RCode: dns.RcodeServerFailure}}))
 	handler.MustRegPlugin(handler.WrapExecutablePlugin("_block_with_nxdomain", PluginType, &blackhole{args: &Args{RCode: dns.RcodeNameError}}))
 }
@@ -124,7 +126,11 @@ func (b *blackhole) Exec(_ context.Context, qCtx *handler.Context) (err error) {
 		r.SetReply(qCtx.Q)
 		r.Rcode = b.args.RCode
 		qCtx.SetResponse(r, handler.ContextStatusRejected)
-
+	case b.args.RCode == -2:
+		r := new(dns.Msg)
+		r.SetReply(qCtx.Q)
+		r.Rcode = 0
+		qCtx.SetResponse(r, handler.ContextStatusRejected)
 	default:
 		qCtx.SetResponse(nil, handler.ContextStatusDropped)
 	}
