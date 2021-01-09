@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -30,7 +30,6 @@ import (
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/pipeline"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/sequence"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/hosts"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/logger"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/query_matcher"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/response_matcher"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/server"

@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -20,7 +20,6 @@ package coremain
 import (
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/forward"
-	"github.com/IrineSistiana/mosdns/dispatcher/plugin/logger"
 	"github.com/IrineSistiana/mosdns/dispatcher/plugin/server"
 	"gopkg.in/yaml.v3"
 	"io/ioutil"
@@ -29,6 +28,10 @@ import (
 
 // Config is config
 type Config struct {
+	Log struct {
+		Level string `yaml:"level"`
+		File  string `yaml:"file"`
+	} `yaml:"log"`
 	Plugin  []*handler.Config `yaml:"plugin"`
 	Include []string          `yaml:"include"`
 }
@@ -106,15 +109,8 @@ func objToGeneral(in interface{}) (out map[string]interface{}, err error) {
 
 func GetTemplateConfig() (*Config, error) {
 	c := new(Config)
-	err := c.AddPlugin("logger", logger.PluginType, logger.Args{
-		Level: "info",
-		File:  "",
-	})
-	if err != nil {
-		return nil, err
-	}
 
-	err = c.AddPlugin("server", server.PluginType, server.Args{
+	err := c.AddPlugin("server", server.PluginType, server.Args{
 		Server: []*server.ServerConfig{
 			{Protocol: "udp", Addr: "127.0.0.1:53"},
 			{Protocol: "tcp", Addr: "127.0.0.1:53"},

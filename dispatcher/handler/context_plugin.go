@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -20,7 +20,7 @@ package handler
 import (
 	"context"
 	"fmt"
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 )
 
 // ContextPlugin
@@ -31,13 +31,13 @@ type ContextPlugin interface {
 	Connect(ctx context.Context, qCtx *Context, pipeCtx *PipeContext) (err error)
 }
 type PipeContext struct {
-	logger *logrus.Entry
+	logger *zap.Logger
 	s      []string
 
 	index int
 }
 
-func NewPipeContext(s []string, logger *logrus.Entry) *PipeContext {
+func NewPipeContext(s []string, logger *zap.Logger) *PipeContext {
 	return &PipeContext{s: s, logger: logger}
 }
 
@@ -51,16 +51,16 @@ func (c *PipeContext) ExecNextPlugin(ctx context.Context, qCtx *Context) error {
 		c.index++
 		switch p := i.(type) {
 		case ContextPlugin:
-			c.logger.Debugf("%v: exec context plugin %s", qCtx, tag)
+			c.logger.Debug("exec context plugin", qCtx.InfoField(), zap.String("exec", tag))
 			return p.Connect(ctx, qCtx, c)
 		case ExecutablePlugin:
-			c.logger.Debugf("%v: exec executable plugin %s", qCtx, tag)
+			c.logger.Debug("exec executable plugin", qCtx.InfoField(), zap.String("exec", tag))
 			err := p.Exec(ctx, qCtx)
 			if err != nil {
 				return err
 			}
 		default:
-			return fmt.Errorf("plugin %s has a unsupported class", tag)
+			return fmt.Errorf("plugin %s class err", tag)
 		}
 	}
 	return nil

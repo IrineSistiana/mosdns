@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -25,7 +25,7 @@ import (
 )
 
 func Test_hostsContainer_Match(t *testing.T) {
-	h, err := newHostsContainer("test", &Args{Hosts: []string{"../../testdata/hosts"}})
+	h, err := newHostsContainer(handler.NewBP("test", PluginType), &Args{Hosts: []string{"../../testdata/hosts"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func Test_hostsContainer_Match(t *testing.T) {
 	for _, tt := range tests {
 		q := new(dns.Msg)
 		q.SetQuestion(tt.args.name, tt.args.typ)
-		qCtx := handler.NewContext(q)
+		qCtx := handler.NewContext(q, nil)
 
 		t.Run(tt.name, func(t *testing.T) {
 			gotMatched, err := h.Match(nil, qCtx)
@@ -68,7 +68,7 @@ func Test_hostsContainer_Match(t *testing.T) {
 					t.Fatal("invalid test case addr")
 				}
 				found := false
-				for _, rr := range qCtx.R.Answer {
+				for _, rr := range qCtx.R().Answer {
 					var ip net.IP
 					switch rr := rr.(type) {
 					case *dns.A:

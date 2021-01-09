@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -23,41 +23,34 @@ import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/matcher/domain"
-	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/miekg/dns"
-	"github.com/sirupsen/logrus"
 	"net"
 )
 
 const PluginType = "hosts"
 
 func init() {
-	handler.RegInitFunc(PluginType, Init)
+	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 }
 
-var _ handler.Matcher = (*hostsContainer)(nil)
+var _ handler.MatcherPlugin = (*hostsContainer)(nil)
+var _ handler.ContextPlugin = (*hostsContainer)(nil)
 
 type Args struct {
 	Hosts []string `yaml:"hosts"`
 }
 
 type hostsContainer struct {
-	tag     string
-	logger  *logrus.Entry
+	*handler.BP
+
 	matcher domain.Matcher
 }
 
-func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err error) {
-	args := new(Args)
-	err = handler.WeakDecode(argsMap, args)
-	if err != nil {
-		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
-	}
-
-	return newHostsContainer(tag, args)
+func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
+	return newHostsContainer(bp, args.(*Args))
 }
 
-func newHostsContainer(tag string, args *Args) (*hostsContainer, error) {
+func newHostsContainer(bp *handler.BP, args *Args) (*hostsContainer, error) {
 	if len(args.Hosts) == 0 {
 		return nil, errors.New("no hosts file is configured")
 	}
@@ -67,26 +60,13 @@ func newHostsContainer(tag string, args *Args) (*hostsContainer, error) {
 		return nil, err
 	}
 	return &hostsContainer{
-		tag:     tag,
-		logger:  mlog.NewPluginLogger(tag),
+		BP:      bp,
 		matcher: matcher,
 	}, nil
 }
 
-func (h *hostsContainer) Tag() string {
-	return h.tag
-}
-
-func (h *hostsContainer) Type() string {
-	return PluginType
-}
-
 func (h *hostsContainer) Connect(ctx context.Context, qCtx *handler.Context, pipeCtx *handler.PipeContext) (err error) {
-	err = h.connect(ctx, qCtx, pipeCtx)
-	if err != nil {
-		return handler.NewPluginError(h.tag, err)
-	}
-	return nil
+	return h.connect(ctx, qCtx, pipeCtx)
 }
 
 func (h *hostsContainer) connect(ctx context.Context, qCtx *handler.Context, pipeCtx *handler.PipeContext) (err error) {
@@ -99,17 +79,17 @@ func (h *hostsContainer) connect(ctx context.Context, qCtx *handler.Context, pip
 
 // Match matches domain in the hosts file and set its response.
 // It never returns an err.
-func (h *hostsContainer) Match(_ context.Context, qCtx *handler.Context) (matched bool, err error) {
+func (h *hostsContainer) Match(_ context.Context, qCtx *handler.Context) (matched bool, _ error) {
 	return h.matchAndSet(qCtx), nil
 }
 
 func (h *hostsContainer) matchAndSet(qCtx *handler.Context) (matched bool) {
-	if qCtx == nil || qCtx.Q == nil || len(qCtx.Q.Question) != 1 {
+	if len(qCtx.Q().Question) != 1 {
 		return false
 	}
 
-	typ := qCtx.Q.Question[0].Qtype
-	fqdn := qCtx.Q.Question[0].Name
+	typ := qCtx.Q().Question[0].Qtype
+	fqdn := qCtx.Q().Question[0].Name
 	v, ok := h.matcher.Match(fqdn)
 	if !ok {
 		return false
@@ -120,7 +100,7 @@ func (h *hostsContainer) matchAndSet(qCtx *handler.Context) (matched bool) {
 	case dns.TypeA:
 		if len(record.ipv4) != 0 {
 			r := new(dns.Msg)
-			r.SetReply(qCtx.Q)
+			r.SetReply(qCtx.Q())
 			for _, ip := range record.ipv4 {
 				rr := &dns.A{
 					Hdr: dns.RR_Header{
@@ -140,7 +120,7 @@ func (h *hostsContainer) matchAndSet(qCtx *handler.Context) (matched bool) {
 	case dns.TypeAAAA:
 		if len(record.ipv6) != 0 {
 			r := new(dns.Msg)
-			r.SetReply(qCtx.Q)
+			r.SetReply(qCtx.Q())
 			for _, ip := range record.ipv6 {
 				rr := &dns.AAAA{
 					Hdr: dns.RR_Header{

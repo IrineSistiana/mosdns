@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -23,6 +23,7 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
+	"go.uber.org/zap"
 	"net"
 	"time"
 )
@@ -46,55 +47,50 @@ func (u *udpResponseWriter) Write(m *dns.Msg) (n int, err error) {
 	return utils.WriteUDPMsgTo(m, u.c, u.to)
 }
 
-func (s *Server) serveUDP() error {
-	c, err := net.ListenPacket("udp", s.Config.Addr)
+func (s *server) startUDP(conf *ServerConfig) error {
+	c, err := net.ListenPacket("udp", conf.Addr)
 	if err != nil {
 		return err
 	}
-
-	s.l.Lock()
-	s.packetConn = c
-	s.l.Unlock()
-	defer func() {
-		s.l.Lock()
-		c.Close()
-		s.l.Unlock()
-	}()
-
-	listenerCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	for {
-		q, from, _, err := utils.ReadUDPMsgFrom(c, utils.IPv4UdpMaxPayload)
-		if err != nil {
-			if s.isDone() {
-				return nil
-			}
-			netErr, ok := err.(net.Error)
-			if ok { // is a net err
-				if netErr.Temporary() {
-					s.Logger.Warnf("listener temporary err: %v", err)
-					time.Sleep(time.Second * 5)
-					continue
-				} else {
-					return fmt.Errorf("unexpected listener err: %w", err)
+	s.listener[c] = struct{}{}
+	s.L().Info("udp server started", zap.Stringer("addr", c.LocalAddr()))
+	go func() {
+		listenerCtx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		for {
+			q, from, _, err := utils.ReadUDPMsgFrom(c, utils.IPv4UdpMaxPayload)
+			if err != nil {
+				if s.isClosed() {
+					return
 				}
-			} else { // invalid msg
-				continue
+				netErr, ok := err.(net.Error)
+				if ok { // is a net err
+					if netErr.Temporary() {
+						s.L().Warn("listener temporary err", zap.Stringer("addr", c.LocalAddr()), zap.Error(err))
+						time.Sleep(time.Second * 5)
+						continue
+					} else {
+						s.errChan <- fmt.Errorf("unexpected listener err: %w", err)
+						return
+					}
+				} else { // invalid msg
+					continue
+				}
 			}
-		}
-		w := &udpResponseWriter{
-			c:       c,
-			to:      from,
-			maxSize: getMaxSizeFromQuery(q),
-		}
-		qCtx := handler.NewContext(q)
-		qCtx.From = from
+			w := &udpResponseWriter{
+				c:       c,
+				to:      from,
+				maxSize: getMaxSizeFromQuery(q),
+			}
+			qCtx := handler.NewContext(q, from)
+			s.L().Debug("new query", qCtx.InfoField(), zap.Stringer("from", from))
 
-		go func() {
-			queryCtx, cancel := context.WithTimeout(listenerCtx, time.Second*5)
-			defer cancel()
-			s.Handler.ServeDNS(queryCtx, qCtx, w)
-		}()
-	}
+			go func() {
+				queryCtx, cancel := context.WithTimeout(listenerCtx, time.Second*5)
+				defer cancel()
+				s.handler.ServeDNS(queryCtx, qCtx, w)
+			}()
+		}
+	}()
+	return nil
 }

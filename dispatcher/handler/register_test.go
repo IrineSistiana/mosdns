@@ -1,94 +1,58 @@
 package handler
 
 import (
-	"context"
 	"errors"
 	"reflect"
 	"testing"
 )
 
-type dummySequencePlugin struct {
-	t *testing.T
-
-	next               string
-	hasErr             bool
-	shouldNoTBeReached bool
-}
-
-func (d *dummySequencePlugin) Tag() string {
-	return "dummy plugin"
-}
-
-func (d *dummySequencePlugin) Type() string {
-	return "dummy plugin"
-}
-
-func (d *dummySequencePlugin) Do(_ context.Context, _ *Context) (next string, err error) {
-	if d.shouldNoTBeReached {
-		d.t.Fatal("exec sequence reached unreachable plugin")
-	}
-
-	next = d.next
-	if d.hasErr {
-		err = errors.New("err")
-	}
-	return
-}
-
-func mustSuccess(t *testing.T, err error) {
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
-type justPlugin struct{}
-
-func (j *justPlugin) Tag() string {
-	return ""
-}
-
-func (j *justPlugin) Type() string {
-	return ""
-}
-
 func TestRegPlugin(t *testing.T) {
 	PurgePluginRegister()
 	defer PurgePluginRegister()
 
-	fp := WrapExecutablePlugin("fp", "", &DummyExecutable{})
-	mp := WrapMatcherPlugin("wp", "", &DummyMatcher{})
-	sp := &dummySequencePlugin{}
-
-	type args struct {
-		p Plugin
-	}
+	shutdownErr := errors.New("err")
 	tests := []struct {
-		name       string
-		args       args
-		wantPlugin Plugin
-		wantErr    bool
+		name      string
+		p         Plugin
+		errOnDup  bool
+		wantErr   bool
+		wantPanic bool
 	}{
-		{"reg fp", args{p: fp}, fp, false},
-		{"reg mp", args{p: mp}, mp, false},
-		{"reg sp", args{p: sp}, sp, false},
+		{"reg p1", &BP{tag: "p1"}, true, false, false},
+		{"test err on dup p1", &BP{tag: "p1"}, true, true, false},
+		{"reg service plugin sp1", &DummyServicePlugin{BP: NewBP("sp1", "")}, true, false, false},
+		{"reg err service plugin sp2", &DummyServicePlugin{BP: NewBP("sp2", ""), WantShutdownErr: shutdownErr}, true, false, false},
+		{"test shutdown service sp1", &BP{tag: "sp1"}, false, false, false},
+		{"test shutdown service sp2", &BP{tag: "sp2"}, false, false, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := RegPlugin(tt.args.p)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("RegPlugin() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if err != nil {
-				return
-			}
+			func() {
+				if tt.wantPanic {
+					defer func() {
+						err := recover()
+						if err == nil {
+							t.Error("test should panic")
+						}
+					}()
+				}
 
-			p, err := GetPlugin(tt.args.p.Tag())
-			if err != nil {
-				t.Errorf("failed to get registed plugin")
-			}
-			if !reflect.DeepEqual(p, tt.wantPlugin) {
-				t.Errorf("want p %v, but got %v", tt.wantPlugin, p)
-			}
+				err := RegPlugin(wrapPluginBeforeReg(tt.p), tt.errOnDup)
+				if (err != nil) != tt.wantErr {
+					t.Errorf("RegPlugin() error = %v, wantErr %v", err, tt.wantErr)
+				}
+				if err != nil {
+					return
+				}
+
+				gotP, err := GetPlugin(tt.p.Tag())
+				if err != nil {
+					t.Errorf("failed to get registed plugin")
+				}
+				if !reflect.DeepEqual(gotP, tt.p) {
+					t.Errorf("want p %v, but got %v", tt.p, gotP)
+				}
+			}()
 		})
 	}
 }

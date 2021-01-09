@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -24,21 +24,19 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/matcher/domain"
 	"github.com/IrineSistiana/mosdns/dispatcher/matcher/elem"
 	"github.com/IrineSistiana/mosdns/dispatcher/matcher/netlist"
-	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
-	"github.com/sirupsen/logrus"
 )
 
 const PluginType = "response_matcher"
 
 func init() {
-	handler.RegInitFunc(PluginType, Init)
+	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 
-	handler.MustRegPlugin(preset("_response_rcode_success", &Args{Rcode: []int{dns.RcodeSuccess}}))
+	handler.MustRegPlugin(preset(handler.NewBP("_response_rcode_success", PluginType), &Args{Rcode: []int{dns.RcodeSuccess}}), true)
 }
 
-var _ handler.Matcher = (*responseMatcher)(nil)
+var _ handler.MatcherPlugin = (*responseMatcher)(nil)
 
 type Args struct {
 	Rcode        []int    `yaml:"rcode"`
@@ -48,43 +46,23 @@ type Args struct {
 }
 
 type responseMatcher struct {
-	tag    string
-	logger *logrus.Entry
-	args   *Args
+	*handler.BP
+	args *Args
 
 	matcherGroup []handler.Matcher
-}
-
-func (m *responseMatcher) Tag() string {
-	return m.tag
-}
-
-func (m *responseMatcher) Type() string {
-	return PluginType
 }
 
 func (m *responseMatcher) Match(ctx context.Context, qCtx *handler.Context) (matched bool, err error) {
 	return utils.BoolLogic(ctx, qCtx, m.matcherGroup, m.args.IsLogicalAND)
 }
 
-func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err error) {
-	args := new(Args)
-	err = handler.WeakDecode(argsMap, args)
-	if err != nil {
-		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
-	}
-
-	m, err := newResponseMatcher(tag, args)
-	if err != nil {
-		return nil, err
-	}
-	return handler.WrapMatcherPlugin(tag, PluginType, m), nil
+func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
+	return newResponseMatcher(bp, args.(*Args))
 }
 
-func newResponseMatcher(tag string, args *Args) (m *responseMatcher, err error) {
+func newResponseMatcher(bp *handler.BP, args *Args) (m *responseMatcher, err error) {
 	m = new(responseMatcher)
-	m.tag = tag
-	m.logger = mlog.NewPluginLogger(tag)
+	m.BP = bp
 	m.args = args
 
 	if len(args.Rcode) > 0 {
@@ -110,10 +88,10 @@ func newResponseMatcher(tag string, args *Args) (m *responseMatcher, err error) 
 	return m, nil
 }
 
-func preset(tag string, args *Args) (m *responseMatcher) {
-	m, err := newResponseMatcher(tag, args)
+func preset(bp *handler.BP, args *Args) (m *responseMatcher) {
+	m, err := newResponseMatcher(bp, args)
 	if err != nil {
-		panic(fmt.Sprintf("response_matcher: failed to init pre-set plugin %s: %s", tag, err))
+		panic(fmt.Sprintf("response_matcher: failed to init pre-set plugin %s: %s", bp.Tag(), err))
 	}
 	return m
 }

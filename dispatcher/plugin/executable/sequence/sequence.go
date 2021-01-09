@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -19,71 +19,52 @@ package sequence
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
-	"github.com/sirupsen/logrus"
 )
 
 const PluginType = "sequence"
 
 func init() {
-	handler.RegInitFunc(PluginType, Init)
+	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 
-	handler.MustRegPlugin(&sequenceRouter{tag: "_end"})
+	handler.MustRegPlugin(&noop{BP: handler.NewBP("_end", PluginType)}, true)
 }
 
 var _ handler.ExecutablePlugin = (*sequenceRouter)(nil)
 
 type sequenceRouter struct {
-	tag           string
-	executableCmd *handler.ExecutableCmdSequence
+	*handler.BP
 
-	logger *logrus.Entry
+	ecs *handler.ExecutableCmdSequence
 }
+
+type noop struct {
+	*handler.BP
+}
+
+func (n *noop) Exec(_ context.Context, _ *handler.Context) (_ error) { return nil }
 
 type Args struct {
 	Exec []interface{} `yaml:"exec"`
 }
 
-func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err error) {
-	args := new(Args)
-	err = handler.WeakDecode(argsMap, args)
+func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
+	return newSequencePlugin(bp, args.(*Args))
+}
+
+func newSequencePlugin(bp *handler.BP, args *Args) (*sequenceRouter, error) {
+	ecs, err := handler.ParseExecutableCmdSequence(args.Exec)
 	if err != nil {
-		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
+		return nil, fmt.Errorf("invalid exec squence: %w", err)
 	}
 
-	if len(args.Exec) == 0 {
-		return nil, errors.New("empty exec sequence")
-	}
-
-	ecs := handler.NewExecutableCmdSequence()
-	if err := ecs.Parse(args.Exec); err != nil {
-		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
-	}
-
-	s := newSequencePlugin(tag, ecs)
-	return s, nil
-}
-
-func newSequencePlugin(tag string, executable *handler.ExecutableCmdSequence) *sequenceRouter {
-	return &sequenceRouter{tag: tag, executableCmd: executable, logger: mlog.NewPluginLogger(tag)}
-}
-
-func (s *sequenceRouter) Tag() string {
-	return s.tag
-}
-
-func (s *sequenceRouter) Type() string {
-	return PluginType
+	return &sequenceRouter{
+		BP:  bp,
+		ecs: ecs,
+	}, nil
 }
 
 func (s *sequenceRouter) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
-	if s.executableCmd != nil {
-		err = s.executableCmd.Exec(ctx, qCtx, s.logger)
-		if err != nil {
-			return handler.NewPluginError(s.tag, err)
-		}
-	}
-	return nil
+	return handler.WalkExecutableCmd(ctx, qCtx, s.L(), s.ecs)
 }

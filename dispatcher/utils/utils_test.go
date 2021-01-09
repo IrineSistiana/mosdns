@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -98,10 +98,10 @@ func TestBoolLogic(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			m := new(dns.Msg)
 			m.SetQuestion("test.", dns.TypeA)
-			qCtx := handler.NewContext(m)
+			qCtx := handler.NewContext(m, nil)
 			fs := make([]handler.Matcher, 0)
 			for _, b := range tt.args.fs {
-				fs = append(fs, &handler.DummyMatcher{Matched: b.b, WantErr: b.err})
+				fs = append(fs, &handler.DummyMatcherPlugin{Matched: b.b, WantErr: b.err})
 			}
 			gotMatched, err := BoolLogic(context.Background(), qCtx, fs, tt.args.logicalAND)
 			if (err != nil) != tt.wantErr {

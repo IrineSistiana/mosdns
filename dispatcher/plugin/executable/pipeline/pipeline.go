@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -19,23 +19,19 @@ package pipeline
 
 import (
 	"context"
-	"errors"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
-	"github.com/sirupsen/logrus"
 )
 
 const PluginType = "pipeline"
 
 func init() {
-	handler.RegInitFunc(PluginType, Init)
+	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 }
 
 var _ handler.ExecutablePlugin = (*pipelineRouter)(nil)
 
 type pipelineRouter struct {
-	tag    string
-	logger *logrus.Entry
+	*handler.BP
 
 	args *Args
 }
@@ -44,36 +40,17 @@ type Args struct {
 	Pipe []string `yaml:"pipe"`
 }
 
-func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err error) {
-	args := new(Args)
-	err = handler.WeakDecode(argsMap, args)
-	if err != nil {
-		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
-	}
+func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
+	return newPipelineRouter(bp, args.(*Args))
+}
 
-	if len(args.Pipe) == 0 {
-		return nil, errors.New("empty pipeline")
-	}
-
+func newPipelineRouter(bp *handler.BP, args *Args) (*pipelineRouter, error) {
 	return &pipelineRouter{
-		tag:    tag,
-		logger: mlog.NewPluginLogger(tag),
-		args:   args,
+		BP:   bp,
+		args: args,
 	}, nil
 }
 
-func (pr *pipelineRouter) Tag() string {
-	return pr.tag
-}
-
-func (pr *pipelineRouter) Type() string {
-	return PluginType
-}
-
 func (pr *pipelineRouter) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
-	err = handler.NewPipeContext(pr.args.Pipe, pr.logger).ExecNextPlugin(ctx, qCtx)
-	if err != nil {
-		return handler.NewPluginError(pr.tag, err)
-	}
-	return nil
+	return handler.NewPipeContext(pr.args.Pipe, pr.L()).ExecNextPlugin(ctx, qCtx)
 }

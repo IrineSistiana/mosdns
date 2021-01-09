@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -21,7 +21,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/miekg/dns"
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 )
 
 type ServerHandler interface {
@@ -42,7 +42,7 @@ type DefaultServerHandler struct {
 
 type DefaultServerHandlerConfig struct {
 	// Logger is used for logging, it cannot be nil.
-	Logger *logrus.Entry
+	Logger *zap.Logger
 	// Entry is the entry ExecutablePlugin's tag. This shouldn't be empty.
 	Entry string
 	// ConcurrentLimit controls the max concurrent queries.
@@ -76,21 +76,26 @@ func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *Context, w Re
 		}
 	}
 
-	h.config.Logger.Debugf("%v: exec entry %s", qCtx, h.config.Entry)
+	h.config.Logger.Debug("exec entry", qCtx.InfoField(), zap.String("entry", h.config.Entry))
 	err := h.execEntry(ctx, qCtx)
 	var r *dns.Msg
-	if err != nil || qCtx.Status == ContextStatusServerFailed {
+	if err != nil {
+		h.config.Logger.Warn("entry returned an err", qCtx.InfoField(), zap.Error(err))
+	} else {
+		h.config.Logger.Debug("entry returned", qCtx.InfoField(), zap.Stringer("status", qCtx.Status()))
+	}
+
+	if err != nil || qCtx.Status() == ContextStatusServerFailed {
 		r = new(dns.Msg)
-		r.SetReply(qCtx.Q)
+		r.SetReply(qCtx.Q())
 		r.Rcode = dns.RcodeServerFailure
 	} else {
-		r = qCtx.R
+		r = qCtx.R()
 	}
-	h.config.Logger.Debugf("%v: entry %s returned with status: %s", qCtx, h.config.Entry, qCtx.Status)
 
 	if r != nil {
-		if _, err = w.Write(r); err != nil {
-			h.config.Logger.Warnf("%v: response might not send back to client: %v", qCtx, err)
+		if _, err := w.Write(r); err != nil {
+			h.config.Logger.Warn("write response", qCtx.InfoField(), zap.Error(err))
 		}
 	}
 }

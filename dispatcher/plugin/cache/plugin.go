@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -19,10 +19,9 @@ package cache
 import (
 	"context"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 	"time"
 )
 
@@ -33,9 +32,9 @@ const (
 )
 
 func init() {
-	handler.RegInitFunc(PluginType, Init)
+	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 
-	handler.MustRegPlugin(newCachePlugin("_default_cache", &Args{Size: 1024, CleanerInterval: 10}))
+	handler.MustRegPlugin(newCachePlugin(handler.NewBP("_default_cache", PluginType), &Args{}), true)
 }
 
 var _ handler.ContextPlugin = (*cachePlugin)(nil)
@@ -46,47 +45,28 @@ type Args struct {
 }
 
 type cachePlugin struct {
-	tag    string
-	logger *logrus.Entry
-	c      *cache
-}
+	*handler.BP
 
-func (c *cachePlugin) Tag() string {
-	return c.tag
-}
-
-func (c *cachePlugin) Type() string {
-	return PluginType
+	c *cache
 }
 
 func (c *cachePlugin) Connect(ctx context.Context, qCtx *handler.Context, pipeCtx *handler.PipeContext) (err error) {
-	err = c.connect(ctx, qCtx, pipeCtx)
-	if err != nil {
-		return handler.NewPluginError(c.tag, err)
-	}
-	return nil
+	return c.connect(ctx, qCtx, pipeCtx)
 }
 
 func (c *cachePlugin) connect(ctx context.Context, qCtx *handler.Context, pipeCtx *handler.PipeContext) (err error) {
-	if qCtx == nil || qCtx.Q == nil || pipeCtx == nil {
-		return nil
-	}
-
-	cacheable := len(qCtx.Q.Question) == 1
-	var key string
-	if cacheable {
-		key, err = utils.GetMsgKey(qCtx.Q)
-		if err != nil {
-			c.logger.Warnf("%v: unable to get msg key, skip the cache: %v", qCtx, err)
-			cacheable = false
-		} else {
-			if r, ttl := c.c.get(key); r != nil { // if cache hit
-				c.logger.Debugf("%v: cache hit", qCtx)
-				r.Id = qCtx.Q.Id
-				setTTL(r, uint32(ttl/time.Second))
-				qCtx.SetResponse(r, handler.ContextStatusResponded)
-				return nil
-			}
+	cacheable := true
+	key, err := utils.GetMsgKey(qCtx.Q())
+	if err != nil {
+		c.L().Warn("unable to get msg key, skip the cache", qCtx.InfoField(), zap.Error(err))
+		cacheable = false
+	} else {
+		if r, ttl := c.c.get(key); r != nil { // if cache hit
+			c.L().Debug("cache hit", qCtx.InfoField())
+			r.Id = qCtx.Q().Id
+			setTTL(r, uint32(ttl/time.Second))
+			qCtx.SetResponse(r, handler.ContextStatusResponded)
+			return nil
 		}
 	}
 
@@ -95,31 +75,24 @@ func (c *cachePlugin) connect(ctx context.Context, qCtx *handler.Context, pipeCt
 		return err
 	}
 
-	if cacheable && qCtx.R != nil && qCtx.R.Rcode == dns.RcodeSuccess {
-		ttl := getMinimalTTL(qCtx.R)
+	if cacheable && qCtx.R() != nil && qCtx.R().Rcode == dns.RcodeSuccess && len(qCtx.R().Answer) != 0 {
+		ttl := getMinimalTTL(qCtx.R())
 		if ttl > maxTTL {
 			ttl = maxTTL
 		}
-		c.c.add(key, ttl, qCtx.R)
+		c.c.add(key, ttl, qCtx.R())
 	}
 
 	return nil
 }
 
-func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err error) {
-	args := new(Args)
-	err = handler.WeakDecode(argsMap, args)
-	if err != nil {
-		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
-	}
-
-	return newCachePlugin(tag, args), nil
+func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
+	return newCachePlugin(bp, args.(*Args)), nil
 }
 
-func newCachePlugin(tag string, args *Args) *cachePlugin {
+func newCachePlugin(bp *handler.BP, args *Args) *cachePlugin {
 	return &cachePlugin{
-		tag:    tag,
-		logger: mlog.NewPluginLogger(tag),
-		c:      newCache(args.Size, time.Duration(args.CleanerInterval)*time.Second),
+		BP: bp,
+		c:  newCache(args.Size, time.Duration(args.CleanerInterval)*time.Second),
 	}
 }

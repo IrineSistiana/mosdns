@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mos-chinadns.
 //
@@ -18,7 +18,7 @@
 package cpool
 
 import (
-	"github.com/sirupsen/logrus"
+	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"net"
 	"testing"
 	"time"
@@ -26,9 +26,8 @@ import (
 
 func Test_Pool(t *testing.T) {
 	conn, _ := net.Pipe()
-	logger := logrus.NewEntry(logrus.StandardLogger())
 
-	cp := New(8, time.Millisecond*200, time.Millisecond*100, logger)
+	cp := New(8, time.Millisecond*200, time.Millisecond*100, mlog.L())
 	if c := cp.Get(); c != nil {
 		t.Fatal("cp should be empty")
 	}

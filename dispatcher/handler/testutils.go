@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -25,32 +25,57 @@ import (
 
 // Types and funcs in this file are for testing only
 
-type DummyMatcher struct {
+type DummyMatcherPlugin struct {
+	*BP
 	Matched bool
 	WantErr error
 }
 
-func (d *DummyMatcher) Match(_ context.Context, _ *Context) (matched bool, err error) {
+func (d *DummyMatcherPlugin) Match(_ context.Context, _ *Context) (matched bool, err error) {
 	return d.Matched, d.WantErr
 }
 
-type DummyExecutable struct {
+type DummyExecutablePlugin struct {
+	*BP
+	WantR   *dns.Msg
 	WantErr error
 }
 
-func (d *DummyExecutable) Exec(_ context.Context, _ *Context) (err error) {
-	return d.WantErr
+func (d *DummyExecutablePlugin) Exec(_ context.Context, qCtx *Context) (err error) {
+	if d.WantErr != nil {
+		return d.WantErr
+	}
+	if d.WantR != nil {
+		qCtx.SetResponse(d.WantR, ContextStatusResponded)
+	}
+	return nil
+}
+
+type DummyServicePlugin struct {
+	*BP
+	WantShutdownErr error
+}
+
+func (d *DummyServicePlugin) Shutdown() error {
+	return d.WantShutdownErr
 }
 
 type DummyServerHandler struct {
 	T       *testing.T
-	EchoMsg *dns.Msg
+	WantMsg *dns.Msg
 	WantErr error
 }
 
 func (d *DummyServerHandler) ServeDNS(_ context.Context, qCtx *Context, w ResponseWriter) {
-	r := d.EchoMsg.Copy()
-	r.Id = qCtx.Q.Id
+	var r *dns.Msg
+	if d.WantMsg != nil {
+		r = d.WantMsg.Copy()
+		r.Id = qCtx.Q().Id
+	} else {
+		r = new(dns.Msg)
+		r.SetReply(qCtx.Q())
+	}
+
 	_, err := w.Write(r)
 	if err != nil {
 		d.T.Errorf("DummyServerHandler: %v", err)

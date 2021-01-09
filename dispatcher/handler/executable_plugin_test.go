@@ -3,21 +3,19 @@ package handler
 import (
 	"context"
 	"errors"
-	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
+	"github.com/miekg/dns"
+	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 	"testing"
+	"time"
 )
 
-func Test_switchPlugin_Do(t *testing.T) {
+func Test_ECS(t *testing.T) {
 	PurgePluginRegister()
 	defer PurgePluginRegister()
 
 	mErr := errors.New("mErr")
 	eErr := errors.New("eErr")
-
-	type args struct {
-		executable ExecutableCmd
-	}
 
 	var tests = []struct {
 		name     string
@@ -78,34 +76,37 @@ exec:
 			wantNext: "", wantErr: eErr},
 	}
 
-	mustSuccess := func(err error) {
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-
 	// not_matched
-	mustSuccess(RegPlugin(WrapMatcherPlugin("not_matched", "",
-		&DummyMatcher{Matched: false, WantErr: nil},
-	)))
+	MustRegPlugin(&DummyMatcherPlugin{
+		BP:      NewBP("not_matched", ""),
+		Matched: false,
+		WantErr: nil,
+	}, true)
 
 	// do something
-	mustSuccess(RegPlugin(WrapExecutablePlugin("exec", "",
-		&DummyExecutable{WantErr: nil},
-	)))
+	MustRegPlugin(&DummyExecutablePlugin{
+		BP:      NewBP("exec", ""),
+		WantErr: nil,
+	}, true)
 
 	// matched
-	mustSuccess(RegPlugin(WrapMatcherPlugin("matched", "",
-		&DummyMatcher{Matched: true, WantErr: nil},
-	)))
+	MustRegPlugin(&DummyMatcherPlugin{
+		BP:      NewBP("matched", ""),
+		Matched: true,
+		WantErr: nil,
+	}, true)
 
 	// plugins should return an err.
-	mustSuccess(RegPlugin(WrapMatcherPlugin("match_err", "",
-		&DummyMatcher{Matched: false, WantErr: mErr},
-	)))
-	mustSuccess(RegPlugin(WrapExecutablePlugin(string("exec_err"), "",
-		&DummyExecutable{WantErr: eErr},
-	)))
+	MustRegPlugin(&DummyMatcherPlugin{
+		BP:      NewBP("match_err", ""),
+		Matched: false,
+		WantErr: mErr,
+	}, true)
+
+	MustRegPlugin(&DummyExecutablePlugin{
+		BP:      NewBP("exec_err", ""),
+		WantErr: eErr,
+	}, true)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -114,19 +115,164 @@ exec:
 			if err != nil {
 				t.Fatal(err)
 			}
-			ecs := NewExecutableCmdSequence()
-			err = ecs.Parse(args["exec"].([]interface{}))
+			ecs, err := ParseExecutableCmdSequence(args["exec"].([]interface{}))
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			gotNext, err := ecs.ExecCmd(context.Background(), nil, mlog.NewPluginLogger("test"))
+			gotNext, err := ecs.ExecCmd(context.Background(), NewContext(new(dns.Msg), nil), zap.NewNop())
 			if (err != nil || tt.wantErr != nil) && !errors.Is(err, tt.wantErr) {
 				t.Errorf("Do() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if gotNext != tt.wantNext {
 				t.Errorf("Do() gotNext = %v, want %v", gotNext, tt.wantNext)
+			}
+		})
+	}
+}
+
+func Test_ParallelECS(t *testing.T) {
+	PurgePluginRegister()
+	defer PurgePluginRegister()
+
+	r1 := new(dns.Msg)
+	r2 := new(dns.Msg)
+	p1 := &DummyExecutablePlugin{BP: NewBP("p1", "")}
+	p2 := &DummyExecutablePlugin{BP: NewBP("p2", "")}
+	MustRegPlugin(p1, true)
+	MustRegPlugin(p2, true)
+
+	er := errors.New("")
+	tests := []struct {
+		name    string
+		r1      *dns.Msg
+		e1      error
+		r2      *dns.Msg
+		e2      error
+		wantR   *dns.Msg
+		wantErr bool
+	}{
+		{"failed #1", nil, er, nil, er, nil, true},
+		{"failed #2", nil, nil, nil, nil, nil, true},
+		{"p1 response #1", r1, nil, nil, nil, r1, false},
+		{"p1 response #2", r1, nil, nil, er, r1, false},
+		{"p2 response #1", nil, nil, r2, nil, r2, false},
+		{"p2 response #2", nil, er, r2, nil, r2, false},
+	}
+
+	parallelECS, err := ParseParallelECS([][]interface{}{{"p1"}, {"p2"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p1.WantR = tt.r1
+			p1.WantErr = tt.e1
+			p2.WantR = tt.r2
+			p2.WantErr = tt.e2
+
+			qCtx := NewContext(new(dns.Msg), nil)
+			err := parallelECS.execCmd(ctx, qCtx, zap.NewNop())
+			if tt.wantErr != (err != nil) {
+				t.Fatalf("execCmd() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if tt.wantR != qCtx.R() {
+				t.Fatalf("execCmd() qCtx.R() = %p, wantR %p", qCtx.R(), tt.wantR)
+			}
+		})
+	}
+}
+
+func Test_FallbackECS(t *testing.T) {
+	PurgePluginRegister()
+	defer PurgePluginRegister()
+
+	r1 := new(dns.Msg)
+	r2 := new(dns.Msg)
+	p1 := &DummyExecutablePlugin{BP: NewBP("p1", "")}
+	p2 := &DummyExecutablePlugin{BP: NewBP("p2", ""), WantR: r2}
+	MustRegPlugin(p1, true)
+	MustRegPlugin(p2, true)
+	er := errors.New("")
+
+	tests := []struct {
+		name    string
+		r1      *dns.Msg
+		e1      error
+		r2      *dns.Msg
+		e2      error
+		wantR   *dns.Msg
+		wantErr bool
+	}{
+		{"failed 0", nil, er, r2, nil, nil, true}, // warm up
+		{"failed 1", nil, er, r2, nil, nil, true},
+		{"failed 2", nil, er, r2, nil, r2, false}, // trigger fallback
+		{"failed 3", nil, nil, r2, nil, r2, false},
+		{"failed 3", r1, nil, nil, nil, r1, false}, // primary success
+		{"success 1 failed 2", r1, nil, nil, nil, r1, false},
+		{"success 2 failed 1", nil, er, nil, nil, nil, true}, // end of fallback, but primary returns an err again
+		{"success 1 failed 2", nil, er, nil, er, nil, true},  // no response
+	}
+
+	fallbackECS, err := ParseFallbackECS([]interface{}{"p1"}, []interface{}{"p2"}, 2, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p1.WantR = tt.r1
+			p1.WantErr = tt.e1
+			p2.WantR = tt.r2
+			p2.WantErr = tt.e2
+
+			qCtx := NewContext(new(dns.Msg), nil)
+			err := fallbackECS.execCmd(ctx, qCtx, zap.NewNop())
+			if tt.wantErr != (err != nil) {
+				t.Fatalf("execCmd() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if tt.wantR != qCtx.R() {
+				t.Fatalf("execCmd() qCtx.R() = %p, wantR %p", qCtx.R(), tt.wantR)
+			}
+
+			time.Sleep(time.Millisecond * 20) // wait for statusTracker.update()
+		})
+	}
+}
+
+func Test_statusTracker(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []uint8
+
+		wantGood bool
+	}{
+		{"start0", nil, true},
+		{"start1", []uint8{0}, true},
+		{"start2", []uint8{0, 0}, true},
+		{"start3", []uint8{0, 0, 0}, true},
+		{"start4", []uint8{1, 1}, true},
+		{"start5", []uint8{1, 1, 1}, false},
+		{"start6", []uint8{1, 1, 1, 0}, false},
+		{"run1", []uint8{1, 1, 1, 0, 0}, true},
+		{"run2", []uint8{1, 1, 1, 1, 1, 1, 0, 0}, true},
+		{"run3", []uint8{0, 0, 0, 0, 0, 1, 1, 1}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := newStatusTracker(3, 4)
+			for _, s := range tt.in {
+				st.update(s)
+			}
+
+			if st.good() != tt.wantGood {
+				t.Fatal()
 			}
 		})
 	}

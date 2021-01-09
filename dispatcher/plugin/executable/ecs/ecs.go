@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -21,22 +21,20 @@ import (
 	"context"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
-	"github.com/sirupsen/logrus"
 	"net"
 )
 
 const PluginType = "ecs"
 
 func init() {
-	handler.RegInitFunc(PluginType, Init)
+	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 
-	handler.MustRegPlugin(handler.WrapExecutablePlugin("_no_ecs", PluginType, &noECS{}))
+	handler.MustRegPlugin(&noECS{tag: "_no_ecs"}, true)
 }
 
-var _ handler.Executable = (*ecsPlugin)(nil)
+var _ handler.ExecutablePlugin = (*ecsPlugin)(nil)
 
 type Args struct {
 	// Automatically append client address as ecs.
@@ -56,30 +54,25 @@ type Args struct {
 }
 
 type ecsPlugin struct {
+	*handler.BP
 	args       *Args
-	logger     *logrus.Entry
 	ipv4, ipv6 *dns.EDNS0_SUBNET
 }
 
-func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err error) {
-	args := new(Args)
-	err = handler.WeakDecode(argsMap, args)
-	if err != nil {
-		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
-	}
-
-	return newPlugin(tag, args)
+func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
+	return newPlugin(bp, args.(*Args))
 }
 
-func newPlugin(tag string, args *Args) (p handler.Plugin, err error) {
-	ep := new(ecsPlugin)
-	ep.logger = mlog.NewPluginLogger(tag)
+func newPlugin(bp *handler.BP, args *Args) (p handler.Plugin, err error) {
+
 	if args.Mask4 == 0 {
 		args.Mask4 = 24
 	}
 	if args.Mask6 == 0 {
 		args.Mask6 = 48
 	}
+	ep := new(ecsPlugin)
+	ep.BP = bp
 	ep.args = args
 
 	if len(args.IPv4) != 0 {
@@ -106,22 +99,18 @@ func newPlugin(tag string, args *Args) (p handler.Plugin, err error) {
 		}
 	}
 
-	return handler.WrapExecutablePlugin(tag, PluginType, ep), nil
+	return ep, nil
 }
 
-// Do tries to append ECS to qCtx.Q.
+// Do tries to append ECS to qCtx.Q().
 // If an error occurred, Do will just log it.
 // Therefore, Do will never return an err.
 func (e ecsPlugin) Exec(_ context.Context, qCtx *handler.Context) (err error) {
-	if qCtx == nil || qCtx.Q == nil {
-		return nil
-	}
-
-	if e.args.ForceOverwrite || getMsgECS(qCtx.Q) == nil {
-		if e.args.Auto && qCtx.From != nil {
-			ip := utils.GetIPFromAddr(qCtx.From)
+	if e.args.ForceOverwrite || getMsgECS(qCtx.Q()) == nil {
+		if e.args.Auto && qCtx.From() != nil {
+			ip := utils.GetIPFromAddr(qCtx.From())
 			if ip == nil {
-				e.logger.Warnf("%v: internal err: can not get ip address from qCtx.From [%s]", qCtx, qCtx.From)
+				e.L().Warn("internal err: can not get client ip address", qCtx.InfoField())
 				return nil
 			}
 			var ecs *dns.EDNS0_SUBNET
@@ -131,17 +120,17 @@ func (e ecsPlugin) Exec(_ context.Context, qCtx *handler.Context) (err error) {
 				if ip6 := ip.To16(); ip6 != nil { // is ipv6
 					ecs = newEDNS0Subnet(ip6, e.args.Mask6, true)
 				} else { // non
-					e.logger.Warnf("%v: internal err: client address [%s] is not a valid ip address", qCtx, qCtx.From)
+					e.L().Warn("internal err: client ip address is not a valid ip address", qCtx.InfoField())
 					return nil
 				}
 			}
-			setECS(qCtx.Q, ecs)
+			setECS(qCtx.Q(), ecs)
 		} else {
 			switch {
-			case e.ipv4 != nil && checkQueryType(qCtx.Q, dns.TypeA):
-				setECS(qCtx.Q, e.ipv4)
-			case e.ipv6 != nil && checkQueryType(qCtx.Q, dns.TypeAAAA):
-				setECS(qCtx.Q, e.ipv6)
+			case e.ipv4 != nil && checkQueryType(qCtx.Q(), dns.TypeA):
+				setECS(qCtx.Q(), e.ipv4)
+			case e.ipv6 != nil && checkQueryType(qCtx.Q(), dns.TypeAAAA):
+				setECS(qCtx.Q(), e.ipv6)
 			}
 		}
 	}
@@ -155,20 +144,24 @@ func checkQueryType(m *dns.Msg, typ uint16) bool {
 	return false
 }
 
-type noECS struct{}
+type noECS struct {
+	tag string
+}
 
-var _ handler.Executable = (*noECS)(nil)
+func (n *noECS) Tag() string {
+	return n.tag
+}
+
+func (n *noECS) Type() string {
+	return PluginType
+}
+
+var _ handler.ExecutablePlugin = (*noECS)(nil)
 
 func (n noECS) Exec(_ context.Context, qCtx *handler.Context) (_ error) {
-	if qCtx == nil {
-		return nil
-	}
-
-	if qCtx.Q != nil {
-		removeECS(qCtx.Q)
-	}
-	if qCtx.R != nil {
-		removeECS(qCtx.R)
+	removeECS(qCtx.Q())
+	if qCtx.R() != nil {
+		removeECS(qCtx.R())
 	}
 	return
 }

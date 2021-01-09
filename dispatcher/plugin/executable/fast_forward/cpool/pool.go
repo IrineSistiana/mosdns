@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mos-chinadns.
 //
@@ -20,7 +20,7 @@ package cpool
 import (
 	"container/list"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 	"net"
 	"sync"
 	"time"
@@ -30,7 +30,7 @@ type Pool struct {
 	maxSize         int
 	ttl             time.Duration
 	cleanerInterval time.Duration
-	logger          *logrus.Entry
+	logger          *zap.Logger
 
 	sync.Mutex
 	cleanerStatus uint8
@@ -50,7 +50,7 @@ const (
 // New returns a new *Pool.
 // If size and ttl are <= 0, the Pool will panic.
 // If cleanerInterval is <= 0, the pool cleaner won't be used.
-func New(size int, ttl, cleanerInterval time.Duration, logger *logrus.Entry) *Pool {
+func New(size int, ttl, cleanerInterval time.Duration, logger *zap.Logger) *Pool {
 	if size <= 0 || ttl <= 0 {
 		panic("invalid pool size or ttl")
 	}
@@ -133,8 +133,8 @@ func (p *Pool) tryStartCleanerGoroutine() {
 }
 
 func (p *Pool) startCleaner() {
-	p.logger.Debugf("cpool cleaner %p started", p)
-	defer p.logger.Debugf("cpool cleaner %p exited", p)
+	p.logger.Debug("cpool cleaner started")
+	defer p.logger.Debug("cpool cleaner exited")
 
 	timer := utils.GetTimer(p.cleanerInterval)
 	defer utils.ReleaseTimer(timer)
@@ -159,7 +159,7 @@ func (p *Pool) startCleaner() {
 		utils.ResetAndDrainTimer(timer, interval)
 
 		if connCleaned > 0 {
-			p.logger.Debugf("cpool cleaner %p removed conn: %d, remain: %d, interval: %.2f", p, connCleaned, connRemain, interval.Seconds())
+			p.logger.Debug("cpool cleaner clean()", zap.Int("remove", connCleaned), zap.Int("remain", connRemain), zap.Duration("interval", interval))
 		}
 	}
 }

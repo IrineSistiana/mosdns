@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -25,6 +25,7 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
+	"go.uber.org/zap"
 	"net"
 	"time"
 )
@@ -42,28 +43,21 @@ func (t *tcpResponseWriter) Write(m *dns.Msg) (n int, err error) {
 	return utils.WriteMsgToTCP(t.c, m)
 }
 
-func (s *Server) serveTCP(isDoT bool) error {
-	l, err := net.Listen("tcp", s.Config.Addr)
+func (s *server) startTCP(conf *ServerConfig, isDoT bool) error {
+	l, err := net.Listen("tcp", conf.Addr)
 	if err != nil {
 		return err
 	}
-
-	s.l.Lock()
-	s.listener = l
-	s.l.Unlock()
-	defer func() {
-		s.l.Lock()
-		l.Close()
-		s.l.Unlock()
-	}()
+	s.listener[l] = struct{}{}
+	s.L().Info("tcp server started", zap.Stringer("addr", l.Addr()))
 
 	if isDoT {
-		if len(s.Config.Cert) == 0 || len(s.Config.Key) == 0 {
+		if len(conf.Cert) == 0 || len(conf.Key) == 0 {
 			return errors.New("dot server needs cert and key")
 		}
 		tlsConfig := new(tls.Config)
 		tlsConfig.Certificates = make([]tls.Certificate, 1)
-		tlsConfig.Certificates[0], err = tls.LoadX509KeyPair(s.Config.Cert, s.Config.Key)
+		tlsConfig.Certificates[0], err = tls.LoadX509KeyPair(conf.Cert, conf.Key)
 		if err != nil {
 			return err
 		}
@@ -71,49 +65,54 @@ func (s *Server) serveTCP(isDoT bool) error {
 		l = tls.NewListener(l, tlsConfig)
 	}
 
-	listenerCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	go func() {
+		listenerCtx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-	for {
-		c, err := l.Accept()
-		if err != nil {
-			if s.isDone() {
-				return nil
-			}
-
-			netErr, ok := err.(net.Error)
-			if ok && netErr.Temporary() {
-				s.Logger.Warnf("listener: temporary err: %v", err)
-				time.Sleep(time.Second * 5)
-				continue
-			} else {
-				return fmt.Errorf("unexpected listener err: %w", err)
-			}
-		}
-		tcpConnCtx, cancel := context.WithCancel(listenerCtx)
-
-		go func() {
-			defer c.Close()
-			defer cancel()
-
-			for {
-				c.SetReadDeadline(time.Now().Add(s.idleTimeout))
-				q, _, err := utils.ReadMsgFromTCP(c)
-				if err != nil {
-					return // read err, close the conn
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				if s.isClosed() {
+					return
 				}
 
-				w := &tcpResponseWriter{c: c}
-
-				qCtx := handler.NewContext(q)
-				qCtx.From = c.RemoteAddr()
-
-				ctx, cancel := context.WithTimeout(tcpConnCtx, s.queryTimeout)
-				go func() {
-					defer cancel()
-					s.Handler.ServeDNS(ctx, qCtx, w)
-				}()
+				netErr, ok := err.(net.Error)
+				if ok && netErr.Temporary() {
+					s.L().Warn("listener temporary err", zap.Stringer("addr", l.Addr()), zap.Error(err))
+					time.Sleep(time.Second * 5)
+					continue
+				} else {
+					s.errChan <- fmt.Errorf("unexpected listener err: %w", err)
+					return
+				}
 			}
-		}()
-	}
+
+			tcpConnCtx, cancelConn := context.WithCancel(listenerCtx)
+			go func() {
+				defer c.Close()
+				defer cancelConn()
+
+				for {
+					c.SetReadDeadline(time.Now().Add(conf.idleTimeout))
+					q, _, err := utils.ReadMsgFromTCP(c)
+					if err != nil {
+						return // read err, close the conn
+					}
+
+					w := &tcpResponseWriter{c: c}
+
+					qCtx := handler.NewContext(q, c.RemoteAddr())
+					s.L().Debug("new query", qCtx.InfoField(), zap.Stringer("from", c.RemoteAddr()))
+
+					ctx, cancelQuery := context.WithTimeout(tcpConnCtx, conf.queryTimeout)
+					go func() {
+						defer cancelQuery()
+						s.handler.ServeDNS(ctx, qCtx, w)
+					}()
+				}
+			}()
+		}
+	}()
+
+	return nil
 }

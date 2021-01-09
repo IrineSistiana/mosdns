@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -36,14 +36,14 @@ func newClientIPMatcher(ipMatcher netlist.Matcher) *clientIPMatcher {
 }
 
 func (m *clientIPMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, err error) {
-	if qCtx.From != nil {
-		ip := utils.GetIPFromAddr(qCtx.From)
+	if qCtx.From() != nil {
+		ip := utils.GetIPFromAddr(qCtx.From())
 		if ip != nil {
 			if m.ipMatcher.Match(ip) {
 				return true, nil
 			}
 		} else {
-			return false, fmt.Errorf("internal err: client addr [%s] is invalid", qCtx.From)
+			return false, fmt.Errorf("internal err: client addr [%s] is invalid", qCtx.From())
 		}
 	}
 	return false, nil
@@ -58,8 +58,8 @@ func newQDomainMatcher(domainMatcher domain.Matcher) *qDomainMatcher {
 }
 
 func (m *qDomainMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, _ error) {
-	for i := range qCtx.Q.Question {
-		_, matched = m.domainMatcher.Match(qCtx.Q.Question[i].Name)
+	for i := range qCtx.Q().Question {
+		_, matched = m.domainMatcher.Match(qCtx.Q().Question[i].Name)
 		if matched {
 			return true, nil
 		}
@@ -76,8 +76,8 @@ func newQTypeMatcher(elemMatcher *elem.IntMatcher) *qTypeMatcher {
 }
 
 func (m *qTypeMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, _ error) {
-	for i := range qCtx.Q.Question {
-		if m.elemMatcher.Match(int(qCtx.Q.Question[i].Qtype)) {
+	for i := range qCtx.Q().Question {
+		if m.elemMatcher.Match(int(qCtx.Q().Question[i].Qtype)) {
 			return true, nil
 		}
 	}
@@ -93,8 +93,8 @@ func newQClassMatcher(elemMatcher *elem.IntMatcher) *qClassMatcher {
 }
 
 func (m *qClassMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, _ error) {
-	for i := range qCtx.Q.Question {
-		if m.elemMatcher.Match(int(qCtx.Q.Question[i].Qclass)) {
+	for i := range qCtx.Q().Question {
+		if m.elemMatcher.Match(int(qCtx.Q().Question[i].Qclass)) {
 			return true, nil
 		}
 	}

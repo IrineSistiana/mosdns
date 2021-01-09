@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -19,29 +19,8 @@ package domain
 
 import (
 	"fmt"
-	"strings"
-	"v2ray.com/core/app/router"
+	"github.com/IrineSistiana/mosdns/dispatcher/matcher/v2data"
 )
-
-type V2Matcher struct {
-	dm *router.DomainMatcher
-}
-
-func (m *V2Matcher) Match(fqdn string) (v interface{}, ok bool) {
-	domain := fqdn
-	if strings.HasSuffix(domain, ".") {
-		domain = domain[:len(domain)-1]
-	}
-	return nil, m.dm.ApplyDomain(domain)
-}
-
-func NewV2Matcher(domains []*router.Domain) (*V2Matcher, error) {
-	dm, err := router.NewDomainMatcher(domains)
-	if err != nil {
-		return nil, err
-	}
-	return &V2Matcher{dm: dm}, nil
-}
 
 type MixMatcher struct {
 	keyword *KeywordMatcher
@@ -59,18 +38,18 @@ func NewMixMatcher() *MixMatcher {
 	}
 }
 
-func (m *MixMatcher) AddElem(typ router.Domain_Type, s string, v interface{}) error {
+func (m *MixMatcher) AddElem(typ v2data.Domain_Type, s string, v interface{}) error {
 	switch typ {
-	case router.Domain_Plain:
+	case v2data.Domain_Plain:
 		m.keyword.Add(s, v)
-	case router.Domain_Regex:
+	case v2data.Domain_Regex:
 		err := m.regex.Add(s, v)
 		if err != nil {
 			return err
 		}
-	case router.Domain_Domain:
+	case v2data.Domain_Domain:
 		m.domain.Add(s, v)
-	case router.Domain_Full:
+	case v2data.Domain_Full:
 		m.full.Add(s, v)
 	default:
 		return fmt.Errorf("invalid type %d", typ)

@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -22,6 +22,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/IrineSistiana/mosdns/dispatcher/matcher/v2data"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"io"
 	"io/ioutil"
@@ -29,7 +30,6 @@ import (
 	"time"
 
 	"github.com/golang/protobuf/proto"
-	"v2ray.com/core/app/router"
 )
 
 var matcherCache = utils.NewCache()
@@ -88,7 +88,7 @@ func (m *MixMatcher) LoadFormFileAsV2Matcher(file string) error {
 }
 
 // BatchLoadMixMatcher loads multiple files using MixMatcher.LoadFormFile
-func BatchLoadMixMatcher(f []string, filterRecord FilterRecordFunc, parseValue ParseValueFunc) (Matcher, error) {
+func BatchLoadMixMatcher(f []string, filterRecord FilterRecordFunc, parseValue ParseValueFunc) (*MixMatcher, error) {
 	if len(f) == 0 {
 		return nil, errors.New("no file to load")
 	}
@@ -141,12 +141,12 @@ func (m *MixMatcher) LoadFormTextReader(r io.Reader, filterRecord FilterRecordFu
 	return nil
 }
 
-var typeStrToDomainType = map[string]router.Domain_Type{
-	"":        router.Domain_Domain,
-	"domain":  router.Domain_Domain,
-	"keyword": router.Domain_Plain,
-	"regexp":  router.Domain_Regex,
-	"full":    router.Domain_Full,
+var typeStrToDomainType = map[string]v2data.Domain_Type{
+	"":        v2data.Domain_Domain,
+	"domain":  v2data.Domain_Domain,
+	"keyword": v2data.Domain_Plain,
+	"regexp":  v2data.Domain_Regex,
+	"full":    v2data.Domain_Full,
 }
 
 func (m *MixMatcher) LoadFormText(s string, filterRecord FilterRecordFunc, parseValue ParseValueFunc) error {
@@ -195,12 +195,12 @@ func (m *MixMatcher) LoadFormText(s string, filterRecord FilterRecordFunc, parse
 }
 
 func (m *MixMatcher) LoadFormDAT(file, countryCode string, filterRecord FilterRecordFunc, parseValue ParseValueFunc) error {
-	domains, err := loadV2DomainsFromDAT(file, countryCode)
+	geoSite, err := LoadGeoSiteFromDAT(file, countryCode)
 	if err != nil {
 		return err
 	}
 
-	for _, d := range domains {
+	for _, d := range geoSite.GetDomain() {
 		attr := make([]string, 0, len(d.Attribute))
 		for _, a := range d.Attribute {
 			attr = append(attr, a.Key)
@@ -257,24 +257,8 @@ func mustHaveAttr(attr, wanted []string) bool {
 	return true
 }
 
-func NewV2MatcherFromFile(file, countryCode string) (Matcher, error) {
-	domains, err := loadV2DomainsFromDAT(file, countryCode)
-	if err != nil {
-		return nil, err
-	}
-	return NewV2Matcher(domains)
-}
-
-func loadV2DomainsFromDAT(file, countryCode string) ([]*router.Domain, error) {
-	geoSite, err := loadGeoSiteFromDAT(file, countryCode)
-	if err != nil {
-		return nil, err
-	}
-	return geoSite.GetDomain(), nil
-}
-
-func loadGeoSiteFromDAT(file, countryCode string) (*router.GeoSite, error) {
-	geoSiteList, err := loadGeoSiteList(file)
+func LoadGeoSiteFromDAT(file, countryCode string) (*v2data.GeoSite, error) {
+	geoSiteList, err := LoadGeoSiteList(file)
 	if err != nil {
 		return nil, err
 	}
@@ -290,18 +274,18 @@ func loadGeoSiteFromDAT(file, countryCode string) (*router.GeoSite, error) {
 	return nil, fmt.Errorf("can not find category %s in %s", countryCode, file)
 }
 
-func loadGeoSiteList(file string) (*router.GeoSiteList, error) {
+func LoadGeoSiteList(file string) (*v2data.GeoSiteList, error) {
 	data, raw, err := matcherCache.LoadFromCacheOrRawDisk(file)
 	if err != nil {
 		return nil, err
 	}
 	// load from cache
-	if geoSiteList, ok := data.(*router.GeoSiteList); ok {
+	if geoSiteList, ok := data.(*v2data.GeoSiteList); ok {
 		return geoSiteList, nil
 	}
 
 	// load from disk
-	geoSiteList := new(router.GeoSiteList)
+	geoSiteList := new(v2data.GeoSiteList)
 	if err := proto.Unmarshal(raw, geoSiteList); err != nil {
 		return nil, err
 	}

@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -19,10 +19,12 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 	"reflect"
 	"strings"
+	"sync"
 )
 
 type ExecutablePlugin interface {
@@ -34,42 +36,20 @@ type Executable interface {
 	Exec(ctx context.Context, qCtx *Context) (err error)
 }
 
-type ExecutablePluginWrapper struct {
-	tag string
-	typ string
-
-	Executable
-}
-
-func (p *ExecutablePluginWrapper) Tag() string {
-	return p.tag
-}
-
-func (p *ExecutablePluginWrapper) Type() string {
-	return p.typ
-}
-
-// WrapExecutablePlugin returns a *ExecutablePluginWrapper which implements Plugin and ExecutablePlugin.
-func WrapExecutablePlugin(tag, typ string, executable Executable) *ExecutablePluginWrapper {
-	return &ExecutablePluginWrapper{
-		tag:        tag,
-		typ:        typ,
-		Executable: executable,
-	}
-}
-
 type ExecutableCmd interface {
-	ExecCmd(ctx context.Context, qCtx *Context, logger *logrus.Entry) (goTwo string, err error)
+	ExecCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (goTwo string, err error)
 }
 
-type executablePluginTag string
+type executablePluginTag struct {
+	s string
+}
 
-func (tag executablePluginTag) ExecCmd(ctx context.Context, qCtx *Context, logger *logrus.Entry) (goTwo string, err error) {
-	p, err := GetExecutablePlugin(string(tag))
+func (t executablePluginTag) ExecCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (goTwo string, err error) {
+	p, err := GetExecutablePlugin(t.s)
 	if err != nil {
 		return "", err
 	}
-	logger.Debugf("%v: exec executable plugin %s", qCtx, tag)
+	logger.Debug("exec executable plugin", qCtx.InfoField(), zap.String("exec", t.s))
 	return "", p.Exec(ctx, qCtx)
 }
 
@@ -104,7 +84,7 @@ type ifBlock struct {
 	goTwo         string
 }
 
-func (b *ifBlock) ExecCmd(ctx context.Context, qCtx *Context, logger *logrus.Entry) (goTwo string, err error) {
+func (b *ifBlock) ExecCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (goTwo string, err error) {
 	if len(b.ifMatcher) > 0 {
 		If, err := ifCondition(ctx, qCtx, logger, b.ifMatcher, false)
 		if err != nil {
@@ -144,7 +124,7 @@ func (b *ifBlock) ExecCmd(ctx context.Context, qCtx *Context, logger *logrus.Ent
 	return "", nil
 }
 
-func ifCondition(ctx context.Context, qCtx *Context, logger *logrus.Entry, p []matcher, isAnd bool) (ok bool, err error) {
+func ifCondition(ctx context.Context, qCtx *Context, logger *zap.Logger, p []matcher, isAnd bool) (ok bool, err error) {
 	if len(p) == 0 {
 		return false, err
 	}
@@ -162,70 +142,371 @@ func ifCondition(ctx context.Context, qCtx *Context, logger *logrus.Entry, p []m
 		if err != nil {
 			return false, err
 		}
-		logger.Debugf("%v: exec matcher plugin %s, returned: %v", qCtx, m.tag, matched)
+		logger.Debug("exec matcher plugin", qCtx.InfoField(), zap.String("exec", m.tag), zap.Bool("result", matched))
 
 		res := matched != m.negate
-		if !isAnd {
-			if res == true {
-				return true, nil // or: if one of the case is true, skip others.
-			}
-		} else {
-			if res == false {
-				return false, nil // and: if one of the case is false, skip others.
-			}
+		if !isAnd && res == true {
+			return true, nil // or: if one of the case is true, skip others.
 		}
+		if isAnd && res == false {
+			return false, nil // and: if one of the case is false, skip others.
+		}
+
 		ok = res
 	}
 	return ok, nil
 }
 
-type ExecutableCmdSequence []ExecutableCmd
+func ParseIfBlock(in map[string]interface{}) (*ifBlock, error) {
+	c := new(IfBlockConfig)
+	err := WeakDecode(in, c)
+	if err != nil {
+		return nil, err
+	}
 
-func NewExecutableCmdSequence() *ExecutableCmdSequence {
-	return new(ExecutableCmdSequence)
+	b := &ifBlock{
+		ifMatcher:    paresMatcher(c.If),
+		ifAndMatcher: paresMatcher(c.IfAnd),
+		goTwo:        c.Goto,
+	}
+
+	if len(c.Exec) != 0 {
+		ecs, err := ParseExecutableCmdSequence(c.Exec)
+		if err != nil {
+			return nil, err
+		}
+		b.executableCmd = ecs
+	}
+
+	return b, nil
 }
 
-func (es *ExecutableCmdSequence) Parse(in []interface{}) error {
-	for i := range in {
-		switch v := in[i].(type) {
-		case string:
-			*es = append(*es, executablePluginTag(v))
-		case map[string]interface{}:
-			c := new(IfBlockConfig)
-			err := WeakDecode(v, c)
-			if err != nil {
-				return err
+type ParallelECS struct {
+	s []*ExecutableCmdSequence
+}
+
+type ParallelECSConfig struct {
+	Parallel [][]interface{} `yaml:"parallel"`
+}
+
+func ParseParallelECS(in [][]interface{}) (*ParallelECS, error) {
+	ps := make([]*ExecutableCmdSequence, 0, len(in))
+	for i, subSequence := range in {
+		es, err := ParseExecutableCmdSequence(subSequence)
+		if err != nil {
+			return nil, fmt.Errorf("invalid parallel sequence at index %d: %w", i, err)
+		}
+		ps = append(ps, es)
+	}
+	return &ParallelECS{s: ps}, nil
+}
+
+type parallelResult struct {
+	qCtx *Context
+	err  error
+	from int
+}
+
+func (p *ParallelECS) ExecCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (_ string, err error) {
+	return "", p.execCmd(ctx, qCtx, logger)
+}
+
+func (p *ParallelECS) execCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (err error) {
+	t := len(p.s)
+	switch t {
+	case 0:
+		return nil
+	case 1:
+		return WalkExecutableCmd(ctx, qCtx, logger, p.s[0])
+	}
+
+	c := make(chan *parallelResult, t) // use buf chan to avoid block.
+	for i, sequence := range p.s {
+		i := i
+		sequence := sequence
+		go func() {
+			qCtxCopy := qCtx.Copy()
+			err := WalkExecutableCmd(ctx, qCtxCopy, logger, sequence)
+			c <- &parallelResult{
+				qCtx: qCtxCopy,
+				err:  err,
+				from: i,
+			}
+		}()
+	}
+
+	for i := 0; i < t; i++ {
+		select {
+		case res := <-c:
+			if res.err != nil {
+				logger.Warn("sequence failed", qCtx.InfoField(), zap.Int("sequence_index", res.from), zap.Error(res.err))
+				continue
+			}
+			if res.qCtx.R() == nil {
+				logger.Debug("sequence returned with an empty response", qCtx.InfoField(), zap.Int("sequence_index", res.from))
+				continue
 			}
 
-			ifBlock := &ifBlock{
-				ifMatcher:    paresMatcher(c.If),
-				ifAndMatcher: paresMatcher(c.IfAnd),
-				goTwo:        c.Goto,
-			}
+			logger.Debug("sequence returned a response", qCtx.InfoField(), zap.Int("sequence_index", res.from))
+			qCtx.SetResponse(res.qCtx.R(), res.qCtx.Status())
+			return nil
 
-			if len(c.Exec) != 0 {
-				ecs := NewExecutableCmdSequence()
-				err := ecs.Parse(c.Exec)
-				if err != nil {
-					return err
-				}
-				ifBlock.executableCmd = ecs
-			}
-
-			*es = append(*es, ifBlock)
-		default:
-			return fmt.Errorf("unexpected type: %s", reflect.TypeOf(in[i]).String())
+		case <-ctx.Done():
+			return ctx.Err()
 		}
 	}
-	return nil
+
+	// No valid response, all parallel sequences are failed.
+	qCtx.SetResponse(nil, ContextStatusServerFailed)
+	return errors.New("no response")
+}
+
+type FallbackConfig struct {
+	// Primary exec sequence, must have at least one element.
+	Primary []interface{} `yaml:"primary"`
+	// Secondary exec sequence, must have at least one element.
+	Secondary []interface{} `yaml:"secondary"`
+
+	StatLength int `yaml:"stat_length"` // default is 10
+	Threshold  int `yaml:"threshold"`   // default is 5
+}
+
+type FallbackECS struct {
+	primary   *ExecutableCmdSequence
+	secondary *ExecutableCmdSequence
+	threshold int
+
+	primaryST *statusTracker
+}
+
+type statusTracker struct {
+	sync.Mutex
+	threshold int
+	status    []uint8 // 0 means success, !0 means failed
+	p         int
+}
+
+func newStatusTracker(threshold, statLength int) *statusTracker {
+	return &statusTracker{
+		threshold: threshold,
+		status:    make([]uint8, statLength),
+	}
+}
+
+func (t *statusTracker) good() bool {
+	t.Lock()
+	defer t.Unlock()
+
+	var failedSum int
+	for _, s := range t.status {
+		if s != 0 {
+			failedSum++
+		}
+	}
+	return failedSum < t.threshold
+}
+
+func (t *statusTracker) update(s uint8) {
+	t.Lock()
+	defer t.Unlock()
+
+	if t.p >= len(t.status) {
+		t.p = 0
+	}
+	t.status[t.p] = s
+	t.p++
+}
+
+func ParseFallbackECS(primary, secondary []interface{}, threshold, statLength int) (*FallbackECS, error) {
+	primaryECS, err := ParseExecutableCmdSequence(primary)
+	if err != nil {
+		return nil, fmt.Errorf("invalid primary sequence: %w", err)
+	}
+
+	secondaryECS, err := ParseExecutableCmdSequence(secondary)
+	if err != nil {
+		return nil, fmt.Errorf("invalid secondary sequence: %w", err)
+	}
+
+	if threshold > statLength {
+		threshold = statLength
+	}
+	if statLength <= 0 {
+		statLength = 10
+	}
+	if threshold <= 0 {
+		threshold = 5
+	}
+
+	return &FallbackECS{
+		primary:   primaryECS,
+		secondary: secondaryECS,
+		threshold: threshold,
+		primaryST: newStatusTracker(threshold, statLength),
+	}, nil
+}
+
+func (f *FallbackECS) ExecCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (goTwo string, err error) {
+	return "", f.execCmd(ctx, qCtx, logger)
+}
+
+func (f *FallbackECS) execCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (err error) {
+	switch {
+	case f.primary.Len()+f.secondary.Len() == 0:
+		return nil
+	case f.primary.Len() != 0 && f.secondary.Len() == 0:
+		return WalkExecutableCmd(ctx, qCtx, logger, f.primary)
+	case f.primary.Len() == 0 && f.secondary.Len() != 0:
+		return WalkExecutableCmd(ctx, qCtx, logger, f.secondary)
+	}
+
+	if f.primaryST.good() {
+		return f.execPrimary(ctx, qCtx, logger)
+	}
+	logger.Debug("primary is not good", qCtx.InfoField())
+	return f.doFallback(ctx, qCtx, logger)
+}
+
+func (f *FallbackECS) execPrimary(ctx context.Context, qCtx *Context, logger *zap.Logger) (err error) {
+	err = WalkExecutableCmd(ctx, qCtx, logger, f.primary)
+	if err != nil || qCtx.R() == nil {
+		f.primaryST.update(1)
+	} else {
+		f.primaryST.update(0)
+	}
+	return err
+}
+
+type fallbackResult struct {
+	qCtx *Context
+	err  error
+	from string
+}
+
+func (f *FallbackECS) doFallback(ctx context.Context, qCtx *Context, logger *zap.Logger) (err error) {
+	c := make(chan *fallbackResult, 2) // buf size is 2, avoid block.
+
+	go func() {
+		qCtxCopy := qCtx.Copy()
+		err := f.execPrimary(ctx, qCtxCopy, logger)
+		c <- &fallbackResult{
+			qCtx: qCtxCopy,
+			err:  err,
+			from: "primary",
+		}
+	}()
+
+	go func() {
+		qCtxCopy := qCtx.Copy()
+		err := WalkExecutableCmd(ctx, qCtxCopy, logger, f.secondary)
+		c <- &fallbackResult{
+			qCtx: qCtxCopy,
+			err:  err,
+			from: "secondary",
+		}
+	}()
+
+	for i := 0; i < 2; i++ {
+		select {
+		case res := <-c:
+			if res.err != nil {
+				logger.Warn("sequence failed", qCtx.InfoField(), zap.String("sequence", res.from), zap.Error(err))
+				continue
+			}
+
+			if res.qCtx.R() == nil {
+				logger.Debug("sequence returned with an empty response ", qCtx.InfoField(), zap.String("sequence", res.from))
+				continue
+			}
+
+			logger.Debug("sequence returned a response", qCtx.InfoField(), zap.String("sequence", res.from))
+			qCtx.SetResponse(res.qCtx.R(), res.qCtx.Status())
+			return nil
+
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	// No response
+	qCtx.SetResponse(nil, ContextStatusServerFailed)
+	return errors.New("no response")
+}
+
+type ExecutableCmdSequence struct {
+	c []ExecutableCmd
+}
+
+func ParseExecutableCmdSequence(in []interface{}) (*ExecutableCmdSequence, error) {
+	es := &ExecutableCmdSequence{c: make([]ExecutableCmd, 0, len(in))}
+	for i, v := range in {
+		ec, err := parseExecutableCmd(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid cmd #%d: %w", i, err)
+		}
+		es.c = append(es.c, ec)
+	}
+	return es, nil
+}
+
+func parseExecutableCmd(in interface{}) (ExecutableCmd, error) {
+	switch v := in.(type) {
+	case string:
+		return &executablePluginTag{s: v}, nil
+	case map[string]interface{}:
+		switch {
+		case hasKey(v, "if") || hasKey(v, "if_and"): // if block
+			ec, err := ParseIfBlock(v)
+			if err != nil {
+				return nil, fmt.Errorf("invalid if section: %w", err)
+			}
+			return ec, nil
+		case hasKey(v, "parallel"): // parallel
+			ec, err := parseParallelECS(v)
+			if err != nil {
+				return nil, fmt.Errorf("invalid parallel section: %w", err)
+			}
+			return ec, nil
+		case hasKey(v, "primary"):
+			ec, err := parseFallbackECS(v)
+			if err != nil {
+				return nil, fmt.Errorf("invalid fallback section: %w", err)
+			}
+			return ec, nil
+		default:
+			return nil, errors.New("unknown section")
+		}
+	default:
+		return nil, fmt.Errorf("unexpected type: %s", reflect.TypeOf(in).String())
+	}
+}
+
+func parseParallelECS(m map[string]interface{}) (ec ExecutableCmd, err error) {
+	conf := new(ParallelECSConfig)
+	err = WeakDecode(m, conf)
+	if err != nil {
+		return nil, err
+	}
+	return ParseParallelECS(conf.Parallel)
+}
+
+func parseFallbackECS(m map[string]interface{}) (ec ExecutableCmd, err error) {
+	conf := new(FallbackConfig)
+	err = WeakDecode(m, conf)
+	if err != nil {
+		return nil, err
+	}
+	return ParseFallbackECS(conf.Primary, conf.Secondary, conf.Threshold, conf.StatLength)
+}
+
+func hasKey(m map[string]interface{}, key string) bool {
+	_, ok := m[key]
+	return ok
 }
 
 // ExecCmd executes the sequence.
-func (es *ExecutableCmdSequence) ExecCmd(ctx context.Context, qCtx *Context, logger *logrus.Entry) (goTwo string, err error) {
-	for _, cmd := range *es {
-		if err := ctx.Err(); err != nil {
-			return "", err
-		}
+func (es *ExecutableCmdSequence) ExecCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (goTwo string, err error) {
+	for _, cmd := range es.c {
 		goTwo, err = cmd.ExecCmd(ctx, qCtx, logger)
 		if err != nil {
 			return "", err
@@ -238,15 +519,19 @@ func (es *ExecutableCmdSequence) ExecCmd(ctx context.Context, qCtx *Context, log
 	return "", nil
 }
 
-// Exec executes the sequence, include its `goto`.
-func (es *ExecutableCmdSequence) Exec(ctx context.Context, qCtx *Context, logger *logrus.Entry) (err error) {
-	goTwo, err := es.ExecCmd(ctx, qCtx, logger)
+func (es *ExecutableCmdSequence) Len() int {
+	return len(es.c)
+}
+
+// WalkExecutableCmd executes the sequence, include its `goto`.
+func WalkExecutableCmd(ctx context.Context, qCtx *Context, logger *zap.Logger, entry ExecutableCmd) (err error) {
+	goTwo, err := entry.ExecCmd(ctx, qCtx, logger)
 	if err != nil {
 		return err
 	}
 
 	if len(goTwo) != 0 {
-		logger.Debugf("%v: goto plugin %s", qCtx, goTwo)
+		logger.Debug("goto plugin", qCtx.InfoField(), zap.String("goto", goTwo))
 		p, err := GetExecutablePlugin(goTwo)
 		if err != nil {
 			return err

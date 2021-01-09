@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -21,10 +21,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
-	"github.com/sirupsen/logrus"
-	"net"
+	"io"
 	"sync"
 	"time"
 )
@@ -32,23 +30,21 @@ import (
 const PluginType = "server"
 
 func init() {
-	handler.RegInitFunc(PluginType, Init)
+	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 }
 
-type serverPlugin struct {
-	tag    string
-	logger *logrus.Entry
-	args   *Args
+type server struct {
+	*handler.BP
+	args *Args
 
-	servers []*Server
-}
+	handler handler.ServerHandler
 
-func (sp *serverPlugin) Tag() string {
-	return sp.tag
-}
-
-func (sp *serverPlugin) Type() string {
-	return PluginType
+	m         sync.Mutex
+	activated bool
+	closed    bool
+	closeChan chan struct{}
+	errChan   chan error
+	listener  map[io.Closer]struct{}
 }
 
 type Args struct {
@@ -57,6 +53,7 @@ type Args struct {
 	MaxConcurrentQueries int             `yaml:"max_concurrent_queries"`
 }
 
+// ServerConfig is not safe for concurrent use.
 type ServerConfig struct {
 	// Protocol: server protocol, can be:
 	// "", "udp" -> udp
@@ -76,6 +73,9 @@ type ServerConfig struct {
 
 	Timeout     uint `yaml:"timeout"`      // (sec) used by all protocol as query timeout, default is defaultQueryTimeout.
 	IdleTimeout uint `yaml:"idle_timeout"` // (sec) used by tcp, dot, doh as connection idle timeout, default is defaultIdleTimeout.
+
+	queryTimeout time.Duration
+	idleTimeout  time.Duration
 }
 
 const (
@@ -83,13 +83,11 @@ const (
 	defaultIdleTimeout  = time.Second * 10
 )
 
-func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err error) {
-	args := new(Args)
-	err = handler.WeakDecode(argsMap, args)
-	if err != nil {
-		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
-	}
+func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
+	return newServer(bp, args.(*Args))
+}
 
+func newServer(bp *handler.BP, args *Args) (*server, error) {
 	if len(args.Server) == 0 {
 		return nil, errors.New("no server")
 	}
@@ -97,132 +95,119 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 		return nil, errors.New("empty entry")
 	}
 
-	logger := mlog.NewPluginLogger(tag)
-	sp := &serverPlugin{
-		tag:    tag,
-		logger: logger,
-		args:   args,
+	s := &server{
+		BP:   bp,
+		args: args,
+
+		handler: handler.NewDefaultServerHandler(&handler.DefaultServerHandlerConfig{
+			Logger:          bp.L(),
+			Entry:           args.Entry,
+			ConcurrentLimit: args.MaxConcurrentQueries,
+		}),
+
+		closeChan: make(chan struct{}),
+		errChan:   make(chan error, len(args.Server)), // must be a buf chan to avoid block.
+		listener:  map[io.Closer]struct{}{},
 	}
 
-	h := handler.NewDefaultServerHandler(&handler.DefaultServerHandlerConfig{
-		Logger:          logger,
-		Entry:           args.Entry,
-		ConcurrentLimit: args.MaxConcurrentQueries,
-	})
-
-	errChan := make(chan error, len(args.Server))
-	for _, config := range args.Server {
-		s := &Server{
-			Logger:  logger,
-			Config:  config,
-			Handler: h,
-		}
-
-		sp.servers = append(sp.servers, s)
-		go func() {
-			errChan <- s.ListenAndServe()
-		}()
+	err := s.Activate()
+	if err != nil {
+		return nil, err
 	}
 
 	go func() {
 		for i := 0; i < len(args.Server); i++ {
-			err := <-errChan
+			err := <-s.errChan
 			if err != nil {
-				sp.shutdownAll()
-				handler.PluginFatalErr(tag, fmt.Sprintf("server exited with err: %v", err))
+				s.Shutdown()
+				handler.PluginFatalErr(bp.Tag(), fmt.Sprintf("server exited with err: %v", err))
 			}
 		}
 	}()
-
-	return sp, nil
+	return s, nil
 }
 
-func (sp *serverPlugin) shutdownAll() {
-	for _, s := range sp.servers {
-		s.Shutdown()
-	}
+func (s *server) isClosed() bool {
+	s.m.Lock()
+	defer s.m.Unlock()
+	return s.closed
 }
 
-type Server struct {
-	// all of those following members can not be nil
-	Logger  *logrus.Entry
-	Config  *ServerConfig
-	Handler handler.ServerHandler
+func (s *server) Shutdown() error {
+	s.m.Lock()
+	defer s.m.Unlock()
 
-	l           sync.Mutex // protect the followings
-	isActivated bool
-	done        bool
-	listener    net.Listener
-	packetConn  net.PacketConn
-
-	// will only be updated in Server.ListenAndServe() once, can be accessed freely.
-	queryTimeout time.Duration
-	idleTimeout  time.Duration
+	return s.shutdownNoLock()
 }
 
-func (s *Server) ListenAndServe() error {
-	s.l.Lock()
-	if s.isActivated {
-		s.l.Unlock()
-		return errors.New("server has been activated")
+func (s *server) shutdownNoLock() error {
+	if !s.closed {
+		close(s.closeChan) // close chan once
+		s.closed = true
 	}
-	s.isActivated = true
-	s.l.Unlock()
-
-	if len(s.Config.Addr) == 0 {
-		return errors.New("server addr is empty")
-	}
-
-	s.queryTimeout = defaultQueryTimeout
-	if s.Config.Timeout > 0 {
-		s.queryTimeout = time.Duration(s.Config.Timeout) * time.Second
-	}
-
-	s.idleTimeout = defaultIdleTimeout
-	if s.Config.IdleTimeout > 0 {
-		s.idleTimeout = time.Duration(s.Config.IdleTimeout) * time.Second
-	}
-
-	// listen
-	switch s.Config.Protocol {
-	case "", "udp":
-		utils.TryAddPort(s.Config.Addr, 53)
-		return s.serveUDP()
-	case "tcp":
-		utils.TryAddPort(s.Config.Addr, 53)
-		return s.serveTCP(false)
-	case "dot":
-		utils.TryAddPort(s.Config.Addr, 853)
-		return s.serveTCP(true)
-	case "doh", "https":
-		utils.TryAddPort(s.Config.Addr, 443)
-		return s.serveDoH(false)
-	case "http":
-		utils.TryAddPort(s.Config.Addr, 80)
-		return s.serveDoH(true)
-	default:
-		return fmt.Errorf("unsupported protocol: %s", s.Config.Protocol)
-	}
-}
-
-func (s *Server) Shutdown() error {
-	s.l.Lock()
-	defer s.l.Unlock()
-	if !s.isActivated {
-		return errors.New("server has not been activated yet")
-	}
-	s.done = true
-	if s.listener != nil {
-		s.listener.Close()
-	}
-	if s.packetConn != nil {
-		s.packetConn.Close()
+	for l := range s.listener {
+		err := l.Close()
+		if err != nil {
+			return err
+		} else {
+			delete(s.listener, l)
+		}
 	}
 	return nil
 }
 
-func (s *Server) isDone() bool {
-	s.l.Lock()
-	defer s.l.Unlock()
-	return s.done
+func (s *server) Activate() error {
+	s.m.Lock()
+	defer s.m.Unlock()
+
+	if s.activated {
+		return errors.New("server has been activated")
+	}
+	s.activated = true
+
+	for _, conf := range s.args.Server {
+		err := s.listenAndStart(conf)
+		if err != nil {
+			s.shutdownNoLock()
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *server) listenAndStart(c *ServerConfig) error {
+	if len(c.Addr) == 0 {
+		return errors.New("server addr is empty")
+	}
+
+	c.queryTimeout = defaultQueryTimeout
+	if c.Timeout > 0 {
+		c.queryTimeout = time.Duration(c.Timeout) * time.Second
+	}
+
+	c.idleTimeout = defaultIdleTimeout
+	if c.IdleTimeout > 0 {
+		c.idleTimeout = time.Duration(c.IdleTimeout) * time.Second
+	}
+
+	// start server
+	switch c.Protocol {
+	case "", "udp":
+		utils.TryAddPort(c.Addr, 53)
+		return s.startUDP(c)
+	case "tcp":
+		utils.TryAddPort(c.Addr, 53)
+		return s.startTCP(c, false)
+	case "dot":
+		utils.TryAddPort(c.Addr, 853)
+		return s.startTCP(c, true)
+	case "doh", "https":
+		utils.TryAddPort(c.Addr, 443)
+		return s.startDoH(c, false)
+	case "http":
+		utils.TryAddPort(c.Addr, 80)
+		return s.startDoH(c, true)
+	default:
+		return fmt.Errorf("unsupported protocol: %s", c.Protocol)
+	}
 }

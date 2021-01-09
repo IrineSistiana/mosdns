@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -36,11 +36,11 @@ func newResponseIPMatcher(ipMatcher netlist.Matcher) *responseIPMatcher {
 }
 
 func (m *responseIPMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, _ error) {
-	if qCtx.R == nil {
+	if qCtx.R() == nil {
 		return false, nil
 	}
 
-	for _, rr := range qCtx.R.Answer {
+	for _, rr := range qCtx.R().Answer {
 		var ip net.IP
 		switch rr := rr.(type) {
 		case *dns.A:
@@ -66,11 +66,11 @@ func newCnameMatcher(domainMatcher domain.Matcher) *cnameMatcher {
 }
 
 func (m *cnameMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, _ error) {
-	if qCtx.R == nil {
+	if qCtx.R() == nil {
 		return false, nil
 	}
 
-	for _, rr := range qCtx.R.Answer {
+	for _, rr := range qCtx.R().Answer {
 		if cname, ok := rr.(*dns.CNAME); ok {
 			if _, ok := m.domainMatcher.Match(cname.Target); ok {
 				return true, nil
@@ -89,10 +89,10 @@ func newRCodeMatcher(elemMatcher *elem.IntMatcher) *rCodeMatcher {
 }
 
 func (m *rCodeMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, _ error) {
-	if qCtx.R == nil {
+	if qCtx.R() == nil {
 		return false, nil
 	}
-	if m.elemMatcher.Match(qCtx.R.Rcode) {
+	if m.elemMatcher.Match(qCtx.R().Rcode) {
 		return true, nil
 	}
 	return false, nil

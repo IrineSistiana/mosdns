@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -23,7 +23,7 @@ import (
 	"time"
 )
 
-// cache is a simple dns cache. It won't cache err msg (rcode != 0).
+// cache is a simple dns cache.
 type cache struct {
 	size            int
 	cleanerInterval time.Duration
@@ -71,21 +71,19 @@ func (c *cache) add(key string, ttl uint32, r *dns.Msg) {
 		c.cleanerIsRunning = true
 
 		go func() {
-			defer func() {
-				c.Lock()
-				defer c.Unlock()
-				c.cleanerIsRunning = false
-			}()
-
 			ticker := time.NewTicker(c.cleanerInterval)
 			defer ticker.Stop()
 			for {
 				select {
 				case <-ticker.C:
+					c.Lock()
 					remain, _ := c.clean()
 					if remain == 0 {
+						c.cleanerIsRunning = false
+						c.Unlock()
 						return
 					}
+					c.Unlock()
 				}
 			}
 		}()
@@ -126,9 +124,6 @@ func (c *cache) get(key string) (r *dns.Msg, ttl time.Duration) {
 }
 
 func (c *cache) clean() (remain, cleaned int) {
-	c.Lock()
-	defer c.Unlock()
-
 	now := time.Now()
 	for key, e := range c.m {
 		if e.expirationTime.Before(now) {
@@ -148,31 +143,28 @@ func (c *cache) len() int {
 }
 
 func getMinimalTTL(m *dns.Msg) uint32 {
-	if m == nil || len(m.Answer)+len(m.Ns)+len(m.Extra) == 0 {
-		return 0
-	}
-
 	ttl := ^uint32(0)
-	for _, r := range [][]dns.RR{m.Answer, m.Ns, m.Extra} {
+	for _, r := range [3][]dns.RR{m.Answer, m.Ns, m.Extra} {
 		for i := range r {
 			t := r[i].Header().Ttl
-			if t < ttl {
+			if t < ttl && t != 0 { // don't count RRs with zero ttl. Their ttl might mean nothing.
 				ttl = t
 			}
 		}
 	}
 
+	if ttl == ^uint32(0) { // no ttl applied
+		return 0
+	}
 	return ttl
 }
 
 func setTTL(m *dns.Msg, ttl uint32) {
-	if m == nil || len(m.Answer)+len(m.Ns)+len(m.Extra) == 0 {
-		return
-	}
-
-	for _, r := range [][]dns.RR{m.Answer, m.Ns, m.Extra} {
+	for _, r := range [3][]dns.RR{m.Answer, m.Ns, m.Extra} {
 		for i := range r {
-			r[i].Header().Ttl = ttl
+			if r[i].Header().Ttl != 0 {
+				r[i].Header().Ttl = ttl
+			}
 		}
 	}
 }

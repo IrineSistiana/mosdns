@@ -27,17 +27,16 @@ func Test_blackhole_Exec(t *testing.T) {
 	ctx := context.Background()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			b, err := newBlackhole("test", tt.args)
+			b, err := newBlackhole(handler.NewBP("test", PluginType), tt.args)
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			qCtx := new(handler.Context)
 			q := new(dns.Msg)
 			q.SetQuestion("example.com", tt.queryType)
 			r := new(dns.Msg)
 			r.SetReply(q)
-			qCtx.Q = q
+			qCtx := handler.NewContext(q, nil)
 			qCtx.SetResponse(r, handler.ContextStatusResponded)
 
 			err = b.Exec(ctx, qCtx)
@@ -45,7 +44,7 @@ func Test_blackhole_Exec(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if !tt.wantResponse && qCtx.R != nil {
+			if !tt.wantResponse && qCtx.R() != nil {
 				t.Error("response should be dropped")
 			}
 
@@ -55,17 +54,17 @@ func Test_blackhole_Exec(t *testing.T) {
 					var gotIP net.IP
 					switch tt.queryType {
 					case dns.TypeA:
-						gotIP = qCtx.R.Answer[0].(*dns.A).A
+						gotIP = qCtx.R().Answer[0].(*dns.A).A
 					case dns.TypeAAAA:
-						gotIP = qCtx.R.Answer[0].(*dns.AAAA).AAAA
+						gotIP = qCtx.R().Answer[0].(*dns.AAAA).AAAA
 					}
 					if !wantIP.Equal(gotIP) {
 						t.Fatalf("ip mismatched, want %v, got %v", wantIP, gotIP)
 					}
 				}
 
-				if tt.wantRcode != qCtx.R.Rcode {
-					t.Fatalf("response should have rcode %d, but got %d", tt.wantRcode, qCtx.R.Rcode)
+				if tt.wantRcode != qCtx.R().Rcode {
+					t.Fatalf("response should have rcode %d, but got %d", tt.wantRcode, qCtx.R().Rcode)
 				}
 			}
 		})

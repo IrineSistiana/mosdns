@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -20,20 +20,17 @@ package fastforward
 import (
 	"context"
 	"errors"
-	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
-	"github.com/sirupsen/logrus"
-	"strings"
+	"go.uber.org/zap"
 	"time"
 )
 
 const PluginType = "fast_forward"
 
 func init() {
-	handler.RegInitFunc(PluginType, Init)
+	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 }
 
 const (
@@ -43,12 +40,11 @@ const (
 	tlsHandshakeTimeout = time.Second * 5
 )
 
-var _ handler.Executable = (*fastForward)(nil)
+var _ handler.ExecutablePlugin = (*fastForward)(nil)
 
 type fastForward struct {
-	tag    string
-	logger *logrus.Entry
-	args   *Args
+	*handler.BP
+	args *Args
 
 	upstream []*fastUpstream
 
@@ -90,31 +86,23 @@ type UpstreamConfig struct {
 	CA                 []string `yaml:"ca"`                   // certificate path, used by "dot", "doh" as ca root.
 }
 
-func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err error) {
-	args := new(Args)
-	err = handler.WeakDecode(argsMap, args)
-	if err != nil {
-		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
-	}
-
-	return newFastForward(tag, args)
+func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
+	return newFastForward(bp, args.(*Args))
 }
 
-func newFastForward(tag string, args *Args) (*fastForward, error) {
+func newFastForward(bp *handler.BP, args *Args) (*fastForward, error) {
 	if len(args.Upstream) == 0 {
 		return nil, errors.New("no upstream is configured")
 	}
 
-	logger := mlog.NewPluginLogger(tag)
 	f := &fastForward{
-		tag:      tag,
+		BP:       bp,
 		args:     args,
-		logger:   logger,
 		upstream: make([]*fastUpstream, 0),
 	}
 
 	for _, config := range args.Upstream {
-		u, err := newFastUpstream(config, logger)
+		u, err := newFastUpstream(config, bp.L())
 		if err != nil {
 			return nil, err
 		}
@@ -124,32 +112,19 @@ func newFastForward(tag string, args *Args) (*fastForward, error) {
 	return f, nil
 }
 
-func (f *fastForward) Tag() string {
-	return f.tag
-}
-
-func (f *fastForward) Type() string {
-	return PluginType
-}
-
-// Exec forwards qCtx.Q to upstreams, and sets qCtx.R.
-// qCtx.Status will be set as
+// Exec forwards qCtx.Q() to upstreams, and sets qCtx.R().
+// qCtx.Status() will be set as
 // - handler.ContextStatusResponded: if it received a response.
 // - handler.ContextStatusServerFailed: if all upstreams failed.
 func (f *fastForward) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
-	err = f.exec(ctx, qCtx)
-	if err != nil {
-		err = handler.NewPluginError(f.tag, err)
-	}
-	return nil
+	return f.exec(ctx, qCtx)
 }
 
 func (f *fastForward) exec(ctx context.Context, qCtx *handler.Context) (err error) {
 	r, err := f.exchange(ctx, qCtx)
 	if err != nil {
-		f.logger.Warnf("%v: forward failed: %v", qCtx, err)
 		qCtx.SetResponse(nil, handler.ContextStatusServerFailed)
-		return nil
+		return err
 	}
 
 	qCtx.SetResponse(r, handler.ContextStatusResponded)
@@ -175,19 +150,19 @@ func (f *fastForward) exchangeParallel(ctx context.Context, qCtx *handler.Contex
 		return nil, errors.New("no upstream is configured")
 	}
 	if t == 1 {
-		r, err = f.upstream[0].Exchange(qCtx.Q)
+		r, err = f.upstream[0].Exchange(qCtx.Q())
 		if err != nil {
 			return nil, err
 		}
+		f.L().Debug("received response", qCtx.InfoField(), zap.String("from", f.upstream[0].Address()))
 		return r, nil
 	}
 
-	var errs []string
 	c := make(chan *parallelResult, t) // use buf chan to avoid block.
 	for _, u := range f.upstream {
 		u := u
 		go func() {
-			qCopy := qCtx.Q.Copy() // it is not safe to use the Q directly.
+			qCopy := qCtx.Q().Copy() // it is not safe to use the Q directly.
 			r, err := u.Exchange(qCopy)
 			c <- &parallelResult{
 				r:    r,
@@ -199,24 +174,24 @@ func (f *fastForward) exchangeParallel(ctx context.Context, qCtx *handler.Contex
 
 	for i := 0; i < t; i++ {
 		select {
-		case r := <-c:
-			if r.err != nil {
-				errs = append(errs, fmt.Sprintf("upstream %s failed: %v", r.from.Address(), r.err))
+		case res := <-c:
+			if res.err != nil {
+				f.L().Warn("upstream failed", qCtx.InfoField(), zap.String("from", res.from.Address()), zap.Error(res.err))
 				continue
 			}
 
-			if !r.from.config.Trusted && r.r.Rcode != dns.RcodeSuccess {
-				errs = append(errs, fmt.Sprintf("upstream %s responded with an err rcode: %d", r.from.Address(), r.r.Rcode))
+			if !res.from.config.Trusted && res.r.Rcode != dns.RcodeSuccess {
+				f.L().Debug("untrusted upstream return an err rcode", qCtx.InfoField(), zap.String("from", res.from.Address()), zap.Int("rcode", res.r.Rcode))
 				continue
 			}
 
-			f.logger.Debugf("%v: got response from upstream %s", qCtx, r.from.Address())
-			return r.r, nil
+			f.L().Debug("received response", qCtx.InfoField(), zap.String("from", res.from.Address()))
+			return res.r, nil
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
 	}
 
 	// all upstreams are failed
-	return nil, fmt.Errorf("all upstreams are failed: %s", strings.Join(errs, ": "))
+	return nil, errors.New("no response")
 }

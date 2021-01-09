@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -20,8 +20,9 @@ package handler
 import (
 	"fmt"
 	"github.com/miekg/dns"
+	"go.uber.org/zap"
 	"net"
-	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -30,14 +31,17 @@ import (
 // A Context will always have a non-nil Q.
 // Context MUST be created by NewContext.
 type Context struct {
-	Q    *dns.Msg
-	From net.Addr
+	q    *dns.Msg
+	from net.Addr
 
-	Status ContextStatus
-	R      *dns.Msg
+	status ContextStatus
+	r      *dns.Msg
 
-	id        uint32 // random uint to distinguish duplicated msg
+	id        uint32 // additional uint to distinguish duplicated msg
 	startTime time.Time
+
+	infoOnce sync.Once
+	info     string
 }
 
 type ContextStatus uint8
@@ -51,11 +55,11 @@ const (
 )
 
 var statusToStr = map[ContextStatus]string{
-	ContextStatusWaitingResponse: "WaitingResponse",
-	ContextStatusResponded:       "Responded",
-	ContextStatusServerFailed:    "ServerFailed",
-	ContextStatusDropped:         "Dropped",
-	ContextStatusRejected:        "Rejected",
+	ContextStatusWaitingResponse: "waiting response",
+	ContextStatusResponded:       "responded",
+	ContextStatusServerFailed:    "server failed",
+	ContextStatusDropped:         "dropped",
+	ContextStatusRejected:        "rejected",
 }
 
 func (status ContextStatus) String() string {
@@ -68,50 +72,79 @@ func (status ContextStatus) String() string {
 
 var id uint32
 
-func NewContext(q *dns.Msg) *Context {
+// NewContext
+// q must not be nil.
+func NewContext(q *dns.Msg, from net.Addr) *Context {
+	if q == nil {
+		panic("handler: query msg is nil")
+	}
 	return &Context{
-		Q:         q,
-		Status:    ContextStatusWaitingResponse,
+		q:    q,
+		from: from,
+
+		status: ContextStatusWaitingResponse,
+
 		id:        atomic.AddUint32(&id, 1),
 		startTime: time.Now(),
 	}
 }
 
+func (ctx *Context) Q() *dns.Msg {
+	return ctx.q
+}
+
+func (ctx *Context) From() net.Addr {
+	return ctx.from
+}
+
+func (ctx *Context) R() *dns.Msg {
+	return ctx.r
+}
+
+func (ctx *Context) Status() ContextStatus {
+	return ctx.status
+}
+
 func (ctx *Context) SetResponse(r *dns.Msg, status ContextStatus) {
-	ctx.R = r
-	ctx.Status = status
+	ctx.r = r
+	ctx.status = status
+}
+
+func (ctx *Context) Id() uint32 {
+	return ctx.id
+}
+
+func (ctx *Context) StartTime() time.Time {
+	return ctx.startTime
+}
+
+// InfoField returns a zap.Field.
+// Just for convenience.
+func (ctx *Context) InfoField() zap.Field {
+	ctx.infoOnce.Do(func() {
+		if len(ctx.q.Question) == 1 {
+			q := ctx.q.Question[0]
+			ctx.info = fmt.Sprintf("%s %d %d %d %d", q.Name, q.Qtype, q.Qclass, ctx.q.Id, ctx.id)
+		} else {
+			ctx.info = fmt.Sprintf("%v %d %d", ctx.q.Question, ctx.id, ctx.q.Id)
+		}
+	})
+	return zap.String("query", ctx.info)
 }
 
 func (ctx *Context) Copy() *Context {
-	if ctx == nil {
-		return nil
-	}
-
 	newCtx := new(Context)
 
-	if ctx.Q != nil {
-		newCtx.Q = ctx.Q.Copy()
-	}
-	newCtx.From = ctx.From
+	newCtx.q = ctx.q.Copy()
+	newCtx.from = ctx.from
 
-	newCtx.Status = ctx.Status
-	if ctx.R != nil {
-		newCtx.R = ctx.R.Copy()
+	newCtx.status = ctx.status
+	if ctx.r != nil {
+		newCtx.r = ctx.r.Copy()
 	}
 
 	newCtx.id = ctx.id
 	newCtx.startTime = ctx.startTime
 
 	return newCtx
-}
-
-func (ctx *Context) String() string {
-	sb := new(strings.Builder)
-	sb.Grow(128)
-
-	sb.WriteString(fmt.Sprintf("%v, id: %d, t: %d ms, c: %d", ctx.Q.Question, ctx.Q.Id, time.Since(ctx.startTime).Milliseconds(), ctx.id))
-	if ctx.From != nil {
-		sb.WriteString(fmt.Sprintf(", from: %s://%s", ctx.From.Network(), ctx.From))
-	}
-	return sb.String()
 }

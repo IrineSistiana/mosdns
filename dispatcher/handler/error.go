@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -38,14 +38,6 @@ func (e *Error) Unwrap() error {
 	return e.err
 }
 
-type ErrTemplate string
-
-func NewErrFromTemplate(t ErrTemplate, args ...interface{}) error {
-	return fmt.Errorf(string(t), args...)
+type ErrGroup struct {
+	s []error
 }
-
-const (
-	ETInvalidArgs    = "invalid args: %w"
-	ETTypeNotDefined = "plugin type %s not defined"
-	ETTagNotDefined  = "plugin tag %s not defined"
-)

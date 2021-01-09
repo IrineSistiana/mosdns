@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -23,10 +23,9 @@ import (
 	"fmt"
 	"github.com/AdguardTeam/dnsproxy/upstream"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 	"net"
 	"time"
 )
@@ -34,14 +33,13 @@ import (
 const PluginType = "forward"
 
 func init() {
-	handler.RegInitFunc(PluginType, Init)
+	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 }
 
-var _ handler.Executable = (*forwarder)(nil)
+var _ handler.ExecutablePlugin = (*forwarder)(nil)
 
 type forwarder struct {
-	tag         string
-	logger      *logrus.Entry
+	*handler.BP
 	upstream    []upstream.Upstream
 	deduplicate bool
 
@@ -64,20 +62,17 @@ type Upstream struct {
 	IPAddr []string `yaml:"ip_addr"`
 }
 
-func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err error) {
-	args := new(Args)
-	err = handler.WeakDecode(argsMap, args)
-	if err != nil {
-		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
-	}
+func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
+	return newForwarder(bp, args.(*Args))
+}
 
+func newForwarder(bp *handler.BP, args *Args) (*forwarder, error) {
 	if len(args.Upstream) == 0 {
 		return nil, errors.New("no upstream is configured")
 	}
 
 	f := new(forwarder)
-	f.tag = tag
-	f.logger = mlog.NewPluginLogger(tag)
+	f.BP = bp
 	f.deduplicate = args.Deduplicate
 
 	for _, u := range args.Upstream {
@@ -116,24 +111,12 @@ func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err err
 	return f, nil
 }
 
-func (f *forwarder) Tag() string {
-	return f.tag
-}
-
-func (f *forwarder) Type() string {
-	return PluginType
-}
-
-// Exec forwards qCtx.Q to upstreams, and sets qCtx.R.
-// qCtx.Status will be set as
+// Exec forwards qCtx.Q()() to upstreams, and sets qCtx.R().
+// qCtx.Status() will be set as
 // - handler.ContextStatusResponded: if it received a response.
 // - handler.ContextStatusServerFailed: if all upstreams failed.
 func (f *forwarder) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
-	err = f.exec(ctx, qCtx)
-	if err != nil {
-		err = handler.NewPluginError(f.tag, err)
-	}
-	return nil
+	return f.exec(ctx, qCtx)
 }
 
 func (f *forwarder) exec(ctx context.Context, qCtx *handler.Context) error {
@@ -146,9 +129,8 @@ func (f *forwarder) exec(ctx context.Context, qCtx *handler.Context) error {
 	}
 
 	if err != nil {
-		f.logger.Warnf("%v: forward failed: %v", qCtx, err)
 		qCtx.SetResponse(nil, handler.ContextStatusServerFailed)
-		return nil
+		return err
 	}
 
 	qCtx.SetResponse(r, handler.ContextStatusResponded)
@@ -156,9 +138,9 @@ func (f *forwarder) exec(ctx context.Context, qCtx *handler.Context) error {
 }
 
 func (f *forwarder) exchange(_ context.Context, qCtx *handler.Context) (r *dns.Msg, err error) {
-	r, u, err := upstream.ExchangeParallel(f.upstream, qCtx.Q)
+	r, u, err := upstream.ExchangeParallel(f.upstream, qCtx.Q())
 	if err == nil {
-		f.logger.Debugf("%v: got response from upstream %s", qCtx, u.Address())
+		f.L().Debug("received response", qCtx.InfoField(), zap.String("from", u.Address()))
 	}
 	return r, err
 }

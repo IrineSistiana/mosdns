@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -26,7 +26,7 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/fast_forward/cpool"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/proxy"
 	"net"
@@ -36,7 +36,7 @@ import (
 
 // fastUpstream is a udp, tcp, dot upstream
 type fastUpstream struct {
-	logger *logrus.Entry
+	logger *zap.Logger
 	config *UpstreamConfig
 
 	mode    upstreamProtocol
@@ -67,7 +67,7 @@ const (
 	protocolDoH
 )
 
-func newFastUpstream(config *UpstreamConfig, logger *logrus.Entry) (*fastUpstream, error) {
+func newFastUpstream(config *UpstreamConfig, logger *zap.Logger) (*fastUpstream, error) {
 	if len(config.Addr) == 0 { // Addr should never be empty
 		return nil, errors.New("empty upstream addr")
 	}
@@ -105,7 +105,7 @@ func newFastUpstream(config *UpstreamConfig, logger *logrus.Entry) (*fastUpstrea
 		}
 		u.mode = protocolDoH
 		config.Addr = utils.TryAddPort(config.Addr, 443)
-		u.address = "https://" + config.URL
+		u.address = config.URL
 	default:
 		return nil, fmt.Errorf("unsupported protocol: %s", config.Protocol)
 	}
@@ -114,12 +114,14 @@ func newFastUpstream(config *UpstreamConfig, logger *logrus.Entry) (*fastUpstrea
 
 	// udpPool
 	if (u.mode == protocolUDP || u.mode == protocolTCP) && config.IdleTimeout > 0 {
-		u.udpPool = cpool.New(0xffff, idleTimeout, time.Second*2, logger.WithFields(logrus.Fields{"addr": config.Addr, "protocol": "udp"}))
+		poolLogger := logger.With(zap.String("addr", config.Addr), zap.String("protocol", "udp"))
+		u.udpPool = cpool.New(0xffff, idleTimeout, time.Second*2, poolLogger)
 	}
 
 	// tcpPool
 	if (u.mode == protocolUDP || u.mode == protocolTCP || u.mode == protocolDoT) && config.IdleTimeout > 0 {
-		u.tcpPool = cpool.New(0xffff, idleTimeout, time.Second*2, logger.WithFields(logrus.Fields{"addr": config.Addr, "protocol": "tcp"}))
+		poolLogger := logger.With(zap.String("addr", config.Addr), zap.String("protocol", "tcp"))
+		u.tcpPool = cpool.New(0xffff, idleTimeout, time.Second*2, poolLogger)
 	}
 
 	// certPool
@@ -185,7 +187,7 @@ func newFastUpstream(config *UpstreamConfig, logger *logrus.Entry) (*fastUpstrea
 		}
 	}
 
-	u.logger = logger.WithField("addr", u.address)
+	u.logger = logger.With(zap.String("addr", u.address))
 	u.config = config
 	u.timeout = timeout
 	return u, nil

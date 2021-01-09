@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -18,25 +18,18 @@
 package main
 
 import (
-	"crypto/tls"
 	"flag"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/dispatcher/matcher/domain"
-	"github.com/IrineSistiana/mosdns/dispatcher/matcher/netlist"
-	"net"
+	"github.com/IrineSistiana/mosdns/dispatcher/coremain"
+	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
+	"github.com/IrineSistiana/mosdns/tools"
 	"os"
 	"path/filepath"
 	"runtime"
-	"time"
 
-	"github.com/IrineSistiana/mosdns/dispatcher/coremain"
-	"github.com/miekg/dns"
-
-	"net/http"
 	//DEBUG ONLY
+	"net/http"
 	_ "net/http/pprof"
-
-	"github.com/sirupsen/logrus"
 )
 
 var (
@@ -50,11 +43,13 @@ var (
 
 	showVersion = flag.Bool("v", false, "show version info")
 
-	probeDoTTimeout = flag.String("probe-dot-timeout", "", "[ip:port] probe dot server's idle timeout")
-	probeTCPTimeout = flag.String("probe-tcp-timeout", "", "[ip:port] probe tcp server's idle timeout")
+	probeServerTimeout = flag.String("probe-server-timeout", "", "[protocol://ip:port] probe server's idle timeout, protocol can be tcp or dot")
 
-	benchIPListFile     = flag.String("bench-ip-list", "", "[path] benchmark ip search using this file")
-	benchDomainListFile = flag.String("bench-domain-list", "", "[path] benchmark domain search using this file")
+	benchIPMatcherFile     = flag.String("bench-ip-matcher", "", "[path] benchmark ip search using this file")
+	benchDomainMatcherFile = flag.String("bench-domain-matcher", "", "[path] benchmark domain search using this file")
+
+	convV2IPDat     = flag.String("conv-v2ray-ip-dat", "", "[path] convert v2ray ip data file to text")
+	convV2DomainDat = flag.String("conv-v2ray-domain-dat", "", "[path] convert v2ray domain data file to text")
 
 	//DEBUG ONLY
 	cpu       = flag.Int("cpu", runtime.NumCPU(), "the maximum number of CPUs that can be executing simultaneously")
@@ -63,14 +58,14 @@ var (
 
 func main() {
 	flag.Parse()
-	runtime.GOMAXPROCS(*cpu)
 
-	//DEBUG ONLY
+	// DEBUG ONLY
+	runtime.GOMAXPROCS(*cpu)
 	if len(*pprofAddr) != 0 {
 		go func() {
-			logrus.Infof("pprof backend is starting at: %v", *pprofAddr)
+			mlog.S().Infof("pprof backend is starting at: %v", *pprofAddr)
 			if err := http.ListenAndServe(*pprofAddr, nil); err != nil {
-				logrus.Fatalf("pprof backend is exited: %v", err)
+				mlog.S().Fatalf("pprof backend is exited: %v", err)
 			}
 		}()
 	}
@@ -84,33 +79,42 @@ func main() {
 	}
 
 	// idle timeout test
-	if len(*probeDoTTimeout) != 0 {
-		err := probTCPTimeout(*probeDoTTimeout, true)
+	if len(*probeServerTimeout) != 0 {
+		err := tools.ProbServerTimeout(*probeServerTimeout)
 		if err != nil {
-			logrus.Errorf("failed to prob server tcp idle connection timeout: %v", err)
-		}
-		os.Exit(0)
-	}
-	if len(*probeTCPTimeout) != 0 {
-		err := probTCPTimeout(*probeTCPTimeout, false)
-		if err != nil {
-			logrus.Errorf("failed to prob server tls idle connection timeout: %v", err)
+			mlog.S().Error(err)
 		}
 		os.Exit(0)
 	}
 
 	// bench
-	if len(*benchIPListFile) != 0 {
-		err := benchIPList(*benchIPListFile)
+	if len(*benchIPMatcherFile) != 0 {
+		err := tools.BenchIPMatcher(*benchIPMatcherFile)
 		if err != nil {
-			logrus.Errorf("bench ip list failed, %v", err)
+			mlog.S().Errorf("bench ip list failed, %v", err)
 		}
 		os.Exit(0)
 	}
-	if len(*benchDomainListFile) != 0 {
-		err := benchDomainList(*benchDomainListFile)
+	if len(*benchDomainMatcherFile) != 0 {
+		err := tools.BenchDomainMatcher(*benchDomainMatcherFile)
 		if err != nil {
-			logrus.Errorf("bench domain list failed, %v", err)
+			mlog.S().Errorf("bench domain list failed, %v", err)
+		}
+		os.Exit(0)
+	}
+
+	// convert
+	if len(*convV2IPDat) != 0 {
+		err := tools.ConvertIPDat(*convV2IPDat)
+		if err != nil {
+			mlog.S().Error(err)
+		}
+		os.Exit(0)
+	}
+	if len(*convV2DomainDat) != 0 {
+		err := tools.ConvertDomainDat(*convV2DomainDat)
+		if err != nil {
+			mlog.S().Error(err)
 		}
 		os.Exit(0)
 	}
@@ -119,9 +123,9 @@ func main() {
 	if len(*genConfigTo) != 0 {
 		err := coremain.GenConfig(*genConfigTo)
 		if err != nil {
-			logrus.Fatalf("can not generate config template, %v", err)
+			mlog.S().Errorf("can not generate config template, %v", err)
 		} else {
-			logrus.Info("config template generated")
+			mlog.S().Info("config template generated")
 		}
 		os.Exit(0)
 	}
@@ -129,15 +133,15 @@ func main() {
 	// main program starts here
 
 	// show summary
-	logrus.Infof("mosdns ver: %s", version)
-	logrus.Infof("arch: %s, os: %s, go: %s", runtime.GOARCH, runtime.GOOS, runtime.Version())
+	mlog.S().Infof("mosdns ver: %s", version)
+	mlog.S().Infof("arch: %s, os: %s, go: %s", runtime.GOARCH, runtime.GOOS, runtime.Version())
 
 	// try to change working dir to os.Executable() or *dir
 	var wd string
 	if *dirFollowExecutable {
 		ex, err := os.Executable()
 		if err != nil {
-			logrus.Fatalf("failed to get executable path: %v", err)
+			mlog.S().Fatalf("failed to get executable path: %v", err)
 		}
 		wd = filepath.Dir(ex)
 	} else {
@@ -148,110 +152,10 @@ func main() {
 	if len(wd) != 0 {
 		err := os.Chdir(wd)
 		if err != nil {
-			logrus.Fatalf("failed to change the current working directory: %v", err)
+			mlog.S().Fatalf("failed to change the current working directory: %v", err)
 		}
-		logrus.Infof("current working directory: %s", wd)
+		mlog.S().Infof("current working directory: %s", wd)
 	}
 
 	coremain.Run(*configPath)
-}
-
-func probTCPTimeout(addr string, isTLS bool) error {
-	q := new(dns.Msg)
-	q.SetQuestion("www.google.com.", dns.TypeA)
-
-	var conn net.Conn
-	var err error
-
-	logrus.Infof("connecting to %s", addr)
-	if isTLS {
-		tlsConfig := new(tls.Config)
-		tlsConfig.InsecureSkipVerify = true
-		tlsConn, err := tls.Dial("tcp", addr, tlsConfig)
-		if err != nil {
-			return fmt.Errorf("failed to dail tsl connection: %v", err)
-		}
-		tlsConn.SetDeadline(time.Now().Add(time.Second * 5))
-		logrus.Info("connected, start TLS handshaking")
-		err = tlsConn.Handshake()
-		if err != nil {
-			return fmt.Errorf("tls handshake failed: %v", err)
-		}
-		logrus.Info("TLS handshake completed")
-		conn = tlsConn
-	} else {
-		conn, err = net.Dial("tcp", addr)
-		if err != nil {
-			return fmt.Errorf("can not connect to server: %v", err)
-		}
-	}
-	defer conn.Close()
-
-	logrus.Info("sending request")
-	conn.SetDeadline(time.Now().Add(time.Second * 3))
-	dc := dns.Conn{Conn: conn}
-	err = dc.WriteMsg(q)
-	if err != nil {
-		return fmt.Errorf("failed to write probe msg: %v", err)
-	}
-	logrus.Info("request sent, waiting for response")
-	_, err = dc.ReadMsg()
-	if err != nil {
-		return fmt.Errorf("failed to read probe msg response: %v", err)
-	}
-	logrus.Info("response received")
-	logrus.Info("waiting for peer to close the connection...")
-	logrus.Info("this may take a while...")
-	logrus.Info("if you think its long enough, to cancel the test, press Ctrl + C")
-	conn.SetDeadline(time.Now().Add(time.Minute * 60))
-
-	start := time.Now()
-	buf := make([]byte, 1024)
-	n, err := conn.Read(buf)
-	if err == nil {
-		return fmt.Errorf("recieved unexpected data from peer: %v", buf[:n])
-	}
-
-	logrus.Infof("connection closed by peer after %.2f", time.Since(start).Seconds())
-	return nil
-}
-
-func benchIPList(f string) error {
-	list, err := netlist.NewIPMatcherFromFile(f)
-	if err != nil {
-		return err
-	}
-
-	ip := net.IPv4(8, 8, 8, 8).To4()
-
-	start := time.Now()
-
-	var n int = 1e6
-
-	for i := 0; i < n; i++ {
-		list.Match(ip)
-	}
-	timeCost := time.Since(start)
-
-	logrus.Infof("%d ns/op", timeCost.Nanoseconds()/int64(n))
-	return nil
-}
-
-func benchDomainList(f string) error {
-	matcher := domain.NewMixMatcher()
-	err := matcher.LoadFormFileAsV2Matcher(f)
-	if err != nil {
-		return err
-	}
-	start := time.Now()
-
-	var n int = 1e6
-
-	for i := 0; i < n; i++ {
-		matcher.Match("com.")
-	}
-	timeCost := time.Since(start)
-
-	logrus.Infof("%d ns/op", timeCost.Nanoseconds()/int64(n))
-	return nil
 }

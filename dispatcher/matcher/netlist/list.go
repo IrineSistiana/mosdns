@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -24,28 +24,28 @@ import (
 //List is a list of Nets. All Nets will be in ipv6 format, even it's
 //ipv4 addr. Cause we use bin search.
 type List struct {
-	elems  []Net
+	e      []Net
 	sorted bool
 }
 
-//NewNetList returns a NetList, list can not be nil.
-func NewNetList() *List {
+//NewList returns a *List, list can not be nil.
+func NewList() *List {
 	return &List{
-		elems: make([]Net, 0),
+		e: make([]Net, 0),
 	}
 }
 
 //Append appends new Nets to the list.
 //This modified list, call Sort() before call next Contains()
 func (list *List) Append(newNet ...Net) {
-	list.elems = append(list.elems, newNet...)
+	list.e = append(list.e, newNet...)
 	list.sorted = false
 }
 
 // Merge merges srcList with list
 // This modified list, call Sort() before call next Contains()
 func (list *List) Merge(srcList *List) {
-	list.elems = append(list.elems, srcList.elems...)
+	list.e = append(list.e, srcList.e...)
 }
 
 //Sort sorts the list, this must be called everytime after
@@ -57,35 +57,35 @@ func (list *List) Sort() {
 
 	sort.Sort(list)
 
-	result := list.elems[:0]
+	result := list.e[:0]
 	lastValid := 0
-	for i := range list.elems {
+	for i := range list.e {
 		if i == 0 { // first elem
-			result = append(result, list.elems[i])
+			result = append(result, list.e[i])
 			continue
 		}
 
-		if !list.elems[lastValid].Contains(list.elems[i].ip) {
-			result = append(result, list.elems[i])
+		if !list.e[lastValid].Contains(list.e[i].ip) {
+			result = append(result, list.e[i])
 			lastValid = i
 		}
 	}
 
-	list.elems = result
+	list.e = result
 	list.sorted = true
 }
 
 //implement sort Interface
 func (list *List) Len() int {
-	return len(list.elems)
+	return len(list.e)
 }
 
 func (list *List) Less(i, j int) bool {
-	return smallOrEqual(list.elems[i].ip, list.elems[j].ip)
+	return smallOrEqual(list.e[i].ip, list.e[j].ip)
 }
 
 func (list *List) Swap(i, j int) {
-	list.elems[i], list.elems[j] = list.elems[j], list.elems[i]
+	list.e[i], list.e[j] = list.e[j], list.e[i]
 }
 
 func (list *List) Match(ip net.IP) bool {
@@ -104,11 +104,11 @@ func (list *List) Contains(ip net.IP) bool {
 		panic("list is not sorted")
 	}
 
-	i, j := 0, len(list.elems)
+	i, j := 0, len(list.e)
 	for i < j {
 		h := int(uint(i+j) >> 1) // avoid overflow when computing h
 
-		if smallOrEqual(list.elems[h].ip, ipv6) {
+		if smallOrEqual(list.e[h].ip, ipv6) {
 			i = h + 1
 		} else {
 			j = h
@@ -119,7 +119,7 @@ func (list *List) Contains(ip net.IP) bool {
 		return false
 	}
 
-	return list.elems[i-1].Contains(ipv6)
+	return list.e[i-1].Contains(ipv6)
 }
 
 //smallOrEqual IP1 <= IP2 ?

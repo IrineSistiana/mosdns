@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -24,26 +24,24 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/matcher/domain"
 	"github.com/IrineSistiana/mosdns/dispatcher/matcher/elem"
 	"github.com/IrineSistiana/mosdns/dispatcher/matcher/netlist"
-	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
-	"github.com/sirupsen/logrus"
 )
 
 const PluginType = "query_matcher"
 
 func init() {
-	handler.RegInitFunc(PluginType, Init)
+	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 
-	handler.MustRegPlugin(preset("_qtype_A_AAAA", &Args{QType: []int{int(dns.TypeA), int(dns.TypeAAAA)}}))
-	handler.MustRegPlugin(preset("_query_is_common", &Args{
+	handler.MustRegPlugin(preset(handler.NewBP("_qtype_AAAA", PluginType), &Args{QType: []int{int(dns.TypeAAAA)}}), true)
+	handler.MustRegPlugin(preset(handler.NewBP("_qtype_A_AAAA", PluginType), &Args{QType: []int{int(dns.TypeA), int(dns.TypeAAAA)}}), true)
+	handler.MustRegPlugin(preset(handler.NewBP("_query_is_common", PluginType), &Args{
 		QType:  []int{int(dns.TypeA), int(dns.TypeAAAA)},
 		QClass: []int{dns.ClassINET},
-	}))
-
+	}), true)
 }
 
-var _ handler.Matcher = (*queryMatcher)(nil)
+var _ handler.MatcherPlugin = (*queryMatcher)(nil)
 
 type Args struct {
 	ClientIP     []string `yaml:"client_ip"` // ip files
@@ -54,47 +52,23 @@ type Args struct {
 }
 
 type queryMatcher struct {
-	tag    string
-	logger *logrus.Entry
-	args   *Args
+	*handler.BP
+	args *Args
 
 	matcherGroup []handler.Matcher
 }
 
-func (m *queryMatcher) Tag() string {
-	return m.tag
-}
-
-func (m *queryMatcher) Type() string {
-	return PluginType
-}
-
 func (m *queryMatcher) Match(ctx context.Context, qCtx *handler.Context) (matched bool, err error) {
-	matched, err = utils.BoolLogic(ctx, qCtx, m.matcherGroup, m.args.IsLogicalAND)
-	if err != nil {
-		err = handler.NewPluginError(m.tag, err)
-	}
-	return
+	return utils.BoolLogic(ctx, qCtx, m.matcherGroup, m.args.IsLogicalAND)
 }
 
-func Init(tag string, argsMap map[string]interface{}) (p handler.Plugin, err error) {
-	args := new(Args)
-	err = handler.WeakDecode(argsMap, args)
-	if err != nil {
-		return nil, handler.NewErrFromTemplate(handler.ETInvalidArgs, err)
-	}
-
-	m, err := newQueryMatcher(tag, args)
-	if err != nil {
-		return nil, err
-	}
-	return handler.WrapMatcherPlugin(tag, PluginType, m), nil
+func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
+	return newQueryMatcher(bp, args.(*Args))
 }
 
-func newQueryMatcher(tag string, args *Args) (m *queryMatcher, err error) {
+func newQueryMatcher(bp *handler.BP, args *Args) (m *queryMatcher, err error) {
 	m = new(queryMatcher)
-	m.tag = tag
-	m.logger = mlog.NewPluginLogger(tag)
+	m.BP = bp
 	m.args = args
 
 	if len(args.ClientIP) > 0 {
@@ -124,10 +98,10 @@ func newQueryMatcher(tag string, args *Args) (m *queryMatcher, err error) {
 	return m, nil
 }
 
-func preset(tag string, args *Args) (m *queryMatcher) {
-	m, err := newQueryMatcher(tag, args)
+func preset(bp *handler.BP, args *Args) (m *queryMatcher) {
+	m, err := newQueryMatcher(bp, args)
 	if err != nil {
-		panic(fmt.Sprintf("query_matcher: failed to init pre-set plugin %s: %s", tag, err))
+		panic(fmt.Sprintf("query_matcher: failed to init pre-set plugin %s: %s", bp.Tag(), err))
 	}
 	return m
 }

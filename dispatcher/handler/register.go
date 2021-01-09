@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -19,14 +19,22 @@ package handler
 
 import (
 	"fmt"
+	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
+	"go.uber.org/zap"
 	"sync"
 )
 
-type NewPluginFunc func(tag string, args map[string]interface{}) (p Plugin, err error)
+type NewPluginFunc func(bp *BP, args interface{}) (p Plugin, err error)
+type NewArgsFunc func() interface{}
+
+type typeInfo struct {
+	newPlugin NewPluginFunc
+	newArgs   NewArgsFunc
+}
 
 var (
-	// configurablePluginTypeRegister stores init funcs for certain plugin types
-	configurablePluginTypeRegister = make(map[string]NewPluginFunc)
+	// pluginTypeRegister stores init funcs for certain plugin types
+	pluginTypeRegister = make(map[string]typeInfo)
 
 	pluginTagRegister = newPluginRegister()
 )
@@ -42,15 +50,29 @@ func newPluginRegister() *pluginRegister {
 	}
 }
 
-func (r *pluginRegister) regPlugin(p Plugin) error {
+// regPlugin registers p, if errIfDup is true and p.Tag is duplicated, an err will be returned.
+// If old plugin is a ServicePlugin, regPlugin will call ServicePlugin.Shutdown(). If it failed to
+// shutdown the old service, it will panic.
+func (r *pluginRegister) regPlugin(p Plugin, errIfDup bool) error {
 	r.Lock()
 	defer r.Unlock()
 
-	_, dup := r.register[p.Tag()]
+	oldPlugin, dup := r.register[p.Tag()]
 	if dup {
-		return fmt.Errorf("plugin tag %s has been registered", p.Tag())
+		if errIfDup {
+			return fmt.Errorf("plugin tag %s has been registered", p.Tag())
+		}
+		mlog.L().Info("overwrite plugin", zap.String("tag", p.Tag()))
+		if service, ok := oldPlugin.(ServicePlugin); ok {
+			mlog.L().Info("shutting down old service", zap.String("tag", oldPlugin.Tag()))
+			if err := service.Shutdown(); err != nil {
+				panic(fmt.Sprintf("service %s failed to shutdown: %v", service.Tag(), err))
+			}
+			mlog.L().Info("old service exited", zap.String("tag", oldPlugin.Tag()))
+		}
 	}
-	r.register[p.Tag()] = p
+
+	r.register[p.Tag()] = wrapPluginBeforeReg(p)
 	return nil
 }
 
@@ -66,7 +88,7 @@ func (r *pluginRegister) getExecutablePlugin(tag string) (p ExecutablePlugin, er
 		return nil, fmt.Errorf("plugin %s is not an executable plugin", tag)
 	}
 
-	return nil, NewErrFromTemplate(ETTagNotDefined, tag)
+	return nil, fmt.Errorf("plugin tag %s not defined", tag)
 }
 func (r *pluginRegister) getMatcherPlugin(tag string) (p MatcherPlugin, err error) {
 	r.RLock()
@@ -79,7 +101,7 @@ func (r *pluginRegister) getMatcherPlugin(tag string) (p MatcherPlugin, err erro
 		}
 		return nil, fmt.Errorf("plugin %s is not a matcher plugin", tag)
 	}
-	return nil, NewErrFromTemplate(ETTagNotDefined, tag)
+	return nil, fmt.Errorf("plugin tag %s not defined", tag)
 }
 
 func (r *pluginRegister) getContextPlugin(tag string) (p ContextPlugin, err error) {
@@ -93,7 +115,7 @@ func (r *pluginRegister) getContextPlugin(tag string) (p ContextPlugin, err erro
 		}
 		return nil, fmt.Errorf("plugin %s is not a context plugin", tag)
 	}
-	return nil, NewErrFromTemplate(ETTagNotDefined, tag)
+	return nil, fmt.Errorf("plugin tag %s not defined", tag)
 }
 
 func (r *pluginRegister) getPlugin(tag string) (p Plugin, err error) {
@@ -101,7 +123,7 @@ func (r *pluginRegister) getPlugin(tag string) (p Plugin, err error) {
 	defer r.RUnlock()
 	p, ok := r.register[tag]
 	if !ok {
-		return nil, NewErrFromTemplate(ETTagNotDefined, tag)
+		return nil, fmt.Errorf("plugin tag %s not defined", tag)
 	}
 	return p, nil
 }
@@ -126,53 +148,67 @@ func (r *pluginRegister) purge() {
 // RegInitFunc registers this plugin type.
 // This should only be called in init() of the plugin package.
 // Duplicate plugin types are not allowed.
-func RegInitFunc(pluginType string, initFunc NewPluginFunc) {
-	_, ok := configurablePluginTypeRegister[pluginType]
+func RegInitFunc(pluginType string, initFunc NewPluginFunc, argsType NewArgsFunc) {
+	_, ok := pluginTypeRegister[pluginType]
 	if ok {
 		panic(fmt.Sprintf("duplicate plugin type [%s]", pluginType))
 	}
-	configurablePluginTypeRegister[pluginType] = initFunc
+	pluginTypeRegister[pluginType] = typeInfo{
+		newPlugin: initFunc,
+		newArgs:   argsType,
+	}
 }
 
 // GetConfigurablePluginTypes returns all plugin types which are configurable.
 func GetConfigurablePluginTypes() []string {
-	b := make([]string, 0, len(configurablePluginTypeRegister))
-	for typ := range configurablePluginTypeRegister {
+	b := make([]string, 0, len(pluginTypeRegister))
+	for typ := range pluginTypeRegister {
 		b = append(b, typ)
 	}
 	return b
 }
 
 // InitAndRegPlugin inits and registers this plugin globally.
-// Duplicate plugin tags are not allowed.
-func InitAndRegPlugin(c *Config) (err error) {
+func InitAndRegPlugin(c *Config, errIfDup bool) (err error) {
 	p, err := NewPlugin(c)
 	if err != nil {
 		return fmt.Errorf("failed to init plugin [%s], %w", c.Tag, err)
 	}
 
-	return RegPlugin(p)
+	return RegPlugin(p, errIfDup)
 }
 
 func NewPlugin(c *Config) (p Plugin, err error) {
-	newPluginFunc, ok := configurablePluginTypeRegister[c.Type]
+	typeInfo, ok := pluginTypeRegister[c.Type]
 	if !ok {
-		return nil, NewErrFromTemplate(ETTypeNotDefined, c.Type)
+		return nil, fmt.Errorf("plugin type %s not defined", c.Type)
 	}
 
-	return newPluginFunc(c.Tag, c.Args)
+	bp := NewBP(c.Tag, c.Type)
+
+	// parse args
+	if typeInfo.newArgs != nil {
+		args := typeInfo.newArgs()
+		err = WeakDecode(c.Args, args)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode plugin args: %w", err)
+		}
+		return typeInfo.newPlugin(bp, args)
+	}
+
+	return typeInfo.newPlugin(bp, c.Args)
 }
 
 // RegPlugin registers this Plugin globally.
-// Duplicate Plugin tag will cause an error.
-func RegPlugin(p Plugin) error {
-	return pluginTagRegister.regPlugin(p)
+// Duplicate Plugin tag will overwrite the old one.
+func RegPlugin(p Plugin, errIfDup bool) error {
+	return pluginTagRegister.regPlugin(p, errIfDup)
 }
 
 // MustRegPlugin: see RegPlugin.
-// MustRegPlugin will panic if err.
-func MustRegPlugin(p Plugin) {
-	err := pluginTagRegister.regPlugin(p)
+// MustRegPlugin will panic if any err occurred.
+func MustRegPlugin(p Plugin, errIfDup bool) {
+	err := pluginTagRegister.regPlugin(p, errIfDup)
 	if err != nil {
 		panic(err.Error())
 	}

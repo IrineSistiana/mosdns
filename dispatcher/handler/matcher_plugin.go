@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -28,28 +28,4 @@ type MatcherPlugin interface {
 
 type Matcher interface {
 	Match(ctx context.Context, qCtx *Context) (matched bool, err error)
-}
-
-type MatcherPluginWrapper struct {
-	tag string
-	typ string
-
-	Matcher
-}
-
-// WrapMatcherPlugin returns a *MatcherPluginWrapper which implements Plugin and MatcherPlugin.
-func WrapMatcherPlugin(tag, typ string, matcher Matcher) *MatcherPluginWrapper {
-	return &MatcherPluginWrapper{
-		tag:     tag,
-		typ:     typ,
-		Matcher: matcher,
-	}
-}
-
-func (c *MatcherPluginWrapper) Tag() string {
-	return c.tag
-}
-
-func (c *MatcherPluginWrapper) Type() string {
-	return c.typ
 }

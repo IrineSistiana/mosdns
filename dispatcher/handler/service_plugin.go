@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -15,26 +15,15 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package netlist
+package handler
 
-import (
-	"net"
-	"v2ray.com/core/app/router"
-)
-
-type V2Matcher struct {
-	m *router.GeoIPMatcher
+type Service interface {
+	// Shutdown and release resources.
+	Shutdown() error
 }
 
-func (m *V2Matcher) Match(ip net.IP) bool {
-	return m.m.Match(ip)
-}
-
-func NewV2Matcher(cidr []*router.CIDR) (*V2Matcher, error) {
-	m := new(router.GeoIPMatcher)
-	err := m.Init(cidr)
-	if err != nil {
-		return nil, err
-	}
-	return &V2Matcher{m: m}, nil
+// ServicePlugin is a plugin that has one or more background tasks that will keep running after Init().
+type ServicePlugin interface {
+	Plugin
+	Service
 }

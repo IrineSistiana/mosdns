@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -20,9 +20,7 @@ package server
 import (
 	"github.com/AdguardTeam/dnsproxy/upstream"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/miekg/dns"
-	"reflect"
 	"testing"
 	"time"
 )
@@ -41,26 +39,20 @@ func TestUdpServer_ListenAndServe(t *testing.T) {
 		{name: "doh2 with path", config: &ServerConfig{Protocol: "doh", Addr: testServerAddr, URLPath: "/my-path", Cert: "./test.cert", Key: "./test.key"}},
 	}
 
-	echoMsg := new(dns.Msg)
-	echoMsg.SetQuestion("example.com.", dns.TypeA)
 	for _, tt := range tests {
 		if t.Failed() {
 			t.FailNow()
 			return
 		}
 		func() {
-			server := &Server{
-				Logger:  mlog.Entry(),
-				Config:  tt.config,
-				Handler: &handler.DummyServerHandler{T: t, EchoMsg: echoMsg},
+			server, err := newServer(handler.NewBP("test", PluginType), &Args{Server: []*ServerConfig{tt.config}, Entry: "test"})
+			if err != nil {
+				t.Error(err)
 			}
-			go func() {
-				err := server.ListenAndServe()
-				if err != nil {
-					t.Error(err)
-				}
-			}()
 			defer server.Shutdown()
+
+			// replace server handler
+			server.handler = &handler.DummyServerHandler{T: t}
 
 			time.Sleep(time.Millisecond * 100)
 			opt := upstream.Options{
@@ -68,7 +60,6 @@ func TestUdpServer_ListenAndServe(t *testing.T) {
 				InsecureSkipVerify: true,
 			}
 			var u upstream.Upstream
-			var err error
 			switch tt.config.Protocol {
 			case "udp":
 				u, err = upstream.AddressToUpstream(tt.config.Addr, opt)
@@ -88,13 +79,15 @@ func TestUdpServer_ListenAndServe(t *testing.T) {
 			}
 
 			for i := 0; i < 50; i++ {
+				echoMsg := new(dns.Msg)
+				echoMsg.SetQuestion("example.com.", dns.TypeA)
 				r, err := u.Exchange(echoMsg)
 				if err != nil {
 					t.Fatalf("%s: %s", tt.name, err)
 				}
 
-				if !reflect.DeepEqual(r, echoMsg) {
-					t.Fatalf("%s: echoed msg is not the same", tt.name)
+				if r.Id != echoMsg.Id {
+					t.Fatalf("%s: echoed msg id is not the same", tt.name)
 				}
 			}
 		}()

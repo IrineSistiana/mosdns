@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -197,7 +197,7 @@ type ExchangeSingleFlightGroup struct {
 }
 
 func (g *ExchangeSingleFlightGroup) Exchange(ctx context.Context, qCtx *handler.Context, exchange exchangeFunc) (r *dns.Msg, err error) {
-	key, err := GetMsgKey(qCtx.Q)
+	key, err := GetMsgKey(qCtx.Q())
 	if err != nil {
 		return nil, fmt.Errorf("failed to caculate msg key, %w", err)
 	}
@@ -214,7 +214,7 @@ func (g *ExchangeSingleFlightGroup) Exchange(ctx context.Context, qCtx *handler.
 	rUnsafe := v.(*dns.Msg)
 	if shared && rUnsafe != nil { // shared reply may has different id and is not safe to modify.
 		r = rUnsafe.Copy()
-		r.Id = qCtx.Q.Id
+		r.Id = qCtx.Q().Id
 		return r, nil
 	}
 

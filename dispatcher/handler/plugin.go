@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -17,11 +17,37 @@
 
 package handler
 
-import "github.com/IrineSistiana/mosdns/dispatcher/mlog"
+import (
+	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
+	"go.uber.org/zap"
+)
 
 type Plugin interface {
 	Tag() string
 	Type() string
+}
+
+// BP means basic plugin, which implements Plugin.
+// It also has an internal logger, for convenience.
+type BP struct {
+	tag, typ string
+	logger   *zap.Logger
+}
+
+func NewBP(tag string, typ string) *BP {
+	return &BP{tag: tag, typ: typ, logger: mlog.NewPluginLogger(tag)}
+}
+
+func (p *BP) Tag() string {
+	return p.tag
+}
+
+func (p *BP) Type() string {
+	return p.typ
+}
+
+func (p *BP) L() *zap.Logger {
+	return p.logger
 }
 
 type Config struct {
@@ -37,5 +63,5 @@ type Config struct {
 
 // PluginFatalErr: If a plugin has a fatal err, call this.
 func PluginFatalErr(tag string, msg string) {
-	mlog.Entry().Fatalf("plugin %s reported a fatal err: %s", tag, msg)
+	mlog.L().Fatal("plugin fatal err", zap.String("from", tag), zap.String("msg", msg))
 }

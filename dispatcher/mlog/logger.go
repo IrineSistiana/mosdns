@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -19,22 +19,74 @@
 package mlog
 
 import (
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"os"
+	"sync/atomic"
+	"unsafe"
 )
 
 var (
-	std   = logrus.StandardLogger()
-	entry = logrus.NewEntry(std)
+	atomicLevel  = zap.NewAtomicLevelAt(zap.InfoLevel)
+	atomicWriter = NewAtomicWriteSyncer(os.Stderr)
+	l            = defaultLogger()
+	s            = l.Sugar()
 )
 
-func Entry() *logrus.Entry {
-	return entry
+func Level() zap.AtomicLevel {
+	return atomicLevel
 }
 
-func Logger() *logrus.Logger {
-	return std
+func Writer() *AtomicWriteSyncer {
+	return atomicWriter
 }
 
-func NewPluginLogger(tag string) *logrus.Entry {
-	return entry.WithField("plugin", tag)
+func L() *zap.Logger {
+	return l
+}
+
+func S() *zap.SugaredLogger {
+	return s
+}
+
+func NewPluginLogger(tag string) *zap.Logger {
+	return l.Named(tag)
+}
+
+func defaultLogger() *zap.Logger {
+	encoderCfg := zapcore.EncoderConfig{
+		TimeKey:        "time",
+		MessageKey:     "msg",
+		LevelKey:       "level",
+		NameKey:        "logger",
+		CallerKey:      "caller",
+		EncodeLevel:    zapcore.LowercaseLevelEncoder,
+		EncodeTime:     zapcore.ISO8601TimeEncoder,
+		EncodeDuration: zapcore.StringDurationEncoder,
+		EncodeCaller:   zapcore.ShortCallerEncoder,
+	}
+	core := zapcore.NewCore(zapcore.NewConsoleEncoder(encoderCfg), atomicWriter, atomicLevel)
+	return zap.New(core, zap.AddCaller())
+}
+
+type AtomicWriteSyncer struct {
+	ws unsafe.Pointer
+}
+
+func NewAtomicWriteSyncer(ws zapcore.WriteSyncer) *AtomicWriteSyncer {
+	return &AtomicWriteSyncer{ws: unsafe.Pointer(&ws)}
+}
+
+func (a *AtomicWriteSyncer) Replace(ws zapcore.WriteSyncer) {
+	atomic.StorePointer(&a.ws, unsafe.Pointer(&ws))
+}
+
+func (a *AtomicWriteSyncer) Write(p []byte) (n int, err error) {
+	ws := *(*zapcore.WriteSyncer)(atomic.LoadPointer(&a.ws))
+	return ws.Write(p)
+}
+
+func (a *AtomicWriteSyncer) Sync() error {
+	ws := *(*zapcore.WriteSyncer)(atomic.LoadPointer(&a.ws))
+	return ws.Sync()
 }

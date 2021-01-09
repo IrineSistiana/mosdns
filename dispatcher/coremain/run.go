@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -23,6 +23,8 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"os"
 	"os/signal"
 	"syscall"
@@ -30,23 +32,18 @@ import (
 
 // Run starts mosdns, it blocks.
 func Run(c string) {
-	//wait for signals
-	go func() {
-		osSignals := make(chan os.Signal, 1)
-		signal.Notify(osSignals, os.Interrupt, os.Kill, syscall.SIGTERM)
-		s := <-osSignals
-		mlog.Entry().Infof("received signal: %v, bye", s)
-		os.Exit(0)
-	}()
-
 	err := loadConfig(c, 0)
 	if err != nil {
-		mlog.Entry().Fatal(err)
+		mlog.L().Fatal("loading config", zap.Error(err))
 	}
 
-	mlog.Entry().Info("all plugins are successfully loaded")
-	mlog.Entry().Debugf("loaded plugins: %v", handler.GetAllPluginTag())
-	select {}
+	mlog.L().Info("all plugins are successfully loaded")
+	//wait for signals
+	osSignals := make(chan os.Signal, 1)
+	signal.Notify(osSignals, os.Interrupt, os.Kill, syscall.SIGTERM)
+	s := <-osSignals
+	mlog.L().Info("exiting, bye", zap.Stringer("signal", s))
+	os.Exit(0)
 }
 
 const (
@@ -60,20 +57,36 @@ func loadConfig(f string, depth int) error {
 	}
 	depth++
 
-	mlog.Entry().Infof("loading config file: %s", f)
+	mlog.L().Info("loading config", zap.String("file", f))
 	c, err := parseConfig(f)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to parse config from file %s: %w", f, err)
+	}
+
+	if depth == 1 { // init logger
+		level, err := parseLogLevel(c.Log.Level)
+		if err != nil {
+			return err
+		}
+		mlog.Level().SetLevel(level)
+		if len(c.Log.File) != 0 {
+			mlog.L().Info("opening log file", zap.String("file", c.Log.File))
+			f, err := os.OpenFile(c.Log.File, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0755)
+			if err != nil {
+				return fmt.Errorf("can not open log file %s: %w", c.Log.File, err)
+			}
+			mlog.L().Info("redirecting log to file, end of console log", zap.String("file", c.Log.File))
+			mlog.Writer().Replace(f)
+		}
 	}
 
 	for i, pluginConfig := range c.Plugin {
 		if len(pluginConfig.Tag) == 0 {
-			mlog.Entry().Warnf("plugin at index %d has a empty tag, ignore it", i)
 			continue
 		}
-		mlog.Entry().Infof("loading plugin %s", pluginConfig.Tag)
-		if err := handler.InitAndRegPlugin(pluginConfig); err != nil {
-			return fmt.Errorf("failed to register plugin %d %s: %w", i, pluginConfig.Tag, err)
+		mlog.L().Info("loading plugin", zap.String("tag", pluginConfig.Tag))
+		if err := handler.InitAndRegPlugin(pluginConfig, true); err != nil {
+			return fmt.Errorf("failed to register plugin #%d %s: %w", i, pluginConfig.Tag, err)
 		}
 	}
 
@@ -87,4 +100,19 @@ func loadConfig(f string, depth int) error {
 		}
 	}
 	return nil
+}
+
+func parseLogLevel(s string) (zapcore.Level, error) {
+	switch s {
+	case "debug":
+		return zap.DebugLevel, nil
+	case "", "info":
+		return zap.InfoLevel, nil
+	case "warn":
+		return zap.WarnLevel, nil
+	case "error":
+		return zap.ErrorLevel, nil
+	default:
+		return 0, fmt.Errorf("invalid log level [%s]", s)
+	}
 }

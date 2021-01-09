@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -25,6 +25,7 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
+	"go.uber.org/zap"
 	"io"
 	"io/ioutil"
 	"net"
@@ -32,64 +33,74 @@ import (
 	"time"
 )
 
-func (s *Server) serveDoH(noTLS bool) error {
-	l, err := net.Listen("tcp", s.Config.Addr)
+func (s *server) startDoH(conf *ServerConfig, noTLS bool) error {
+	if !noTLS && (len(conf.Cert) == 0 || len(conf.Key) == 0) { // no cert
+		return errors.New("doh server needs cert and key")
+	}
+
+	l, err := net.Listen("tcp", conf.Addr)
 	if err != nil {
 		return err
 	}
 
-	s.l.Lock()
-	s.listener = l
-	s.l.Unlock()
-	defer func() {
-		s.l.Lock()
-		l.Close()
-		s.l.Unlock()
-	}()
+	s.L().Info("doh server started", zap.Stringer("addr", l.Addr()))
+	s.listener[l] = struct{}{}
 
 	httpServer := &http.Server{
-		Handler:        s,
+		Handler: &dohHandler{
+			s:    s,
+			conf: conf,
+		},
 		ReadTimeout:    time.Second * 5,
 		WriteTimeout:   time.Second * 5,
-		IdleTimeout:    s.idleTimeout,
+		IdleTimeout:    conf.idleTimeout,
 		MaxHeaderBytes: 2048,
 	}
 
-	if noTLS {
-		err = httpServer.Serve(l)
-	} else {
-		if len(s.Config.Cert) == 0 || len(s.Config.Key) == 0 {
-			return errors.New("doh server needs cert and key")
+	go func() {
+		var err error
+		if noTLS {
+			err = httpServer.Serve(l)
+		} else {
+			err = httpServer.ServeTLS(l, conf.Cert, conf.Key)
 		}
-		err = httpServer.ServeTLS(l, s.Config.Cert, s.Config.Key)
-	}
-	if err != nil && s.isDone() {
-		err = nil
-	}
+		if err != nil {
+			if s.isClosed() {
+				return
+			}
+			s.errChan <- err
+		}
+	}()
+
 	return nil
 
 }
 
-func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	if len(s.Config.URLPath) != 0 && req.URL.Path != s.Config.URLPath {
+type dohHandler struct {
+	s    *server
+	conf *ServerConfig
+}
+
+func (h *dohHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	if len(h.conf.URLPath) != 0 && req.URL.Path != h.conf.URLPath {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 
 	q, err := getMsgFromReq(req)
 	if err != nil {
-		s.Logger.Warnf("invalid request from %s: %v", req.RemoteAddr, err)
+		h.s.L().Warn("invalid request", zap.String("from", req.RemoteAddr), zap.String("url", req.RequestURI), zap.String("method", req.Method), zap.Error(err))
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	qCtx := handler.NewContext(q)
-	qCtx.From = httpAddr(req.RemoteAddr)
+	qCtx := handler.NewContext(q, utils.NewNetAddr(req.RemoteAddr, req.URL.Scheme))
+	h.s.L().Debug("new query", qCtx.InfoField(), zap.String("from", req.RemoteAddr))
 
 	responseWriter := &httpDnsRespWriter{httpRespWriter: w}
-	ctx, cancel := context.WithTimeout(req.Context(), s.queryTimeout)
+	ctx, cancel := context.WithTimeout(req.Context(), h.conf.queryTimeout)
 	defer cancel()
-	s.Handler.ServeDNS(ctx, qCtx, responseWriter)
+	h.s.handler.ServeDNS(ctx, qCtx, responseWriter)
 }
 
 func getMsgFromReq(req *http.Request) (*dns.Msg, error) {
@@ -119,16 +130,6 @@ func getMsgFromReq(req *http.Request) (*dns.Msg, error) {
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
 	return q, nil
-}
-
-type httpAddr string
-
-func (h httpAddr) Network() string {
-	return "http"
-}
-
-func (h httpAddr) String() string {
-	return string(h)
 }
 
 type httpDnsRespWriter struct {

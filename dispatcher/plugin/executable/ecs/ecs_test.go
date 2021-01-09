@@ -1,4 +1,4 @@
-//     Copyright (C) 2020, IrineSistiana
+//     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
 //
@@ -37,21 +37,19 @@ mask6: 32
 ipv4: 1.2.3.4
 ipv6: '2001:dd8:1a::'
 `
-	args := make(map[string]interface{})
-	if err := yaml.Unmarshal([]byte(argsStr), &args); err != nil {
+	args := new(Args)
+	if err := yaml.Unmarshal([]byte(argsStr), args); err != nil {
 		t.Fatal(err)
 	}
 
 	// test Init
-	p, err := Init("test", args)
+	p, err := newPlugin(handler.NewBP("test", PluginType), args)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	fpw := p.(*handler.ExecutablePluginWrapper)
-	ecs := fpw.Executable.(*ecsPlugin)
+	ecs := p.(*ecsPlugin)
 	ctx := context.Background()
-	from := utils.NewNetAddr("test", "192.168.0.1:0")
 
 	testFunc := func(presetECS bool) {
 		typ := []uint16{dns.TypeA, dns.TypeAAAA}
@@ -72,7 +70,7 @@ ipv6: '2001:dd8:1a::'
 				}
 			}
 
-			err = fpw.Exec(ctx, &handler.Context{Q: m, From: from})
+			err = ecs.Exec(ctx, handler.NewContext(m, nil))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -92,7 +90,7 @@ ipv6: '2001:dd8:1a::'
 
 func Test_ecs_auto(t *testing.T) {
 
-	p, err := newPlugin("test", &Args{
+	p, err := newPlugin(handler.NewBP("test", PluginType), &Args{
 		Auto:           true,
 		ForceOverwrite: true,
 		Mask4:          24,
@@ -101,13 +99,14 @@ func Test_ecs_auto(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fpw := p.(*handler.ExecutablePluginWrapper)
+
+	ecs := p.(*ecsPlugin)
 
 	testFunc := func(presetECS bool) {
 		typ := []uint16{dns.TypeA, dns.TypeAAAA}
 		from := []net.Addr{
-			utils.NewNetAddr("test", "192.168.0.1:0"),
-			utils.NewNetAddr("test", "[2001:0db8::]:0"),
+			utils.NewNetAddr("192.168.0.1:0", "test"),
+			utils.NewNetAddr("[2001:0db8::]:0", "test"),
 		}
 		wantECS := []*dns.EDNS0_SUBNET{
 			newEDNS0Subnet(net.ParseIP("192.168.0.1").To4(), 24, false),
@@ -128,7 +127,8 @@ func Test_ecs_auto(t *testing.T) {
 				}
 			}
 
-			err = fpw.Exec(context.Background(), &handler.Context{Q: m, From: from[i]})
+			qCtx := handler.NewContext(m, from[i])
+			err = ecs.Exec(context.Background(), qCtx)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -154,7 +154,7 @@ func Test_remove_ecs(t *testing.T) {
 	setECS(m, ecs)
 
 	p := &noECS{}
-	err := p.Exec(context.Background(), &handler.Context{Q: m})
+	err := p.Exec(context.Background(), handler.NewContext(m, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
