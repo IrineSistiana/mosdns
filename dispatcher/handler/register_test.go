@@ -37,7 +37,7 @@ func TestRegPlugin(t *testing.T) {
 					}()
 				}
 
-				err := RegPlugin(wrapPluginBeforeReg(tt.p), tt.errOnDup)
+				err := RegPlugin(tt.p, tt.errOnDup)
 				if (err != nil) != tt.wantErr {
 					t.Errorf("RegPlugin() error = %v, wantErr %v", err, tt.wantErr)
 				}
@@ -49,7 +49,7 @@ func TestRegPlugin(t *testing.T) {
 				if err != nil {
 					t.Errorf("failed to get registed plugin")
 				}
-				if !reflect.DeepEqual(gotP, tt.p) {
+				if !reflect.DeepEqual(gotP.GetPlugin(), tt.p) {
 					t.Errorf("want p %v, but got %v", tt.p, gotP)
 				}
 			}()

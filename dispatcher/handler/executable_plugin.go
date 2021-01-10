@@ -36,21 +36,41 @@ type Executable interface {
 	Exec(ctx context.Context, qCtx *Context) (err error)
 }
 
+type ESExecutablePlugin interface {
+	Plugin
+	ESExecutable
+}
+
+// ESExecutable: Early Stoppable Executable.
+// Which can stop the ExecutableCmdSequence immediately if earlyStop is true.
+type ESExecutable interface {
+	ExecES(ctx context.Context, qCtx *Context) (earlyStop bool, err error)
+}
+
 type ExecutableCmd interface {
-	ExecCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (goTwo string, err error)
+	ExecCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (goTwo string, earlyStop bool, err error)
 }
 
 type executablePluginTag struct {
 	s string
 }
 
-func (t executablePluginTag) ExecCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (goTwo string, err error) {
-	p, err := GetExecutablePlugin(t.s)
+func (t executablePluginTag) ExecCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (goTwo string, earlyStop bool, err error) {
+	p, err := GetPlugin(t.s)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
+
 	logger.Debug("exec executable plugin", qCtx.InfoField(), zap.String("exec", t.s))
-	return "", p.Exec(ctx, qCtx)
+	switch {
+	case p.Is(PITExecutable):
+		return "", false, p.Exec(ctx, qCtx)
+	case p.Is(PITESExecutable):
+		earlyStop, err = p.ExecES(ctx, qCtx)
+		return "", earlyStop, err
+	default:
+		return "", false, fmt.Errorf("plugin %s class err", t.s)
+	}
 }
 
 type IfBlockConfig struct {
@@ -84,44 +104,44 @@ type ifBlock struct {
 	goTwo         string
 }
 
-func (b *ifBlock) ExecCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (goTwo string, err error) {
+func (b *ifBlock) ExecCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (goTwo string, earlyStop bool, err error) {
 	if len(b.ifMatcher) > 0 {
 		If, err := ifCondition(ctx, qCtx, logger, b.ifMatcher, false)
 		if err != nil {
-			return "", err
+			return "", false, err
 		}
 		if If == false {
-			return "", nil // if case returns false, skip this block.
+			return "", false, nil // if case returns false, skip this block.
 		}
 	}
 
 	if len(b.ifAndMatcher) > 0 {
 		If, err := ifCondition(ctx, qCtx, logger, b.ifAndMatcher, true)
 		if err != nil {
-			return "", err
+			return "", false, err
 		}
 		if If == false {
-			return "", nil
+			return "", false, nil
 		}
 	}
 
 	// exec
 	if b.executableCmd != nil {
-		goTwo, err = b.executableCmd.ExecCmd(ctx, qCtx, logger)
+		goTwo, earlyStop, err = b.executableCmd.ExecCmd(ctx, qCtx, logger)
 		if err != nil {
-			return "", err
+			return "", false, err
 		}
-		if len(goTwo) != 0 {
-			return goTwo, nil
+		if len(goTwo) != 0 || earlyStop {
+			return goTwo, earlyStop, nil
 		}
 	}
 
 	// goto
 	if len(b.goTwo) != 0 { // if block has a goto, return it
-		return b.goTwo, nil
+		return b.goTwo, false, nil
 	}
 
-	return "", nil
+	return "", false, nil
 }
 
 func ifCondition(ctx context.Context, qCtx *Context, logger *zap.Logger, p []matcher, isAnd bool) (ok bool, err error) {
@@ -134,7 +154,7 @@ func ifCondition(ctx context.Context, qCtx *Context, logger *zap.Logger, p []mat
 			continue
 		}
 
-		mp, err := GetMatcherPlugin(m.tag)
+		mp, err := GetPlugin(m.tag)
 		if err != nil {
 			return false, err
 		}
@@ -207,8 +227,8 @@ type parallelResult struct {
 	from int
 }
 
-func (p *ParallelECS) ExecCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (_ string, err error) {
-	return "", p.execCmd(ctx, qCtx, logger)
+func (p *ParallelECS) ExecCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (goTwo string, earlyStop bool, err error) {
+	return "", false, p.execCmd(ctx, qCtx, logger)
 }
 
 func (p *ParallelECS) execCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (err error) {
@@ -346,8 +366,8 @@ func ParseFallbackECS(primary, secondary []interface{}, threshold, statLength in
 	}, nil
 }
 
-func (f *FallbackECS) ExecCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (goTwo string, err error) {
-	return "", f.execCmd(ctx, qCtx, logger)
+func (f *FallbackECS) ExecCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (goTwo string, earlyStop bool, err error) {
+	return "", false, f.execCmd(ctx, qCtx, logger)
 }
 
 func (f *FallbackECS) execCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (err error) {
@@ -505,18 +525,18 @@ func hasKey(m map[string]interface{}, key string) bool {
 }
 
 // ExecCmd executes the sequence.
-func (es *ExecutableCmdSequence) ExecCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (goTwo string, err error) {
+func (es *ExecutableCmdSequence) ExecCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (goTwo string, earlyStop bool, err error) {
 	for _, cmd := range es.c {
-		goTwo, err = cmd.ExecCmd(ctx, qCtx, logger)
+		goTwo, earlyStop, err = cmd.ExecCmd(ctx, qCtx, logger)
 		if err != nil {
-			return "", err
+			return "", false, err
 		}
-		if len(goTwo) != 0 {
-			return goTwo, nil
+		if len(goTwo) != 0 || earlyStop {
+			return goTwo, earlyStop, nil
 		}
 	}
 
-	return "", nil
+	return "", false, nil
 }
 
 func (es *ExecutableCmdSequence) Len() int {
@@ -525,14 +545,14 @@ func (es *ExecutableCmdSequence) Len() int {
 
 // WalkExecutableCmd executes the sequence, include its `goto`.
 func WalkExecutableCmd(ctx context.Context, qCtx *Context, logger *zap.Logger, entry ExecutableCmd) (err error) {
-	goTwo, err := entry.ExecCmd(ctx, qCtx, logger)
+	goTwo, _, err := entry.ExecCmd(ctx, qCtx, logger)
 	if err != nil {
 		return err
 	}
 
 	if len(goTwo) != 0 {
 		logger.Debug("goto plugin", qCtx.InfoField(), zap.String("goto", goTwo))
-		p, err := GetExecutablePlugin(goTwo)
+		p, err := GetPlugin(goTwo)
 		if err != nil {
 			return err
 		}

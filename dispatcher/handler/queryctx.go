@@ -18,6 +18,7 @@
 package handler
 
 import (
+	"context"
 	"fmt"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
@@ -42,6 +43,8 @@ type Context struct {
 
 	infoOnce sync.Once
 	info     string
+
+	deferrable []Executable
 }
 
 type ContextStatus uint8
@@ -108,6 +111,19 @@ func (ctx *Context) Status() ContextStatus {
 func (ctx *Context) SetResponse(r *dns.Msg, status ContextStatus) {
 	ctx.r = r
 	ctx.status = status
+}
+
+func (ctx *Context) DeferExec(e Executable) {
+	ctx.deferrable = append(ctx.deferrable, e)
+}
+
+func (ctx *Context) ExecDefer(cCtx context.Context, qCtx *Context) error {
+	for i := range ctx.deferrable {
+		if err := ctx.deferrable[len(ctx.deferrable)-i-1].Exec(cCtx, qCtx); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (ctx *Context) Id() uint32 {

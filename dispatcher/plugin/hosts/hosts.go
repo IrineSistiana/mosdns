@@ -33,7 +33,7 @@ func init() {
 	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 }
 
-var _ handler.MatcherPlugin = (*hostsContainer)(nil)
+var _ handler.ESExecutablePlugin = (*hostsContainer)(nil)
 var _ handler.ContextPlugin = (*hostsContainer)(nil)
 
 type Args struct {
@@ -65,22 +65,15 @@ func newHostsContainer(bp *handler.BP, args *Args) (*hostsContainer, error) {
 	}, nil
 }
 
-func (h *hostsContainer) Connect(ctx context.Context, qCtx *handler.Context, pipeCtx *handler.PipeContext) (err error) {
-	return h.connect(ctx, qCtx, pipeCtx)
+func (h *hostsContainer) ExecES(ctx context.Context, qCtx *handler.Context) (earlyStop bool, err error) {
+	return h.matchAndSet(qCtx), nil
 }
 
-func (h *hostsContainer) connect(ctx context.Context, qCtx *handler.Context, pipeCtx *handler.PipeContext) (err error) {
-	if ok := h.matchAndSet(qCtx); ok {
+func (h *hostsContainer) Connect(ctx context.Context, qCtx *handler.Context, pipeCtx *handler.PipeContext) (err error) {
+	if h.matchAndSet(qCtx) {
 		return nil
 	}
-
 	return pipeCtx.ExecNextPlugin(ctx, qCtx)
-}
-
-// Match matches domain in the hosts file and set its response.
-// It never returns an err.
-func (h *hostsContainer) Match(_ context.Context, qCtx *handler.Context) (matched bool, _ error) {
-	return h.matchAndSet(qCtx), nil
 }
 
 func (h *hostsContainer) matchAndSet(qCtx *handler.Context) (matched bool) {

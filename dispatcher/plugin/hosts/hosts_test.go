@@ -38,14 +38,13 @@ func Test_hostsContainer_Match(t *testing.T) {
 		name        string
 		args        args
 		wantMatched bool
-		wantErr     bool
 		wantAddr    []string
 	}{
-		{"matched A", args{name: "dns.google.", typ: dns.TypeA}, true, false, []string{"8.8.8.8", "8.8.4.4"}},
-		{"matched AAAA", args{name: "dns.google.", typ: dns.TypeAAAA}, true, false, []string{"2001:4860:4860::8844", "2001:4860:4860::8888"}},
-		{"not matched A", args{name: "nxdomain.com.", typ: dns.TypeA}, false, false, nil},
-		{"matched regexp A", args{name: "123456789.text", typ: dns.TypeA}, true, false, []string{"192.168.1.1"}},
-		{"not matched regexp A", args{name: "0123456789.text", typ: dns.TypeA}, false, false, nil},
+		{"matched A", args{name: "dns.google.", typ: dns.TypeA}, true, []string{"8.8.8.8", "8.8.4.4"}},
+		{"matched AAAA", args{name: "dns.google.", typ: dns.TypeAAAA}, true, []string{"2001:4860:4860::8844", "2001:4860:4860::8888"}},
+		{"not matched A", args{name: "nxdomain.com.", typ: dns.TypeA}, false, nil},
+		{"matched regexp A", args{name: "123456789.text", typ: dns.TypeA}, true, []string{"192.168.1.1"}},
+		{"not matched regexp A", args{name: "0123456789.text", typ: dns.TypeA}, false, nil},
 	}
 	for _, tt := range tests {
 		q := new(dns.Msg)
@@ -53,11 +52,7 @@ func Test_hostsContainer_Match(t *testing.T) {
 		qCtx := handler.NewContext(q, nil)
 
 		t.Run(tt.name, func(t *testing.T) {
-			gotMatched, err := h.Match(nil, qCtx)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("Match() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
+			gotMatched := h.matchAndSet(qCtx)
 			if gotMatched != tt.wantMatched {
 				t.Fatalf("Match() gotMatched = %v, want %v", gotMatched, tt.wantMatched)
 			}

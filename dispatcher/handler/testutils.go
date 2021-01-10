@@ -51,6 +51,24 @@ func (d *DummyExecutablePlugin) Exec(_ context.Context, qCtx *Context) (err erro
 	return nil
 }
 
+type DummySkippableExecutablePlugin struct {
+	*BP
+	WantR    *dns.Msg
+	WantSkip bool
+	WantErr  error
+}
+
+func (d *DummySkippableExecutablePlugin) ExecES(_ context.Context, qCtx *Context) (earlyStop bool, err error) {
+	if d.WantErr != nil {
+		return false, d.WantErr
+	}
+	if d.WantR != nil {
+		qCtx.SetResponse(d.WantR, ContextStatusResponded)
+	}
+
+	return d.WantSkip, nil
+}
+
 type DummyServicePlugin struct {
 	*BP
 	WantShutdownErr error

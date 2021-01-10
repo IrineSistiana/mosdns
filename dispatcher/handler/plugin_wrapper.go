@@ -17,65 +17,129 @@
 
 package handler
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
-func wrapPluginBeforeReg(gp Plugin) Plugin {
-	switch p := gp.(type) {
-	case MatcherPlugin:
-		return &matcherPluginWrapper{MatcherPlugin: p}
-	case ContextPlugin:
-		return &contextPluginWrapper{ContextPlugin: p}
-	case ExecutablePlugin:
-		return &executablePluginWrapper{ExecutablePlugin: p}
-	default:
-		return gp
+// PluginWrapper wraps the original plugin to avoid extremely frequently
+// interface conversion. To access the original plugin, use PluginWrapper.GetPlugin()
+type PluginWrapper struct {
+	p  Plugin
+	e  Executable
+	se ESExecutable
+	m  Matcher
+	cc ContextConnector
+}
+
+func newPluginWrapper(gp Plugin) *PluginWrapper {
+	w := new(PluginWrapper)
+	w.p = gp
+
+	if e, ok := gp.(Executable); ok {
+		w.e = e
 	}
+	if se, ok := gp.(ESExecutable); ok {
+		w.se = se
+	}
+	if m, ok := gp.(Matcher); ok {
+		w.m = m
+	}
+	if cc, ok := gp.(ContextConnector); ok {
+		w.cc = cc
+	}
+
+	return w
 }
 
-type executablePluginWrapper struct {
-	ExecutablePlugin
+func (w *PluginWrapper) GetPlugin() Plugin {
+	return w.p
 }
 
-func (w *executablePluginWrapper) Exec(ctx context.Context, qCtx *Context) (err error) {
+func (w *PluginWrapper) Exec(ctx context.Context, qCtx *Context) (err error) {
 	if err = ctx.Err(); err != nil {
 		return err
 	}
 
-	err = w.ExecutablePlugin.Exec(ctx, qCtx)
+	if w.e == nil {
+		return fmt.Errorf("plugin tag: %s, type: %s is not an Executable", w.p.Tag(), w.p.Type())
+	}
+
+	err = w.e.Exec(ctx, qCtx)
 	if err != nil {
-		return NewPluginError(w.ExecutablePlugin.Tag(), err)
+		return NewPluginError(w.p.Tag(), err)
 	}
 	return nil
 }
 
-type contextPluginWrapper struct {
-	ContextPlugin
-}
-
-func (w *contextPluginWrapper) Connect(ctx context.Context, qCtx *Context, pipeCtx *PipeContext) (err error) {
+func (w *PluginWrapper) Connect(ctx context.Context, qCtx *Context, pipeCtx *PipeContext) (err error) {
 	if err = ctx.Err(); err != nil {
 		return err
 	}
 
-	err = w.ContextPlugin.Connect(ctx, qCtx, pipeCtx)
+	if w.cc == nil {
+		return fmt.Errorf("plugin tag: %s, type: %s is not a ContextConnector", w.p.Tag(), w.p.Type())
+	}
+
+	err = w.cc.Connect(ctx, qCtx, pipeCtx)
 	if err != nil {
-		return NewPluginError(w.ContextPlugin.Tag(), err)
+		return NewPluginError(w.p.Tag(), err)
 	}
 	return nil
 }
 
-type matcherPluginWrapper struct {
-	MatcherPlugin
-}
-
-func (w *matcherPluginWrapper) Match(ctx context.Context, qCtx *Context) (matched bool, err error) {
+func (w *PluginWrapper) Match(ctx context.Context, qCtx *Context) (matched bool, err error) {
 	if err = ctx.Err(); err != nil {
 		return false, err
 	}
 
-	matched, err = w.MatcherPlugin.Match(ctx, qCtx)
+	if w.m == nil {
+		return false, fmt.Errorf("plugin tag: %s, type: %s is not a Matcher", w.p.Tag(), w.p.Type())
+	}
+
+	matched, err = w.m.Match(ctx, qCtx)
 	if err != nil {
-		return false, NewPluginError(w.MatcherPlugin.Tag(), err)
+		return false, NewPluginError(w.p.Tag(), err)
 	}
 	return matched, nil
+}
+
+func (w *PluginWrapper) ExecES(ctx context.Context, qCtx *Context) (earlyStop bool, err error) {
+	if err = ctx.Err(); err != nil {
+		return false, err
+	}
+
+	if w.se == nil {
+		return false, fmt.Errorf("plugin tag: %s, type: %s is not an SkippableExecutable", w.p.Tag(), w.p.Type())
+	}
+
+	earlyStop, err = w.se.ExecES(ctx, qCtx)
+	if err != nil {
+		return false, NewPluginError(w.p.Tag(), err)
+	}
+	return earlyStop, nil
+}
+
+type PluginInterfaceType uint8
+
+const (
+	PITExecutable = iota
+	PITESExecutable
+	PITMatcher
+	PITContextConnector
+)
+
+func (w *PluginWrapper) Is(t PluginInterfaceType) bool {
+	switch t {
+	case PITExecutable:
+		return w.e != nil
+	case PITESExecutable:
+		return w.se != nil
+	case PITMatcher:
+		return w.m != nil
+	case PITContextConnector:
+		return w.cc != nil
+	default:
+		panic(fmt.Sprintf("hander: invalid PluginInterfaceType: %d", t))
+	}
 }

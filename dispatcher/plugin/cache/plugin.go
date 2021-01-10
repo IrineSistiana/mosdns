@@ -37,7 +37,7 @@ func init() {
 	handler.MustRegPlugin(newCachePlugin(handler.NewBP("_default_cache", PluginType), &Args{}), true)
 }
 
-var _ handler.ContextPlugin = (*cachePlugin)(nil)
+var _ handler.ESExecutablePlugin = (*cachePlugin)(nil)
 
 type Args struct {
 	Size            int `yaml:"size"`
@@ -50,39 +50,45 @@ type cachePlugin struct {
 	c *cache
 }
 
-func (c *cachePlugin) Connect(ctx context.Context, qCtx *handler.Context, pipeCtx *handler.PipeContext) (err error) {
-	return c.connect(ctx, qCtx, pipeCtx)
-}
-
-func (c *cachePlugin) connect(ctx context.Context, qCtx *handler.Context, pipeCtx *handler.PipeContext) (err error) {
-	cacheable := true
+func (c *cachePlugin) ExecES(_ context.Context, qCtx *handler.Context) (earlyStop bool, err error) {
 	key, err := utils.GetMsgKey(qCtx.Q())
 	if err != nil {
 		c.L().Warn("unable to get msg key, skip the cache", qCtx.InfoField(), zap.Error(err))
-		cacheable = false
 	} else {
 		if r, ttl := c.c.get(key); r != nil { // if cache hit
 			c.L().Debug("cache hit", qCtx.InfoField())
 			r.Id = qCtx.Q().Id
 			setTTL(r, uint32(ttl/time.Second))
 			qCtx.SetResponse(r, handler.ContextStatusResponded)
-			return nil
+			return true, nil
 		}
 	}
 
-	err = pipeCtx.ExecNextPlugin(ctx, qCtx)
-	if err != nil {
-		return err
+	if len(key) != 0 {
+		de := newDeferExecutable(key, c.c)
+		qCtx.DeferExec(de)
 	}
 
-	if cacheable && qCtx.R() != nil && qCtx.R().Rcode == dns.RcodeSuccess && len(qCtx.R().Answer) != 0 {
+	return false, nil
+}
+
+type deferExecutable struct {
+	key string
+	c   *cache
+}
+
+func newDeferExecutable(key string, c *cache) *deferExecutable {
+	return &deferExecutable{key: key, c: c}
+}
+
+func (d *deferExecutable) Exec(_ context.Context, qCtx *handler.Context) (err error) {
+	if qCtx.R() != nil && qCtx.R().Rcode == dns.RcodeSuccess && len(qCtx.R().Answer) != 0 {
 		ttl := getMinimalTTL(qCtx.R())
 		if ttl > maxTTL {
 			ttl = maxTTL
 		}
-		c.c.add(key, ttl, qCtx.R())
+		d.c.add(d.key, ttl, qCtx.R())
 	}
-
 	return nil
 }
 

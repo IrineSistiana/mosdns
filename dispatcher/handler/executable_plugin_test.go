@@ -21,6 +21,7 @@ func Test_ECS(t *testing.T) {
 		name     string
 		yamlStr  string
 		wantNext string
+		wantES   bool
 		wantErr  error
 	}{
 		{name: "test empty end", yamlStr: `
@@ -74,6 +75,23 @@ exec:
   goto: goto1
 `,
 			wantNext: "", wantErr: eErr},
+
+		{name: "test early return in main sequence", yamlStr: `
+exec:
+- exec
+- exec_skip
+- exec_err 	# skipped, should not reach here.
+`,
+			wantNext: "", wantES: true, wantErr: nil},
+
+		{name: "test early return in if branch", yamlStr: `
+exec:
+- if: [matched] 
+  exec: 
+    - exec_skip
+  goto: goto1 # skipped, should not reach here.
+`,
+			wantNext: "", wantES: true, wantErr: nil},
 	}
 
 	// not_matched
@@ -87,6 +105,12 @@ exec:
 	MustRegPlugin(&DummyExecutablePlugin{
 		BP:      NewBP("exec", ""),
 		WantErr: nil,
+	}, true)
+
+	// do something and skip the following sequence
+	MustRegPlugin(&DummySkippableExecutablePlugin{
+		BP:       NewBP("exec_skip", ""),
+		WantSkip: true,
 	}, true)
 
 	// matched
@@ -120,13 +144,17 @@ exec:
 				t.Fatal(err)
 			}
 
-			gotNext, err := ecs.ExecCmd(context.Background(), NewContext(new(dns.Msg), nil), zap.NewNop())
+			gotNext, gotEarlyStop, err := ecs.ExecCmd(context.Background(), NewContext(new(dns.Msg), nil), zap.NewNop())
 			if (err != nil || tt.wantErr != nil) && !errors.Is(err, tt.wantErr) {
-				t.Errorf("Do() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("ExecCmd() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if gotNext != tt.wantNext {
-				t.Errorf("Do() gotNext = %v, want %v", gotNext, tt.wantNext)
+				t.Errorf("ExecCmd() gotNext = %v, want %v", gotNext, tt.wantNext)
+			}
+
+			if gotEarlyStop != tt.wantES {
+				t.Errorf("ExecCmd() gotEarlyStop = %v, want %v", gotEarlyStop, tt.wantES)
 			}
 		})
 	}

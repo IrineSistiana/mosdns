@@ -26,10 +26,14 @@ import (
 // ContextPlugin
 type ContextPlugin interface {
 	Plugin
+	ContextConnector
+}
 
+type ContextConnector interface {
 	// Connect connects this ContextPlugin to its predecessor.
 	Connect(ctx context.Context, qCtx *Context, pipeCtx *PipeContext) (err error)
 }
+
 type PipeContext struct {
 	logger *zap.Logger
 	s      []string
@@ -44,16 +48,16 @@ func NewPipeContext(s []string, logger *zap.Logger) *PipeContext {
 func (c *PipeContext) ExecNextPlugin(ctx context.Context, qCtx *Context) error {
 	for c.index < len(c.s) {
 		tag := c.s[c.index]
-		i, err := GetPlugin(tag)
+		p, err := GetPlugin(tag)
 		if err != nil {
 			return err
 		}
 		c.index++
-		switch p := i.(type) {
-		case ContextPlugin:
+		switch {
+		case p.Is(PITContextConnector):
 			c.logger.Debug("exec context plugin", qCtx.InfoField(), zap.String("exec", tag))
 			return p.Connect(ctx, qCtx, c)
-		case ExecutablePlugin:
+		case p.Is(PITExecutable):
 			c.logger.Debug("exec executable plugin", qCtx.InfoField(), zap.String("exec", tag))
 			err := p.Exec(ctx, qCtx)
 			if err != nil {

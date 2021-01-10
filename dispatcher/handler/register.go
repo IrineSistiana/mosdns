@@ -41,12 +41,12 @@ var (
 
 type pluginRegister struct {
 	sync.RWMutex
-	register map[string]Plugin
+	register map[string]*PluginWrapper
 }
 
 func newPluginRegister() *pluginRegister {
 	return &pluginRegister{
-		register: make(map[string]Plugin),
+		register: make(map[string]*PluginWrapper),
 	}
 }
 
@@ -57,68 +57,27 @@ func (r *pluginRegister) regPlugin(p Plugin, errIfDup bool) error {
 	r.Lock()
 	defer r.Unlock()
 
-	oldPlugin, dup := r.register[p.Tag()]
+	tag := p.Tag()
+	oldWrapper, dup := r.register[tag]
 	if dup {
 		if errIfDup {
-			return fmt.Errorf("plugin tag %s has been registered", p.Tag())
+			return fmt.Errorf("plugin tag %s has been registered", tag)
 		}
-		mlog.L().Info("overwrite plugin", zap.String("tag", p.Tag()))
-		if service, ok := oldPlugin.(ServicePlugin); ok {
-			mlog.L().Info("shutting down old service", zap.String("tag", oldPlugin.Tag()))
+		mlog.L().Info("overwrite plugin", zap.String("tag", tag))
+		if service, ok := oldWrapper.GetPlugin().(ServicePlugin); ok {
+			mlog.L().Info("shutting down old service", zap.String("tag", tag))
 			if err := service.Shutdown(); err != nil {
-				panic(fmt.Sprintf("service %s failed to shutdown: %v", service.Tag(), err))
+				panic(fmt.Sprintf("service %s failed to shutdown: %v", tag, err))
 			}
-			mlog.L().Info("old service exited", zap.String("tag", oldPlugin.Tag()))
+			mlog.L().Info("old service exited", zap.String("tag", tag))
 		}
 	}
 
-	r.register[p.Tag()] = wrapPluginBeforeReg(p)
+	r.register[tag] = newPluginWrapper(p)
 	return nil
 }
 
-func (r *pluginRegister) getExecutablePlugin(tag string) (p ExecutablePlugin, err error) {
-	r.RLock()
-	gp, ok := r.register[tag]
-	r.RUnlock()
-
-	if ok {
-		if p, ok := gp.(ExecutablePlugin); ok {
-			return p, nil
-		}
-		return nil, fmt.Errorf("plugin %s is not an executable plugin", tag)
-	}
-
-	return nil, fmt.Errorf("plugin tag %s not defined", tag)
-}
-func (r *pluginRegister) getMatcherPlugin(tag string) (p MatcherPlugin, err error) {
-	r.RLock()
-	gp, ok := r.register[tag]
-	r.RUnlock()
-
-	if ok {
-		if p, ok := gp.(MatcherPlugin); ok {
-			return p, nil
-		}
-		return nil, fmt.Errorf("plugin %s is not a matcher plugin", tag)
-	}
-	return nil, fmt.Errorf("plugin tag %s not defined", tag)
-}
-
-func (r *pluginRegister) getContextPlugin(tag string) (p ContextPlugin, err error) {
-	r.RLock()
-	gp, ok := r.register[tag]
-	r.RUnlock()
-
-	if ok {
-		if p, ok := gp.(ContextPlugin); ok {
-			return p, nil
-		}
-		return nil, fmt.Errorf("plugin %s is not a context plugin", tag)
-	}
-	return nil, fmt.Errorf("plugin tag %s not defined", tag)
-}
-
-func (r *pluginRegister) getPlugin(tag string) (p Plugin, err error) {
+func (r *pluginRegister) getPlugin(tag string) (p *PluginWrapper, err error) {
 	r.RLock()
 	defer r.RUnlock()
 	p, ok := r.register[tag]
@@ -141,7 +100,7 @@ func (r *pluginRegister) getAllPluginTag() []string {
 
 func (r *pluginRegister) purge() {
 	r.Lock()
-	r.register = make(map[string]Plugin)
+	r.register = make(map[string]*PluginWrapper)
 	r.Unlock()
 }
 
@@ -169,6 +128,7 @@ func GetConfigurablePluginTypes() []string {
 }
 
 // InitAndRegPlugin inits and registers this plugin globally.
+// This is a help func of NewPlugin + RegPlugin.
 func InitAndRegPlugin(c *Config, errIfDup bool) (err error) {
 	p, err := NewPlugin(c)
 	if err != nil {
@@ -214,24 +174,12 @@ func MustRegPlugin(p Plugin, errIfDup bool) {
 	}
 }
 
-func GetPlugin(tag string) (p Plugin, err error) {
+func GetPlugin(tag string) (p *PluginWrapper, err error) {
 	return pluginTagRegister.getPlugin(tag)
 }
 
 func GetAllPluginTag() []string {
 	return pluginTagRegister.getAllPluginTag()
-}
-
-func GetExecutablePlugin(tag string) (p ExecutablePlugin, err error) {
-	return pluginTagRegister.getExecutablePlugin(tag)
-}
-
-func GetMatcherPlugin(tag string) (p MatcherPlugin, err error) {
-	return pluginTagRegister.getMatcherPlugin(tag)
-}
-
-func GetContextPlugin(tag string) (p ContextPlugin, err error) {
-	return pluginTagRegister.getContextPlugin(tag)
 }
 
 // PurgePluginRegister should only be used in test.

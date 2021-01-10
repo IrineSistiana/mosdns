@@ -78,13 +78,14 @@ func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *Context, w Re
 
 	h.config.Logger.Debug("exec entry", qCtx.InfoField(), zap.String("entry", h.config.Entry))
 	err := h.execEntry(ctx, qCtx)
-	var r *dns.Msg
+
 	if err != nil {
 		h.config.Logger.Warn("entry returned an err", qCtx.InfoField(), zap.Error(err))
 	} else {
 		h.config.Logger.Debug("entry returned", qCtx.InfoField(), zap.Stringer("status", qCtx.Status()))
 	}
 
+	var r *dns.Msg
 	if err != nil || qCtx.Status() == ContextStatusServerFailed {
 		r = new(dns.Msg)
 		r.SetReply(qCtx.Q())
@@ -101,11 +102,22 @@ func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *Context, w Re
 }
 
 func (h *DefaultServerHandler) execEntry(ctx context.Context, qCtx *Context) error {
-	p, err := GetExecutablePlugin(h.config.Entry)
+	p, err := GetPlugin(h.config.Entry)
 	if err != nil {
 		return err
 	}
-	return p.Exec(ctx, qCtx)
+
+	err = p.Exec(ctx, qCtx)
+	if err != nil {
+		return err
+	}
+
+	err = qCtx.ExecDefer(ctx, qCtx)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // concurrentLimiter
