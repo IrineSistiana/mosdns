@@ -36,8 +36,9 @@ func init() {
 	handler.MustRegPlugin(preset(handler.NewBP("_qtype_AAAA", PluginType), &Args{QType: []int{int(dns.TypeAAAA)}}), true)
 	handler.MustRegPlugin(preset(handler.NewBP("_qtype_A_AAAA", PluginType), &Args{QType: []int{int(dns.TypeA), int(dns.TypeAAAA)}}), true)
 	handler.MustRegPlugin(preset(handler.NewBP("_query_is_common", PluginType), &Args{
-		QType:  []int{int(dns.TypeA), int(dns.TypeAAAA)},
-		QClass: []int{dns.ClassINET},
+		QType:        []int{int(dns.TypeA), int(dns.TypeAAAA)},
+		QClass:       []int{dns.ClassINET},
+		IsLogicalAND: true,
 	}), true)
 }
 
