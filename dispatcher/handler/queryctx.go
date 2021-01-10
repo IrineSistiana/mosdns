@@ -162,5 +162,10 @@ func (ctx *Context) Copy() *Context {
 	newCtx.id = ctx.id
 	newCtx.startTime = ctx.startTime
 
+	if len(ctx.deferrable) > 0 {
+		newCtx.deferrable = make([]Executable, len(ctx.deferrable))
+		copy(newCtx.deferrable, ctx.deferrable)
+	}
+
 	return newCtx
 }
