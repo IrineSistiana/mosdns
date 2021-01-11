@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"reflect"
 	"strings"
@@ -42,8 +43,9 @@ type ESExecutablePlugin interface {
 }
 
 // ESExecutable: Early Stoppable Executable.
-// Which can stop the ExecutableCmdSequence immediately if earlyStop is true.
 type ESExecutable interface {
+	// ExecES: Execute something. earlyStop indicates that it wants
+	// to stop the ExecutableCmdSequence ASAP.
 	ExecES(ctx context.Context, qCtx *Context) (earlyStop bool, err error)
 }
 
@@ -62,15 +64,8 @@ func (t executablePluginTag) ExecCmd(ctx context.Context, qCtx *Context, logger 
 	}
 
 	logger.Debug("exec executable plugin", qCtx.InfoField(), zap.String("exec", t.s))
-	switch {
-	case p.Is(PITESExecutable):
-		earlyStop, err = p.ExecES(ctx, qCtx)
-		return "", earlyStop, err
-	case p.Is(PITExecutable):
-		return "", false, p.Exec(ctx, qCtx)
-	default:
-		return "", false, fmt.Errorf("plugin %s class err", t.s)
-	}
+	earlyStop, err = p.ExecES(ctx, qCtx)
+	return "", earlyStop, err
 }
 
 type IfBlockConfig struct {
@@ -97,14 +92,14 @@ func paresMatcher(s []string) []matcher {
 	return m
 }
 
-type ifBlock struct {
+type IfBlock struct {
 	ifMatcher     []matcher
 	ifAndMatcher  []matcher
 	executableCmd ExecutableCmd
 	goTwo         string
 }
 
-func (b *ifBlock) ExecCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (goTwo string, earlyStop bool, err error) {
+func (b *IfBlock) ExecCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (goTwo string, earlyStop bool, err error) {
 	if len(b.ifMatcher) > 0 {
 		If, err := ifCondition(ctx, qCtx, logger, b.ifMatcher, false)
 		if err != nil {
@@ -173,14 +168,14 @@ func ifCondition(ctx context.Context, qCtx *Context, logger *zap.Logger, p []mat
 	return ok, nil
 }
 
-func ParseIfBlock(in map[string]interface{}) (*ifBlock, error) {
+func ParseIfBlock(in map[string]interface{}) (*IfBlock, error) {
 	c := new(IfBlockConfig)
 	err := WeakDecode(in, c)
 	if err != nil {
 		return nil, err
 	}
 
-	b := &ifBlock{
+	b := &IfBlock{
 		ifMatcher:    paresMatcher(c.If),
 		ifAndMatcher: paresMatcher(c.IfAnd),
 		goTwo:        c.Goto,
@@ -218,9 +213,10 @@ func ParseParallelECS(in [][]interface{}) (*ParallelECS, error) {
 }
 
 type parallelResult struct {
-	qCtx *Context
-	err  error
-	from int
+	r      *dns.Msg
+	status ContextStatus
+	err    error
+	from   int
 }
 
 func (p *ParallelECS) ExecCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (goTwo string, earlyStop bool, err error) {
@@ -243,10 +239,14 @@ func (p *ParallelECS) execCmd(ctx context.Context, qCtx *Context, logger *zap.Lo
 		qCtxCopy := qCtx.Copy()
 		go func() {
 			err := WalkExecutableCmd(ctx, qCtxCopy, logger, sequence)
+			if err != nil {
+				err = qCtxCopy.ExecDefer(ctx)
+			}
 			c <- &parallelResult{
-				qCtx: qCtxCopy,
-				err:  err,
-				from: i,
+				r:      qCtxCopy.R(),
+				status: qCtxCopy.Status(),
+				err:    err,
+				from:   i,
 			}
 		}()
 	}
@@ -258,13 +258,13 @@ func (p *ParallelECS) execCmd(ctx context.Context, qCtx *Context, logger *zap.Lo
 				logger.Warn("sequence failed", qCtx.InfoField(), zap.Int("sequence_index", res.from), zap.Error(res.err))
 				continue
 			}
-			if res.qCtx.R() == nil {
+			if res.r == nil {
 				logger.Debug("sequence returned with an empty response", qCtx.InfoField(), zap.Int("sequence_index", res.from))
 				continue
 			}
 
 			logger.Debug("sequence returned a response", qCtx.InfoField(), zap.Int("sequence_index", res.from))
-			qCtx.SetResponse(res.qCtx.R(), res.qCtx.Status())
+			qCtx.SetResponse(res.r, res.status)
 			return nil
 
 		case <-ctx.Done():
@@ -394,9 +394,10 @@ func (f *FallbackECS) execPrimary(ctx context.Context, qCtx *Context, logger *za
 }
 
 type fallbackResult struct {
-	qCtx *Context
-	err  error
-	from string
+	r      *dns.Msg
+	status ContextStatus
+	err    error
+	from   string
 }
 
 func (f *FallbackECS) doFallback(ctx context.Context, qCtx *Context, logger *zap.Logger) (err error) {
@@ -405,20 +406,28 @@ func (f *FallbackECS) doFallback(ctx context.Context, qCtx *Context, logger *zap
 	qCtxCopyP := qCtx.Copy()
 	go func() {
 		err := f.execPrimary(ctx, qCtxCopyP, logger)
+		if err != nil {
+			err = qCtxCopyP.ExecDefer(ctx)
+		}
 		c <- &fallbackResult{
-			qCtx: qCtxCopyP,
-			err:  err,
-			from: "primary",
+			r:      qCtxCopyP.R(),
+			status: qCtxCopyP.Status(),
+			err:    err,
+			from:   "primary",
 		}
 	}()
 
 	qCtxCopyS := qCtx.Copy()
 	go func() {
 		err := WalkExecutableCmd(ctx, qCtxCopyS, logger, f.secondary)
+		if err != nil {
+			err = qCtxCopyS.ExecDefer(ctx)
+		}
 		c <- &fallbackResult{
-			qCtx: qCtxCopyS,
-			err:  err,
-			from: "secondary",
+			r:      qCtxCopyS.R(),
+			status: qCtxCopyS.Status(),
+			err:    err,
+			from:   "secondary",
 		}
 	}()
 
@@ -430,13 +439,13 @@ func (f *FallbackECS) doFallback(ctx context.Context, qCtx *Context, logger *zap
 				continue
 			}
 
-			if res.qCtx.R() == nil {
+			if res.r == nil {
 				logger.Debug("sequence returned with an empty response ", qCtx.InfoField(), zap.String("sequence", res.from))
 				continue
 			}
 
 			logger.Debug("sequence returned a response", qCtx.InfoField(), zap.String("sequence", res.from))
-			qCtx.SetResponse(res.qCtx.R(), res.qCtx.Status())
+			qCtx.SetResponse(res.r, res.status)
 			return nil
 
 		case <-ctx.Done():
@@ -539,7 +548,8 @@ func (es *ExecutableCmdSequence) Len() int {
 	return len(es.c)
 }
 
-// WalkExecutableCmd executes the sequence, include its `goto`.
+// WalkExecutableCmd executes the ExecutableCmd, include its `goto`.
+// This should only be used in root cmd node.
 func WalkExecutableCmd(ctx context.Context, qCtx *Context, logger *zap.Logger, entry ExecutableCmd) (err error) {
 	goTwo, _, err := entry.ExecCmd(ctx, qCtx, logger)
 	if err != nil {
@@ -552,7 +562,8 @@ func WalkExecutableCmd(ctx context.Context, qCtx *Context, logger *zap.Logger, e
 		if err != nil {
 			return err
 		}
-		return p.Exec(ctx, qCtx)
+		_, err = p.ExecES(ctx, qCtx)
+		return err
 	}
 	return nil
 }

@@ -21,23 +21,19 @@ import (
 	"fmt"
 )
 
-type Error struct {
+type PluginError struct {
 	tag string
 	err error
 }
 
-func NewPluginError(tag string, err error) *Error {
-	return &Error{tag: tag, err: err}
+func NewPluginError(tag string, err error) *PluginError {
+	return &PluginError{tag: tag, err: err}
 }
 
-func (e *Error) Error() string {
+func (e *PluginError) Error() string {
 	return fmt.Sprintf("%s: %v", e.tag, e.err)
 }
 
-func (e *Error) Unwrap() error {
+func (e *PluginError) Unwrap() error {
 	return e.err
-}
-
-type ErrGroup struct {
-	s []error
 }

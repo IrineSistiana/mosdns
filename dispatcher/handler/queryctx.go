@@ -41,7 +41,8 @@ type Context struct {
 	status ContextStatus
 	r      *dns.Msg
 
-	deferrable []Executable
+	deferrable  []Executable
+	deferAtomic uint32
 }
 
 type ContextStatus uint8
@@ -72,8 +73,9 @@ func (status ContextStatus) String() string {
 
 var id uint32
 
-// NewContext
-// q must not be nil.
+// NewContext creates a new query Context.
+// q is the query dns msg. it cannot be nil, or NewContext will panic.
+// from is the client net.Addr. It can be nil.
 func NewContext(q *dns.Msg, from net.Addr) *Context {
 	if q == nil {
 		panic("handler: query msg is nil")
@@ -98,10 +100,12 @@ func NewContext(q *dns.Msg, from net.Addr) *Context {
 	return ctx
 }
 
+// Q returns the query msg. It always returns a non-nil msg.
 func (ctx *Context) Q() *dns.Msg {
 	return ctx.q
 }
 
+// From returns the client net.Addr. It might be nil.
 func (ctx *Context) From() net.Addr {
 	return ctx.from
 }
@@ -119,23 +123,46 @@ func (ctx *Context) SetResponse(r *dns.Msg, status ContextStatus) {
 	ctx.status = status
 }
 
+// CopyDeferFrom copies defer Executable from other Context.
+func (ctx *Context) CopyDeferFrom(src *Context) {
+	ctx.deferrable = make([]Executable, len(src.deferrable))
+	copy(ctx.deferrable, src.deferrable)
+}
+
+// DeferExec registers an deferred Executable at this Context.
 func (ctx *Context) DeferExec(e Executable) {
+	if i := atomic.LoadUint32(&ctx.deferAtomic); i == 1 {
+		panic("handler Context: concurrent ExecDefer or DeferExec")
+	}
 	ctx.deferrable = append(ctx.deferrable, e)
 }
 
-func (ctx *Context) ExecDefer(cCtx context.Context, qCtx *Context) error {
-	for i := range ctx.deferrable {
-		if err := ctx.deferrable[len(ctx.deferrable)-i-1].Exec(cCtx, qCtx); err != nil {
+// ExecDefer executes all deferred Executable registered by DeferExec.
+func (ctx *Context) ExecDefer(cCtx context.Context) error {
+	if ok := atomic.CompareAndSwapUint32(&ctx.deferAtomic, 0, 1); !ok {
+		panic("handler Context: concurrent ExecDefer or DeferExec")
+	}
+	defer atomic.CompareAndSwapUint32(&ctx.deferAtomic, 1, 0)
+
+	for range ctx.deferrable {
+		executable := ctx.deferrable[len(ctx.deferrable)-1]
+		ctx.deferrable[len(ctx.deferrable)-1] = nil
+		ctx.deferrable = ctx.deferrable[0 : len(ctx.deferrable)-1]
+		if err := executable.Exec(cCtx, ctx); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
+// Id returns the Context id.
+// Note: This id is not the dns msg id.
+// It's a unique uint32 growing with the number of query.
 func (ctx *Context) Id() uint32 {
 	return ctx.id
 }
 
+// StartTime returns the time when the Context was created.
 func (ctx *Context) StartTime() time.Time {
 	return ctx.startTime
 }
@@ -146,6 +173,9 @@ func (ctx *Context) InfoField() zap.Field {
 	return zap.String("query", ctx.info)
 }
 
+// Copy deep copies this Context.
+// Note that Copy won't copy registered deferred Executable.
+// To copy them, use CopyDeferFrom after Copy.
 func (ctx *Context) Copy() *Context {
 	newCtx := new(Context)
 
@@ -158,11 +188,6 @@ func (ctx *Context) Copy() *Context {
 	newCtx.status = ctx.status
 	if ctx.r != nil {
 		newCtx.r = ctx.r.Copy()
-	}
-
-	if len(ctx.deferrable) > 0 {
-		newCtx.deferrable = make([]Executable, len(ctx.deferrable))
-		copy(newCtx.deferrable, ctx.deferrable)
 	}
 
 	return newCtx

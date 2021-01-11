@@ -22,8 +22,16 @@ import (
 	"fmt"
 )
 
+var (
+	_ ESExecutable     = (*PluginWrapper)(nil)
+	_ Matcher          = (*PluginWrapper)(nil)
+	_ ContextConnector = (*PluginWrapper)(nil)
+)
+
 // PluginWrapper wraps the original plugin to avoid extremely frequently
 // interface conversion. To access the original plugin, use PluginWrapper.GetPlugin()
+// Note: PluginWrapper not implements Executable.
+// It automatically converts Executable to ESExecutable.
 type PluginWrapper struct {
 	p  Plugin
 	e  Executable
@@ -54,22 +62,6 @@ func newPluginWrapper(gp Plugin) *PluginWrapper {
 
 func (w *PluginWrapper) GetPlugin() Plugin {
 	return w.p
-}
-
-func (w *PluginWrapper) Exec(ctx context.Context, qCtx *Context) (err error) {
-	if err = ctx.Err(); err != nil {
-		return err
-	}
-
-	if w.e == nil {
-		return fmt.Errorf("plugin tag: %s, type: %s is not an Executable", w.p.Tag(), w.p.Type())
-	}
-
-	err = w.e.Exec(ctx, qCtx)
-	if err != nil {
-		return NewPluginError(w.p.Tag(), err)
-	}
-	return nil
 }
 
 func (w *PluginWrapper) Connect(ctx context.Context, qCtx *Context, pipeCtx *PipeContext) (err error) {
@@ -109,11 +101,15 @@ func (w *PluginWrapper) ExecES(ctx context.Context, qCtx *Context) (earlyStop bo
 		return false, err
 	}
 
-	if w.se == nil {
-		return false, fmt.Errorf("plugin tag: %s, type: %s is not an SkippableExecutable", w.p.Tag(), w.p.Type())
+	switch {
+	case w.se != nil:
+		earlyStop, err = w.se.ExecES(ctx, qCtx)
+	case w.e != nil:
+		err = w.e.Exec(ctx, qCtx)
+	default:
+		err = fmt.Errorf("plugin tag: %s, type: %s is not an ESExecutable nor Executable", w.p.Tag(), w.p.Type())
 	}
 
-	earlyStop, err = w.se.ExecES(ctx, qCtx)
 	if err != nil {
 		return false, NewPluginError(w.p.Tag(), err)
 	}
@@ -123,18 +119,15 @@ func (w *PluginWrapper) ExecES(ctx context.Context, qCtx *Context) (earlyStop bo
 type PluginInterfaceType uint8
 
 const (
-	PITExecutable = iota
-	PITESExecutable
+	PITESExecutable = iota
 	PITMatcher
 	PITContextConnector
 )
 
 func (w *PluginWrapper) Is(t PluginInterfaceType) bool {
 	switch t {
-	case PITExecutable:
-		return w.e != nil
 	case PITESExecutable:
-		return w.se != nil
+		return w.se != nil || w.e != nil
 	case PITMatcher:
 		return w.m != nil
 	case PITContextConnector:

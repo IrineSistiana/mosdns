@@ -108,7 +108,7 @@ exec:
 	}, true)
 
 	// do something and skip the following sequence
-	MustRegPlugin(&DummySkippableExecutablePlugin{
+	MustRegPlugin(&DummyESExecutablePlugin{
 		BP:       NewBP("exec_skip", ""),
 		WantSkip: true,
 	}, true)

@@ -66,7 +66,7 @@ func (s *sequenceRouter) Exec(ctx context.Context, qCtx *handler.Context) (err e
 var _ handler.ExecutablePlugin = (*noop)(nil)
 var _ handler.ESExecutablePlugin = (*noop)(nil)
 
-// noop is a no-op handler.Executable and handler.ESExecutable/
+// noop is a no-op handler.Executable and handler.ESExecutable.
 // It can be used as a stop sign in handler.ExecutableCmd.
 type noop struct {
 	*handler.BP

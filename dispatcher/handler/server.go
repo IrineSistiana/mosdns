@@ -107,17 +107,12 @@ func (h *DefaultServerHandler) execEntry(ctx context.Context, qCtx *Context) err
 		return err
 	}
 
-	err = p.Exec(ctx, qCtx)
+	_, err = p.ExecES(ctx, qCtx)
 	if err != nil {
 		return err
 	}
 
-	err = qCtx.ExecDefer(ctx, qCtx)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return qCtx.ExecDefer(ctx)
 }
 
 // concurrentLimiter

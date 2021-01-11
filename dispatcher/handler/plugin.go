@@ -22,6 +22,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// Plugin represents the basic plugin.
 type Plugin interface {
 	Tag() string
 	Type() string
@@ -34,6 +35,7 @@ type BP struct {
 	logger   *zap.Logger
 }
 
+// NewBP creates a new BP and initials its logger.
 func NewBP(tag string, typ string) *BP {
 	return &BP{tag: tag, typ: typ, logger: mlog.NewPluginLogger(tag)}
 }

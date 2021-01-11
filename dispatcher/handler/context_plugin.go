@@ -57,10 +57,10 @@ func (c *PipeContext) ExecNextPlugin(ctx context.Context, qCtx *Context) error {
 		case p.Is(PITContextConnector):
 			c.logger.Debug("exec context plugin", qCtx.InfoField(), zap.String("exec", tag))
 			return p.Connect(ctx, qCtx, c)
-		case p.Is(PITExecutable):
+		case p.Is(PITESExecutable):
 			c.logger.Debug("exec executable plugin", qCtx.InfoField(), zap.String("exec", tag))
-			err := p.Exec(ctx, qCtx)
-			if err != nil {
+			earlyStop, err := p.ExecES(ctx, qCtx)
+			if earlyStop || err != nil {
 				return err
 			}
 		default:
