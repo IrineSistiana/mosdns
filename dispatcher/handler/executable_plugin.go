@@ -63,11 +63,11 @@ func (t executablePluginTag) ExecCmd(ctx context.Context, qCtx *Context, logger 
 
 	logger.Debug("exec executable plugin", qCtx.InfoField(), zap.String("exec", t.s))
 	switch {
-	case p.Is(PITExecutable):
-		return "", false, p.Exec(ctx, qCtx)
 	case p.Is(PITESExecutable):
 		earlyStop, err = p.ExecES(ctx, qCtx)
 		return "", earlyStop, err
+	case p.Is(PITExecutable):
+		return "", false, p.Exec(ctx, qCtx)
 	default:
 		return "", false, fmt.Errorf("plugin %s class err", t.s)
 	}
