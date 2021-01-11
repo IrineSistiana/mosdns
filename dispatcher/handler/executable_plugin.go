@@ -150,10 +150,6 @@ func ifCondition(ctx context.Context, qCtx *Context, logger *zap.Logger, p []mat
 	}
 
 	for _, m := range p {
-		if len(m.tag) == 0 {
-			continue
-		}
-
 		mp, err := GetPlugin(m.tag)
 		if err != nil {
 			return false, err

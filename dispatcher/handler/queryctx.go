@@ -23,7 +23,6 @@ import (
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"net"
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -32,17 +31,15 @@ import (
 // A Context will always have a non-nil Q.
 // Context MUST be created by NewContext.
 type Context struct {
-	q    *dns.Msg
-	from net.Addr
-
-	status ContextStatus
-	r      *dns.Msg
-
+	// init at beginning
+	q         *dns.Msg
+	from      net.Addr
+	info      string // a short Context summary for logging
 	id        uint32 // additional uint to distinguish duplicated msg
 	startTime time.Time
 
-	infoOnce sync.Once
-	info     string
+	status ContextStatus
+	r      *dns.Msg
 
 	deferrable []Executable
 }
@@ -81,15 +78,24 @@ func NewContext(q *dns.Msg, from net.Addr) *Context {
 	if q == nil {
 		panic("handler: query msg is nil")
 	}
-	return &Context{
-		q:    q,
-		from: from,
 
-		status: ContextStatusWaitingResponse,
-
+	ctx := &Context{
+		q:         q,
+		from:      from,
 		id:        atomic.AddUint32(&id, 1),
 		startTime: time.Now(),
+
+		status: ContextStatusWaitingResponse,
 	}
+
+	if len(q.Question) == 1 {
+		q := q.Question[0]
+		ctx.info = fmt.Sprintf("%s %d %d %d %d", q.Name, q.Qtype, q.Qclass, ctx.q.Id, ctx.id)
+	} else {
+		ctx.info = fmt.Sprintf("%v %d %d", ctx.q.Question, ctx.id, ctx.q.Id)
+	}
+
+	return ctx
 }
 
 func (ctx *Context) Q() *dns.Msg {
@@ -137,14 +143,6 @@ func (ctx *Context) StartTime() time.Time {
 // InfoField returns a zap.Field.
 // Just for convenience.
 func (ctx *Context) InfoField() zap.Field {
-	ctx.infoOnce.Do(func() {
-		if len(ctx.q.Question) == 1 {
-			q := ctx.q.Question[0]
-			ctx.info = fmt.Sprintf("%s %d %d %d %d", q.Name, q.Qtype, q.Qclass, ctx.q.Id, ctx.id)
-		} else {
-			ctx.info = fmt.Sprintf("%v %d %d", ctx.q.Question, ctx.id, ctx.q.Id)
-		}
-	})
 	return zap.String("query", ctx.info)
 }
 
@@ -153,14 +151,14 @@ func (ctx *Context) Copy() *Context {
 
 	newCtx.q = ctx.q.Copy()
 	newCtx.from = ctx.from
+	newCtx.info = ctx.info
+	newCtx.id = ctx.id
+	newCtx.startTime = ctx.startTime
 
 	newCtx.status = ctx.status
 	if ctx.r != nil {
 		newCtx.r = ctx.r.Copy()
 	}
-
-	newCtx.id = ctx.id
-	newCtx.startTime = ctx.startTime
 
 	if len(ctx.deferrable) > 0 {
 		newCtx.deferrable = make([]Executable, len(ctx.deferrable))
