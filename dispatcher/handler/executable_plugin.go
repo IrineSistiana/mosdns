@@ -244,8 +244,8 @@ func (p *ParallelECS) execCmd(ctx context.Context, qCtx *Context, logger *zap.Lo
 	for i, sequence := range p.s {
 		i := i
 		sequence := sequence
+		qCtxCopy := qCtx.Copy()
 		go func() {
-			qCtxCopy := qCtx.Copy()
 			err := WalkExecutableCmd(ctx, qCtxCopy, logger, sequence)
 			c <- &parallelResult{
 				qCtx: qCtxCopy,
@@ -406,21 +406,21 @@ type fallbackResult struct {
 func (f *FallbackECS) doFallback(ctx context.Context, qCtx *Context, logger *zap.Logger) (err error) {
 	c := make(chan *fallbackResult, 2) // buf size is 2, avoid block.
 
+	qCtxCopyP := qCtx.Copy()
 	go func() {
-		qCtxCopy := qCtx.Copy()
-		err := f.execPrimary(ctx, qCtxCopy, logger)
+		err := f.execPrimary(ctx, qCtxCopyP, logger)
 		c <- &fallbackResult{
-			qCtx: qCtxCopy,
+			qCtx: qCtxCopyP,
 			err:  err,
 			from: "primary",
 		}
 	}()
 
+	qCtxCopyS := qCtx.Copy()
 	go func() {
-		qCtxCopy := qCtx.Copy()
-		err := WalkExecutableCmd(ctx, qCtxCopy, logger, f.secondary)
+		err := WalkExecutableCmd(ctx, qCtxCopyS, logger, f.secondary)
 		c <- &fallbackResult{
-			qCtx: qCtxCopy,
+			qCtx: qCtxCopyS,
 			err:  err,
 			from: "secondary",
 		}
