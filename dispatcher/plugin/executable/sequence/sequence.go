@@ -39,12 +39,6 @@ type sequenceRouter struct {
 	ecs *handler.ExecutableCmdSequence
 }
 
-type noop struct {
-	*handler.BP
-}
-
-func (n *noop) Exec(_ context.Context, _ *handler.Context) (_ error) { return nil }
-
 type Args struct {
 	Exec []interface{} `yaml:"exec"`
 }
@@ -68,3 +62,18 @@ func newSequencePlugin(bp *handler.BP, args *Args) (*sequenceRouter, error) {
 func (s *sequenceRouter) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
 	return handler.WalkExecutableCmd(ctx, qCtx, s.L(), s.ecs)
 }
+
+var _ handler.ExecutablePlugin = (*noop)(nil)
+var _ handler.ESExecutablePlugin = (*noop)(nil)
+
+// noop is a no-op handler.Executable and handler.ESExecutable/
+// It can be used as a stop sign in handler.ExecutableCmd.
+type noop struct {
+	*handler.BP
+}
+
+func (n *noop) ExecES(_ context.Context, _ *handler.Context) (earlyStop bool, err error) {
+	return true, nil
+}
+
+func (n *noop) Exec(_ context.Context, _ *handler.Context) (_ error) { return nil }
