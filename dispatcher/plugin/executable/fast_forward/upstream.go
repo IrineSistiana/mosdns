@@ -176,6 +176,10 @@ func newFastUpstream(config *UpstreamConfig, logger *zap.Logger) (*fastUpstream,
 			DisableKeepAlives:     idleTimeout == 0,
 			IdleConnTimeout:       idleTimeout,
 			ResponseHeaderTimeout: timeout,
+			// MaxConnsPerHost and MaxIdleConnsPerHost should be equal.
+			// Otherwise, it might seriously affect the efficiency of connection reuse.
+			MaxConnsPerHost:     5,
+			MaxIdleConnsPerHost: 5,
 		}
 		_, err := http2.ConfigureTransports(t)
 		if err != nil {
