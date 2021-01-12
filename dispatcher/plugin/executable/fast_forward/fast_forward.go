@@ -23,7 +23,6 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
-	"go.uber.org/zap"
 	"time"
 )
 
@@ -46,7 +45,7 @@ type fastForward struct {
 	*handler.BP
 	args *Args
 
-	upstream []*fastUpstream
+	upstream []utils.TrustedUpstream
 
 	sfGroup utils.ExchangeSingleFlightGroup
 }
@@ -98,7 +97,7 @@ func newFastForward(bp *handler.BP, args *Args) (*fastForward, error) {
 	f := &fastForward{
 		BP:       bp,
 		args:     args,
-		upstream: make([]*fastUpstream, 0),
+		upstream: make([]utils.TrustedUpstream, 0),
 	}
 
 	for _, config := range args.Upstream {
@@ -131,67 +130,9 @@ func (f *fastForward) exec(ctx context.Context, qCtx *handler.Context) (err erro
 	return nil
 }
 
-type parallelResult struct {
-	r    *dns.Msg
-	err  error
-	from *fastUpstream
-}
-
 func (f *fastForward) exchange(ctx context.Context, qCtx *handler.Context) (r *dns.Msg, err error) {
 	if f.args.Deduplicate {
-		return f.sfGroup.Exchange(ctx, qCtx, f.exchangeParallel)
+		return f.sfGroup.Exchange(ctx, qCtx, f.upstream, f.L())
 	}
-	return f.exchangeParallel(ctx, qCtx)
-}
-
-func (f *fastForward) exchangeParallel(ctx context.Context, qCtx *handler.Context) (r *dns.Msg, err error) {
-	t := len(f.upstream)
-	if t == 0 {
-		return nil, errors.New("no upstream is configured")
-	}
-	if t == 1 {
-		r, err = f.upstream[0].Exchange(qCtx.Q())
-		if err != nil {
-			return nil, err
-		}
-		f.L().Debug("received response", qCtx.InfoField(), zap.String("from", f.upstream[0].Address()))
-		return r, nil
-	}
-
-	c := make(chan *parallelResult, t) // use buf chan to avoid block.
-	for _, u := range f.upstream {
-		u := u
-		go func() {
-			qCopy := qCtx.Q().Copy() // it is not safe to use the Q directly.
-			r, err := u.Exchange(qCopy)
-			c <- &parallelResult{
-				r:    r,
-				err:  err,
-				from: u,
-			}
-		}()
-	}
-
-	for i := 0; i < t; i++ {
-		select {
-		case res := <-c:
-			if res.err != nil {
-				f.L().Warn("upstream failed", qCtx.InfoField(), zap.String("from", res.from.Address()), zap.Error(res.err))
-				continue
-			}
-
-			if !res.from.config.Trusted && res.r.Rcode != dns.RcodeSuccess {
-				f.L().Debug("untrusted upstream return an err rcode", qCtx.InfoField(), zap.String("from", res.from.Address()), zap.Int("rcode", res.r.Rcode))
-				continue
-			}
-
-			f.L().Debug("received response", qCtx.InfoField(), zap.String("from", res.from.Address()))
-			return res.r, nil
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-	}
-
-	// all upstreams are failed
-	return nil, errors.New("no response")
+	return utils.ExchangeParallel(ctx, qCtx, f.upstream, f.L())
 }

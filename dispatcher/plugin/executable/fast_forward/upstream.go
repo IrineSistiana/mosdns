@@ -197,6 +197,10 @@ func (u *fastUpstream) Address() string {
 	return u.address
 }
 
+func (u *fastUpstream) Trusted() bool {
+	return u.config.Trusted
+}
+
 func (u *fastUpstream) Exchange(q *dns.Msg) (r *dns.Msg, err error) {
 	switch u.mode {
 	case protocolUDP:

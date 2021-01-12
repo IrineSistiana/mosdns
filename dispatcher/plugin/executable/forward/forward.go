@@ -25,7 +25,6 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
-	"go.uber.org/zap"
 	"net"
 	"time"
 )
@@ -40,7 +39,7 @@ var _ handler.ExecutablePlugin = (*forwarder)(nil)
 
 type forwarder struct {
 	*handler.BP
-	upstream    []upstream.Upstream
+	upstream    []utils.TrustedUpstream
 	deduplicate bool
 
 	sfGroup utils.ExchangeSingleFlightGroup
@@ -48,18 +47,19 @@ type forwarder struct {
 
 type Args struct {
 	// options for dnsproxy upstream
-	Upstream           []Upstream `yaml:"upstream"`
-	Timeout            int        `yaml:"timeout"`
-	InsecureSkipVerify bool       `yaml:"insecure_skip_verify"`
-	Bootstrap          []string   `yaml:"bootstrap"`
+	UpstreamConfig     []UpstreamConfig `yaml:"upstream"`
+	Timeout            int              `yaml:"timeout"`
+	InsecureSkipVerify bool             `yaml:"insecure_skip_verify"`
+	Bootstrap          []string         `yaml:"bootstrap"`
 
 	// options for mosdns
 	Deduplicate bool `yaml:"deduplicate"`
 }
 
-type Upstream struct {
-	Addr   string   `yaml:"addr"`
-	IPAddr []string `yaml:"ip_addr"`
+type UpstreamConfig struct {
+	Addr    string   `yaml:"addr"`
+	IPAddr  []string `yaml:"ip_addr"`
+	Trusted bool     `yaml:"trusted"`
 }
 
 func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
@@ -67,7 +67,7 @@ func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
 }
 
 func newForwarder(bp *handler.BP, args *Args) (*forwarder, error) {
-	if len(args.Upstream) == 0 {
+	if len(args.UpstreamConfig) == 0 {
 		return nil, errors.New("no upstream is configured")
 	}
 
@@ -75,13 +75,13 @@ func newForwarder(bp *handler.BP, args *Args) (*forwarder, error) {
 	f.BP = bp
 	f.deduplicate = args.Deduplicate
 
-	for _, u := range args.Upstream {
-		if len(u.Addr) == 0 {
+	for _, conf := range args.UpstreamConfig {
+		if len(conf.Addr) == 0 {
 			return nil, errors.New("missing upstream address")
 		}
 
-		serverIPAddrs := make([]net.IP, 0, len(u.IPAddr))
-		for _, s := range u.IPAddr {
+		serverIPAddrs := make([]net.IP, 0, len(conf.IPAddr))
+		for _, s := range conf.IPAddr {
 			ip := net.ParseIP(s)
 			if ip == nil {
 				return nil, fmt.Errorf("invalid ip addr %s", s)
@@ -100,15 +100,27 @@ func newForwarder(bp *handler.BP, args *Args) (*forwarder, error) {
 
 		opt.InsecureSkipVerify = args.InsecureSkipVerify
 
-		u, err := upstream.AddressToUpstream(u.Addr, opt)
+		u, err := upstream.AddressToUpstream(conf.Addr, opt)
 		if err != nil {
 			return nil, fmt.Errorf("failed to init upsteam: %w", err)
 		}
 
-		f.upstream = append(f.upstream, u)
+		f.upstream = append(f.upstream, &trustedUpstream{
+			Upstream: u,
+			trusted:  conf.Trusted,
+		})
 	}
 
 	return f, nil
+}
+
+type trustedUpstream struct {
+	upstream.Upstream
+	trusted bool
+}
+
+func (u *trustedUpstream) Trusted() bool {
+	return u.trusted
 }
 
 // Exec forwards qCtx.Q()() to upstreams, and sets qCtx.R().
@@ -123,9 +135,9 @@ func (f *forwarder) exec(ctx context.Context, qCtx *handler.Context) error {
 	var r *dns.Msg
 	var err error
 	if f.deduplicate {
-		r, err = f.sfGroup.Exchange(ctx, qCtx, f.exchange)
+		r, err = f.sfGroup.Exchange(ctx, qCtx, f.upstream, f.L())
 	} else {
-		r, err = f.exchange(ctx, qCtx)
+		r, err = utils.ExchangeParallel(ctx, qCtx, f.upstream, f.L())
 	}
 
 	if err != nil {
@@ -135,12 +147,4 @@ func (f *forwarder) exec(ctx context.Context, qCtx *handler.Context) error {
 
 	qCtx.SetResponse(r, handler.ContextStatusResponded)
 	return nil
-}
-
-func (f *forwarder) exchange(_ context.Context, qCtx *handler.Context) (r *dns.Msg, err error) {
-	r, u, err := upstream.ExchangeParallel(f.upstream, qCtx.Q())
-	if err == nil {
-		f.L().Debug("received response", qCtx.InfoField(), zap.String("from", u.Address()))
-	}
-	return r, err
 }

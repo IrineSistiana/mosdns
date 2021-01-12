@@ -26,9 +26,11 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/miekg/dns"
+	"go.uber.org/zap"
 	"golang.org/x/sync/singleflight"
 	"io/ioutil"
 	"math/big"
@@ -190,13 +192,11 @@ func RemoveComment(s, symbol string) string {
 	return strings.SplitN(s, symbol, 2)[0]
 }
 
-type exchangeFunc func(ctx context.Context, qCtx *handler.Context) (r *dns.Msg, err error)
-
 type ExchangeSingleFlightGroup struct {
 	singleflight.Group
 }
 
-func (g *ExchangeSingleFlightGroup) Exchange(ctx context.Context, qCtx *handler.Context, exchange exchangeFunc) (r *dns.Msg, err error) {
+func (g *ExchangeSingleFlightGroup) Exchange(ctx context.Context, qCtx *handler.Context, upstreams []TrustedUpstream, logger *zap.Logger) (r *dns.Msg, err error) {
 	key, err := GetMsgKey(qCtx.Q())
 	if err != nil {
 		return nil, fmt.Errorf("failed to caculate msg key, %w", err)
@@ -204,7 +204,7 @@ func (g *ExchangeSingleFlightGroup) Exchange(ctx context.Context, qCtx *handler.
 
 	v, err, shared := g.Do(key, func() (interface{}, error) {
 		defer g.Forget(key)
-		return exchange(ctx, qCtx)
+		return ExchangeParallel(ctx, qCtx, upstreams, logger)
 	})
 
 	if err != nil {
@@ -241,4 +241,68 @@ func BoolLogic(ctx context.Context, qCtx *handler.Context, fs []handler.Matcher,
 	}
 
 	return matched, nil
+}
+
+type TrustedUpstream interface {
+	Exchange(m *dns.Msg) (*dns.Msg, error)
+	Address() string
+	Trusted() bool
+}
+
+type parallelResult struct {
+	r    *dns.Msg
+	err  error
+	from TrustedUpstream
+}
+
+func ExchangeParallel(ctx context.Context, qCtx *handler.Context, upstreams []TrustedUpstream, logger *zap.Logger) (r *dns.Msg, err error) {
+	t := len(upstreams)
+	if t == 0 {
+		return nil, errors.New("no upstream is configured")
+	}
+	if t == 1 {
+		r, err = upstreams[0].Exchange(qCtx.Q())
+		if err != nil {
+			return nil, err
+		}
+		logger.Debug("received response", qCtx.InfoField(), zap.String("from", upstreams[0].Address()))
+		return r, nil
+	}
+
+	c := make(chan *parallelResult, t) // use buf chan to avoid block.
+	for _, u := range upstreams {
+		u := u
+		qCopy := qCtx.Q().Copy() // it is not safe to use the Q directly.
+		go func() {
+			r, err := u.Exchange(qCopy)
+			c <- &parallelResult{
+				r:    r,
+				err:  err,
+				from: u,
+			}
+		}()
+	}
+
+	for i := 0; i < t; i++ {
+		select {
+		case res := <-c:
+			if res.err != nil {
+				logger.Warn("upstream failed", qCtx.InfoField(), zap.String("from", res.from.Address()), zap.Error(res.err))
+				continue
+			}
+
+			if !res.from.Trusted() && res.r.Rcode != dns.RcodeSuccess {
+				logger.Debug("untrusted upstream return an err rcode", qCtx.InfoField(), zap.String("from", res.from.Address()), zap.Int("rcode", res.r.Rcode))
+				continue
+			}
+
+			logger.Debug("received response", qCtx.InfoField(), zap.String("from", res.from.Address()))
+			return res.r, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+
+	// all upstreams are failed
+	return nil, errors.New("no response")
 }

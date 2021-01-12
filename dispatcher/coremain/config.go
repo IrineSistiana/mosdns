@@ -124,7 +124,7 @@ func GetTemplateConfig() (*Config, error) {
 	}
 
 	err = c.AddPlugin("forward_google_doh", forward.PluginType, forward.Args{
-		Upstream: []forward.Upstream{
+		UpstreamConfig: []forward.UpstreamConfig{
 			{
 				Addr:   "https://dns.google/dns-query",
 				IPAddr: []string{"8.8.8.8", "2001:4860:4860::8888"},
