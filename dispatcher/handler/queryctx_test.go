@@ -57,18 +57,21 @@ func (i invalidExecutable) Exec(ctx context.Context, qCtx *Context) (err error) 
 }
 
 func TestContext_defer_panic(t *testing.T) {
+	dm := &DummyExecutablePlugin{}
 	tests := []struct {
 		name      string
-		exec      Executable
+		exec      []Executable
 		wantPanic bool
 	}{
-		{"ExecDefer", invalidExecutable{true}, true},
-		{"DeferExec", invalidExecutable{false}, true},
+		{"ExecDefer", []Executable{dm, invalidExecutable{false}}, true},
+		{"DeferExec", []Executable{dm, invalidExecutable{false}}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := NewContext(new(dns.Msg), nil)
-			ctx.DeferExec(tt.exec)
+			for _, e := range tt.exec {
+				ctx.DeferExec(e)
+			}
 
 			defer func() {
 				msg := recover()

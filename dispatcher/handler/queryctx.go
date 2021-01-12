@@ -139,6 +139,10 @@ func (ctx *Context) DeferExec(e Executable) {
 
 // ExecDefer executes all deferred Executable registered by DeferExec.
 func (ctx *Context) ExecDefer(cCtx context.Context) error {
+	if len(ctx.deferrable) == 0 {
+		return nil
+	}
+
 	if ok := atomic.CompareAndSwapUint32(&ctx.deferAtomic, 0, 1); !ok {
 		panic("handler Context: concurrent ExecDefer or DeferExec")
 	}
