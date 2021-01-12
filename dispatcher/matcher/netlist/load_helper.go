@@ -78,28 +78,25 @@ func BatchLoad(f []string) (m *List, err error) {
 	return list, nil
 }
 
-//NewListFromReader read IP list from a reader, if no valid IP addr was found,
-//it will return a empty NewList, NOT nil. *List will be a sorted list.
+//NewListFromReader read IP list from a reader. The returned *List is sorted.
 func NewListFromReader(reader io.Reader) (*List, error) {
-
 	ipNetList := NewList()
-	s := bufio.NewScanner(reader)
+	scanner := bufio.NewScanner(reader)
 
 	//count how many lines we have read.
 	lineCounter := 0
 
-	for s.Scan() {
+	for scanner.Scan() {
 		lineCounter++
-		line := strings.TrimSpace(s.Text())
 
-		//ignore lines begin with # and empty lines
-		if len(line) == 0 || strings.HasPrefix(line, "#") {
+		s := utils.SplitLine(utils.RemoveComment(scanner.Text(), "#"))
+		if len(s) == 0 {
 			continue
 		}
-
-		ipNet, err := ParseCIDR(line)
+		ipStr := s[0]
+		ipNet, err := ParseCIDR(ipStr)
 		if err != nil {
-			return nil, fmt.Errorf("invalid CIDR format %s in line %d", line, lineCounter)
+			return nil, fmt.Errorf("invalid CIDR format %s in line %d", ipStr, lineCounter)
 		}
 
 		ipNetList.Append(ipNet)

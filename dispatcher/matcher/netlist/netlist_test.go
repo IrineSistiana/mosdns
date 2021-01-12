@@ -21,34 +21,38 @@ import (
 	"bytes"
 	"net"
 	"os"
+	"reflect"
 	"testing"
 )
 
 var (
-	rawList = `1.0.1.0/24
-	1.1.2.0/23
-	1.1.4.0/22
-	1.1.8.0/24
-	1.0.2.0/23
-	1.0.8.0/21
-	1.0.32.0/19
-	1.1.0.0/24
-	2001:250::/35
-	2001:250:2000::/35
-	2001:250:4000::/34
-	2001:250:8000::/33
-	2001:251::/32
-	
-	2.2.2.2
-	3.3.3.3
-	2002:222::1
+	rawList = `
+# comment line
+1.0.1.0/24 additional strings should be ignored 
+1.1.2.0/23 # comment
 
-	192.168.0.0/16
-	192.168.1.1/24
-	192.168.9.24/24
-	192.168.3.0/24
-	192.169.0.0/16
-	`
+1.1.4.0/22 
+1.1.8.0/24 
+1.0.2.0/23
+1.0.8.0/21
+1.0.32.0/19
+1.1.0.0/24
+2001:250::/35
+2001:250:2000::/35
+2001:250:4000::/34
+2001:250:8000::/33
+2001:251::/32
+
+2.2.2.2
+3.3.3.3
+2002:222::1
+
+192.168.0.0/16
+192.168.1.1/24
+192.168.9.24/24
+192.168.3.0/24
+192.169.0.0/16
+`
 )
 
 func TestIPNetList_New_And_Contains(t *testing.T) {
@@ -95,6 +99,27 @@ func TestIPNetList_New_And_Contains(t *testing.T) {
 	}
 }
 
+func Test_cidrMask(t *testing.T) {
+	tests := []struct {
+		name  string
+		n     uint
+		wantM mask
+	}{
+		{"0", 0, [2]uint64{0, 0}},
+		{"5", 5, [2]uint64{^(maxUint64 >> 5), 0}},
+		{"64", 64, [2]uint64{maxUint64, 0}},
+		{"120", 120, [2]uint64{maxUint64, ^(maxUint64 >> (120 - 64))}},
+		{"128", 128, [2]uint64{maxUint64, maxUint64}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if gotM := cidrMask(tt.n); !reflect.DeepEqual(gotM, tt.wantM) {
+				t.Errorf("cidrMask() = %v, want %v", gotM, tt.wantM)
+			}
+		})
+	}
+}
+
 func BenchmarkListContains(b *testing.B) {
 	f, err := os.Open("./chn.list")
 	if err != nil {
@@ -129,7 +154,7 @@ func BenchmarkNetContains(b *testing.B) {
 
 func BenchmarkConvIP(b *testing.B) {
 
-	ip := net.IP{222, 222, 222, 222}
+	ip := net.IP{222, 222, 222, 222}.To16()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		Conv(ip)
