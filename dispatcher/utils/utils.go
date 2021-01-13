@@ -141,7 +141,7 @@ func LoadCertPool(certs []string) (*x509.CertPool, error) {
 // GenerateCertificate generates a ecdsa certificate with given dnsName.
 // This should only use in test.
 func GenerateCertificate(dnsName string) (cert tls.Certificate, err error) {
-	key, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return
 	}
@@ -261,18 +261,19 @@ func ExchangeParallel(ctx context.Context, qCtx *handler.Context, upstreams []Tr
 		return nil, errors.New("no upstream is configured")
 	}
 	if t == 1 {
-		r, err = upstreams[0].Exchange(qCtx.Q())
+		u := upstreams[0]
+		r, err = u.Exchange(qCtx.Q())
 		if err != nil {
 			return nil, err
 		}
-		logger.Debug("received response", qCtx.InfoField(), zap.String("from", upstreams[0].Address()))
+		logger.Debug("received response", qCtx.InfoField(), zap.String("from", u.Address()))
 		return r, nil
 	}
 
 	c := make(chan *parallelResult, t) // use buf chan to avoid block.
+	qCopy := qCtx.Q().Copy()           // qCtx is not safe for concurrent use.
 	for _, u := range upstreams {
 		u := u
-		qCopy := qCtx.Q().Copy() // it is not safe to use the Q directly.
 		go func() {
 			r, err := u.Exchange(qCopy)
 			c <- &parallelResult{

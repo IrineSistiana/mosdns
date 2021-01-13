@@ -61,7 +61,7 @@ func (m *MixMatcher) LoadFormFile(file string, filterRecord FilterRecordFunc, pa
 	return nil
 }
 
-// LoadFormFileAsV2Matcher loads data from file.
+// LoadFormFileAsV2Matcher loads data from a file.
 // File can be a text file or a v2ray data file.
 // v2ray data file needs to specify the data category by using ':', e.g. 'geosite:cn'
 // v2ray data file can also have multiple @attr. e.g. 'geosite:cn@attr1@attr2'.

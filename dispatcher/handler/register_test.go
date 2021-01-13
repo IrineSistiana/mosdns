@@ -56,3 +56,46 @@ func TestRegPlugin(t *testing.T) {
 		})
 	}
 }
+
+func Test_pluginRegister_delPlugin(t *testing.T) {
+	tests := []struct {
+		name      string
+		p         Plugin
+		tag       string
+		wantPanic bool
+	}{
+		{"del matcher", &DummyMatcherPlugin{
+			BP: NewBP("test", ""),
+		}, "test", false},
+		{"del service", &DummyServicePlugin{
+			BP: NewBP("test", ""),
+		}, "test", false},
+		{"del service but panic", &DummyServicePlugin{
+			BP:              NewBP("test", ""),
+			WantShutdownErr: errors.New(""),
+		}, "test", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := newPluginRegister()
+			err := r.regPlugin(tt.p, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tt.wantPanic {
+				defer func() {
+					msg := recover()
+					if msg == nil {
+						t.Error("delPlugin not panic")
+					}
+				}()
+			}
+
+			r.delPlugin(tt.tag)
+			if _, err := GetPlugin(tt.tag); err == nil {
+				t.Error("plugin is not deleted")
+			}
+		})
+
+	}
+}

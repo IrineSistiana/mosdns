@@ -102,7 +102,7 @@ func newPlugin(bp *handler.BP, args *Args) (p handler.Plugin, err error) {
 	return ep, nil
 }
 
-// Do tries to append ECS to qCtx.Q().
+// Exec tries to append ECS to qCtx.Q().
 // If an error occurred, Do will just log it.
 // Therefore, Do will never return an err.
 func (e ecsPlugin) Exec(_ context.Context, qCtx *handler.Context) (err error) {

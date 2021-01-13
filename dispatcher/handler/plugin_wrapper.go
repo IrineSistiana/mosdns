@@ -26,6 +26,7 @@ var (
 	_ ESExecutable     = (*PluginWrapper)(nil)
 	_ Matcher          = (*PluginWrapper)(nil)
 	_ ContextConnector = (*PluginWrapper)(nil)
+	_ Service          = (*PluginWrapper)(nil)
 )
 
 // PluginWrapper wraps the original plugin to avoid extremely frequently
@@ -38,6 +39,7 @@ type PluginWrapper struct {
 	se ESExecutable
 	m  Matcher
 	cc ContextConnector
+	s  Service
 }
 
 func newPluginWrapper(gp Plugin) *PluginWrapper {
@@ -55,6 +57,9 @@ func newPluginWrapper(gp Plugin) *PluginWrapper {
 	}
 	if cc, ok := gp.(ContextConnector); ok {
 		w.cc = cc
+	}
+	if s, ok := gp.(Service); ok {
+		w.s = s
 	}
 
 	return w
@@ -116,12 +121,21 @@ func (w *PluginWrapper) ExecES(ctx context.Context, qCtx *Context) (earlyStop bo
 	return earlyStop, nil
 }
 
+func (w *PluginWrapper) Shutdown() error {
+	if w.s == nil {
+		return fmt.Errorf("plugin tag: %s, type: %s is not a Service", w.p.Tag(), w.p.Type())
+	}
+
+	return w.s.Shutdown()
+}
+
 type PluginInterfaceType uint8
 
 const (
 	PITESExecutable = iota
 	PITMatcher
 	PITContextConnector
+	PITService
 )
 
 func (w *PluginWrapper) Is(t PluginInterfaceType) bool {
@@ -132,6 +146,8 @@ func (w *PluginWrapper) Is(t PluginInterfaceType) bool {
 		return w.m != nil
 	case PITContextConnector:
 		return w.cc != nil
+	case PITService:
+		return w.s != nil
 	default:
 		panic(fmt.Sprintf("hander: invalid PluginInterfaceType: %d", t))
 	}

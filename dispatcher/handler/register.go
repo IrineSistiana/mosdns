@@ -55,25 +55,21 @@ func newPluginRegister() *pluginRegister {
 // shutdown the old service, it will panic.
 func (r *pluginRegister) regPlugin(p Plugin, errIfDup bool) error {
 	r.Lock()
-	defer r.Unlock()
 
 	tag := p.Tag()
 	oldWrapper, dup := r.register[tag]
-	if dup {
-		if errIfDup {
-			return fmt.Errorf("plugin tag %s has been registered", tag)
-		}
-		mlog.L().Info("overwrite plugin", zap.String("tag", tag))
-		if service, ok := oldWrapper.GetPlugin().(ServicePlugin); ok {
-			mlog.L().Info("shutting down old service", zap.String("tag", tag))
-			if err := service.Shutdown(); err != nil {
-				panic(fmt.Sprintf("service %s failed to shutdown: %v", tag, err))
-			}
-			mlog.L().Info("old service exited", zap.String("tag", tag))
-		}
-	}
 
+	if dup && errIfDup {
+		r.Unlock()
+		return fmt.Errorf("plugin tag %s has been registered", tag)
+	}
 	r.register[tag] = newPluginWrapper(p)
+	r.Unlock()
+
+	if dup {
+		mlog.L().Info("plugin overwritten", zap.String("tag", tag))
+		r.tryShutdownService(oldWrapper)
+	}
 	return nil
 }
 
@@ -87,13 +83,38 @@ func (r *pluginRegister) getPlugin(tag string) (p *PluginWrapper, err error) {
 	return p, nil
 }
 
-func (r *pluginRegister) getAllPluginTag() []string {
+func (r *pluginRegister) delPlugin(tag string) {
+	r.Lock()
+	p, ok := r.register[tag]
+	if !ok {
+		r.Unlock()
+		return
+	}
+	delete(r.register, tag)
+	r.Unlock()
+
+	r.tryShutdownService(p)
+	return
+}
+
+func (r *pluginRegister) tryShutdownService(oldWrapper *PluginWrapper) {
+	tag := oldWrapper.GetPlugin().Tag()
+	if oldWrapper.Is(PITService) {
+		mlog.L().Info("shutting down old service", zap.String("tag", tag))
+		if err := oldWrapper.Shutdown(); err != nil {
+			panic(fmt.Sprintf("service %s failed to shutdown: %v", tag, err))
+		}
+		mlog.L().Info("old service exited", zap.String("tag", tag))
+	}
+}
+
+func (r *pluginRegister) getPluginAll() []Plugin {
 	r.RLock()
 	defer r.RUnlock()
 
-	t := make([]string, 0, len(r.register))
-	for tag := range r.register {
-		t = append(t, tag)
+	t := make([]Plugin, 0, len(r.register))
+	for _, pw := range r.register {
+		t = append(t, pw.GetPlugin())
 	}
 	return t
 }
@@ -105,7 +126,7 @@ func (r *pluginRegister) purge() {
 }
 
 // RegInitFunc registers this plugin type.
-// This should only be called in init() of the plugin package.
+// This should only be called in init() from the plugin package.
 // Duplicate plugin types are not allowed.
 func RegInitFunc(pluginType string, initFunc NewPluginFunc, argsType NewArgsFunc) {
 	_, ok := pluginTypeRegister[pluginType]
@@ -116,15 +137,6 @@ func RegInitFunc(pluginType string, initFunc NewPluginFunc, argsType NewArgsFunc
 		newPlugin: initFunc,
 		newArgs:   argsType,
 	}
-}
-
-// GetConfigurablePluginTypes returns all plugin types which are configurable.
-func GetConfigurablePluginTypes() []string {
-	b := make([]string, 0, len(pluginTypeRegister))
-	for typ := range pluginTypeRegister {
-		b = append(b, typ)
-	}
-	return b
 }
 
 // InitAndRegPlugin inits and registers this plugin globally.
@@ -178,8 +190,27 @@ func GetPlugin(tag string) (p *PluginWrapper, err error) {
 	return pluginTagRegister.getPlugin(tag)
 }
 
-func GetAllPluginTag() []string {
-	return pluginTagRegister.getAllPluginTag()
+// DelPlugin deletes this plugin.
+// If this plugin is a Service, DelPlugin will call Service.Shutdown().
+// DelPlugin will panic if Service.Shutdown() returns an err.
+func DelPlugin(tag string) {
+	pluginTagRegister.delPlugin(tag)
+}
+
+// GetPluginAll returns all registered plugins.
+// This should only be used in test or debug.
+func GetPluginAll() []Plugin {
+	return pluginTagRegister.getPluginAll()
+}
+
+// GetConfigurablePluginTypes returns all plugin types which are configurable.
+// This should only be used in test or debug.
+func GetConfigurablePluginTypes() []string {
+	b := make([]string, 0, len(pluginTypeRegister))
+	for typ := range pluginTypeRegister {
+		b = append(b, typ)
+	}
+	return b
 }
 
 // PurgePluginRegister should only be used in test.
