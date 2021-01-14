@@ -17,6 +17,54 @@
 
 package handler
 
+import "context"
+
+// Plugin represents the basic plugin.
+type Plugin interface {
+	Tag() string
+	Type() string
+}
+
+type Executable interface {
+	Exec(ctx context.Context, qCtx *Context) (err error)
+}
+
+type ExecutablePlugin interface {
+	Plugin
+	Executable
+}
+
+// ESExecutable: Early Stoppable Executable.
+type ESExecutable interface {
+	// ExecES: Execute something. earlyStop indicates that it wants
+	// to stop the utils.ExecutableCmdSequence ASAP.
+	ExecES(ctx context.Context, qCtx *Context) (earlyStop bool, err error)
+}
+
+type ESExecutablePlugin interface {
+	Plugin
+	ESExecutable
+}
+
+type Matcher interface {
+	Match(ctx context.Context, qCtx *Context) (matched bool, err error)
+}
+
+type MatcherPlugin interface {
+	Plugin
+	Matcher
+}
+
+type ContextConnector interface {
+	// Connect connects this ContextPlugin to its predecessor.
+	Connect(ctx context.Context, qCtx *Context, pipeCtx *PipeContext) (err error)
+}
+
+type ContextPlugin interface {
+	Plugin
+	ContextConnector
+}
+
 type Service interface {
 	// Shutdown and release resources.
 	Shutdown() error

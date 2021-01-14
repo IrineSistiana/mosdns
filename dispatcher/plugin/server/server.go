@@ -37,7 +37,7 @@ type server struct {
 	*handler.BP
 	args *Args
 
-	handler handler.ServerHandler
+	handler utils.ServerHandler
 
 	m         sync.Mutex
 	activated bool
@@ -99,7 +99,7 @@ func newServer(bp *handler.BP, args *Args) (*server, error) {
 		BP:   bp,
 		args: args,
 
-		handler: handler.NewDefaultServerHandler(&handler.DefaultServerHandlerConfig{
+		handler: utils.NewDefaultServerHandler(&utils.DefaultServerHandlerConfig{
 			Logger:          bp.L(),
 			Entry:           args.Entry,
 			ConcurrentLimit: args.MaxConcurrentQueries,

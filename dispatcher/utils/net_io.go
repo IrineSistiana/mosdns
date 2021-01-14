@@ -18,12 +18,85 @@
 package utils
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
-	"io"
-
 	"github.com/miekg/dns"
+	"io"
+	"net"
+	"sync"
 )
+
+const (
+	IPv4UdpMaxPayload = 1472 // MTU 1500 - 20 IPv4 header - 8 udp header
+	IPv6UdpMaxPayload = 1452 // MTU 1500 - 40 IPv6 header - 8 udp header
+)
+
+func ReadUDPMsgFrom(c net.PacketConn, bufSize int) (m *dns.Msg, from net.Addr, n int, err error) {
+	buf := GetMsgBuf(bufSize)
+	defer ReleaseMsgBuf(buf)
+
+	n, from, err = c.ReadFrom(buf)
+	if err != nil {
+		return
+	}
+
+	if n < 12 {
+		err = dns.ErrShortRead
+		return
+	}
+
+	m = new(dns.Msg)
+	err = m.Unpack(buf[:n])
+	if err != nil {
+		return
+	}
+	return
+}
+
+func ReadMsgFromUDP(c io.Reader, bufSize int) (m *dns.Msg, n int, err error) {
+	buf := GetMsgBuf(bufSize)
+	defer ReleaseMsgBuf(buf)
+
+	n, err = c.Read(buf)
+	if err != nil {
+		return nil, n, err
+	}
+	if n < 12 {
+		return nil, n, dns.ErrShortRead
+	}
+
+	m = new(dns.Msg)
+	err = m.Unpack(buf[:n])
+	if err != nil {
+		return nil, n, err
+	}
+	return m, n, nil
+}
+
+func WriteMsgToUDP(c io.Writer, m *dns.Msg) (n int, err error) {
+	mRaw, buf, err := packMsgWithBuffer(m)
+	if err != nil {
+		return 0, err
+	}
+	defer ReleaseMsgBuf(buf)
+
+	return WriteRawMsgToUDP(c, mRaw)
+}
+
+func WriteRawMsgToUDP(c io.Writer, b []byte) (n int, err error) {
+	return c.Write(b)
+}
+
+func WriteUDPMsgTo(m *dns.Msg, c net.PacketConn, to net.Addr) (n int, err error) {
+	mRaw, buf, err := packMsgWithBuffer(m)
+	if err != nil {
+		return 0, err
+	}
+	defer ReleaseMsgBuf(buf)
+
+	return c.WriteTo(mRaw, to)
+}
 
 // ReadMsgFromTCP reads msg from a tcp connection.
 // n represents how many bytes are read from c.
@@ -85,4 +158,52 @@ func WriteRawMsgToTCP(c io.Writer, b []byte) (n int, err error) {
 	wb.WriteByte(byte(len(b)))
 	wb.Write(b)
 	return c.Write(wb.Bytes())
+}
+
+var (
+	tcpHeaderBufPool = sync.Pool{
+		New: func() interface{} {
+			return make([]byte, 2)
+		},
+	}
+
+	tcpWriteBufPool = sync.Pool{
+		New: func() interface{} {
+			b := new(bytes.Buffer)
+			b.Grow(dns.MinMsgSize)
+			return b
+		},
+	}
+)
+
+func getTCPHeaderBuf() []byte {
+	return tcpHeaderBufPool.Get().([]byte)
+}
+
+func releaseTCPHeaderBuf(buf []byte) {
+	tcpHeaderBufPool.Put(buf)
+}
+
+// getTCPWriteBuf returns a byte.Buffer
+func getTCPWriteBuf() *bytes.Buffer {
+	return tcpWriteBufPool.Get().(*bytes.Buffer)
+}
+
+func releaseTCPWriteBuf(buf *bytes.Buffer) {
+	buf.Reset()
+	tcpWriteBufPool.Put(buf)
+}
+
+func packMsgWithBuffer(m *dns.Msg) (mRaw, buf []byte, err error) {
+	buf, err = GetMsgBufFor(m)
+	if err != nil {
+		return
+	}
+
+	mRaw, err = m.PackBuffer(buf)
+	if err != nil {
+		ReleaseMsgBuf(buf)
+		return
+	}
+	return
 }

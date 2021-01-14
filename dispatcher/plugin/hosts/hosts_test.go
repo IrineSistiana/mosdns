@@ -18,16 +18,31 @@
 package hosts
 
 import (
+	"bytes"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/dispatcher/matcher/domain"
 	"github.com/miekg/dns"
 	"net"
 	"testing"
 )
 
+var test_hosts = `
+# comment
+     # empty line
+dns.google 8.8.8.8 8.8.4.4 2001:4860:4860::8844 2001:4860:4860::8888
+regexp:^123456789 192.168.1.1
+# nxdomain.com 1.2.3.4
+`
+
 func Test_hostsContainer_Match(t *testing.T) {
-	h, err := newHostsContainer(handler.NewBP("test", PluginType), &Args{Hosts: []string{"../../testdata/hosts"}})
+	m := domain.NewMixMatcher()
+	err := m.LoadFormTextReader(bytes.NewBuffer([]byte(test_hosts)), nil, parseIP)
 	if err != nil {
 		t.Fatal(err)
+	}
+	h := hostsContainer{
+		BP:      handler.NewBP("test", PluginType),
+		matcher: m,
 	}
 
 	type args struct {

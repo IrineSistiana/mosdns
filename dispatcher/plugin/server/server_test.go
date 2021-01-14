@@ -20,6 +20,7 @@ package server
 import (
 	"github.com/AdguardTeam/dnsproxy/upstream"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
 	"testing"
 	"time"
@@ -52,7 +53,7 @@ func TestUdpServer_ListenAndServe(t *testing.T) {
 			defer server.Shutdown()
 
 			// replace server handler
-			server.handler = &handler.DummyServerHandler{T: t}
+			server.handler = &utils.DummyServerHandler{T: t}
 
 			time.Sleep(time.Millisecond * 100)
 			opt := upstream.Options{

@@ -21,6 +21,18 @@ import (
 	"github.com/mitchellh/mapstructure"
 )
 
+// Config represents a plugin config
+type Config struct {
+	// Tag, required
+	Tag string `yaml:"tag"`
+
+	// Type, required
+	Type string `yaml:"type"`
+
+	// Args, might be required by some plugins
+	Args map[string]interface{} `yaml:"args"`
+}
+
 // WeakDecode decodes args from config to output.
 func WeakDecode(in map[string]interface{}, output interface{}) error {
 	config := &mapstructure.DecoderConfig{

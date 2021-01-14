@@ -20,7 +20,6 @@ package handler
 import (
 	"context"
 	"github.com/miekg/dns"
-	"testing"
 )
 
 // Types and funcs in this file are for testing only
@@ -76,26 +75,4 @@ type DummyServicePlugin struct {
 
 func (d *DummyServicePlugin) Shutdown() error {
 	return d.WantShutdownErr
-}
-
-type DummyServerHandler struct {
-	T       *testing.T
-	WantMsg *dns.Msg
-	WantErr error
-}
-
-func (d *DummyServerHandler) ServeDNS(_ context.Context, qCtx *Context, w ResponseWriter) {
-	var r *dns.Msg
-	if d.WantMsg != nil {
-		r = d.WantMsg.Copy()
-		r.Id = qCtx.Q().Id
-	} else {
-		r = new(dns.Msg)
-		r.SetReply(qCtx.Q())
-	}
-
-	_, err := w.Write(r)
-	if err != nil {
-		d.T.Errorf("DummyServerHandler: %v", err)
-	}
 }

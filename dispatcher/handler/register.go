@@ -217,3 +217,27 @@ func GetConfigurablePluginTypes() []string {
 func PurgePluginRegister() {
 	pluginTagRegister.purge()
 }
+
+// BP means basic plugin, which implements Plugin.
+// It also has an internal logger, for convenience.
+type BP struct {
+	tag, typ string
+	logger   *zap.Logger
+}
+
+// NewBP creates a new BP and initials its logger.
+func NewBP(tag string, typ string) *BP {
+	return &BP{tag: tag, typ: typ, logger: mlog.NewPluginLogger(tag)}
+}
+
+func (p *BP) Tag() string {
+	return p.tag
+}
+
+func (p *BP) Type() string {
+	return p.typ
+}
+
+func (p *BP) L() *zap.Logger {
+	return p.logger
+}

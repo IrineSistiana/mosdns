@@ -15,12 +15,13 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package handler
+package utils
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"reflect"
@@ -28,37 +29,16 @@ import (
 	"sync"
 )
 
-type ExecutablePlugin interface {
-	Plugin
-	Executable
-}
-
-type Executable interface {
-	Exec(ctx context.Context, qCtx *Context) (err error)
-}
-
-type ESExecutablePlugin interface {
-	Plugin
-	ESExecutable
-}
-
-// ESExecutable: Early Stoppable Executable.
-type ESExecutable interface {
-	// ExecES: Execute something. earlyStop indicates that it wants
-	// to stop the ExecutableCmdSequence ASAP.
-	ExecES(ctx context.Context, qCtx *Context) (earlyStop bool, err error)
-}
-
 type ExecutableCmd interface {
-	ExecCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (goTwo string, earlyStop bool, err error)
+	ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (goTwo string, earlyStop bool, err error)
 }
 
 type executablePluginTag struct {
 	s string
 }
 
-func (t executablePluginTag) ExecCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (goTwo string, earlyStop bool, err error) {
-	p, err := GetPlugin(t.s)
+func (t executablePluginTag) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (goTwo string, earlyStop bool, err error) {
+	p, err := handler.GetPlugin(t.s)
 	if err != nil {
 		return "", false, err
 	}
@@ -99,7 +79,7 @@ type IfBlock struct {
 	goTwo         string
 }
 
-func (b *IfBlock) ExecCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (goTwo string, earlyStop bool, err error) {
+func (b *IfBlock) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (goTwo string, earlyStop bool, err error) {
 	if len(b.ifMatcher) > 0 {
 		If, err := ifCondition(ctx, qCtx, logger, b.ifMatcher, false)
 		if err != nil {
@@ -139,13 +119,13 @@ func (b *IfBlock) ExecCmd(ctx context.Context, qCtx *Context, logger *zap.Logger
 	return "", false, nil
 }
 
-func ifCondition(ctx context.Context, qCtx *Context, logger *zap.Logger, p []matcher, isAnd bool) (ok bool, err error) {
+func ifCondition(ctx context.Context, qCtx *handler.Context, logger *zap.Logger, p []matcher, isAnd bool) (ok bool, err error) {
 	if len(p) == 0 {
 		return false, err
 	}
 
 	for _, m := range p {
-		mp, err := GetPlugin(m.tag)
+		mp, err := handler.GetPlugin(m.tag)
 		if err != nil {
 			return false, err
 		}
@@ -170,7 +150,7 @@ func ifCondition(ctx context.Context, qCtx *Context, logger *zap.Logger, p []mat
 
 func ParseIfBlock(in map[string]interface{}) (*IfBlock, error) {
 	c := new(IfBlockConfig)
-	err := WeakDecode(in, c)
+	err := handler.WeakDecode(in, c)
 	if err != nil {
 		return nil, err
 	}
@@ -216,20 +196,20 @@ func ParseParallelECS(in [][]interface{}) (*ParallelECS, error) {
 	return &ParallelECS{s: ps}, nil
 }
 
-type parallelResult struct {
+type parallelECSResult struct {
 	r      *dns.Msg
-	status ContextStatus
+	status handler.ContextStatus
 	err    error
 	from   int
 }
 
-func (p *ParallelECS) ExecCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (goTwo string, earlyStop bool, err error) {
+func (p *ParallelECS) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (goTwo string, earlyStop bool, err error) {
 	return "", false, p.execCmd(ctx, qCtx, logger)
 }
 
-func (p *ParallelECS) execCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (err error) {
+func (p *ParallelECS) execCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
 	t := len(p.s)
-	c := make(chan *parallelResult, len(p.s)) // use buf chan to avoid block.
+	c := make(chan *parallelECSResult, len(p.s)) // use buf chan to avoid block.
 	for i, sequence := range p.s {
 		i := i
 		sequence := sequence
@@ -239,7 +219,7 @@ func (p *ParallelECS) execCmd(ctx context.Context, qCtx *Context, logger *zap.Lo
 			if err == nil {
 				err = qCtxCopy.ExecDefer(ctx)
 			}
-			c <- &parallelResult{
+			c <- &parallelECSResult{
 				r:      qCtxCopy.R(),
 				status: qCtxCopy.Status(),
 				err:    err,
@@ -270,7 +250,7 @@ func (p *ParallelECS) execCmd(ctx context.Context, qCtx *Context, logger *zap.Lo
 	}
 
 	// No valid response, all parallel sequences are failed.
-	qCtx.SetResponse(nil, ContextStatusServerFailed)
+	qCtx.SetResponse(nil, handler.ContextStatusServerFailed)
 	return errors.New("no response")
 }
 
@@ -366,11 +346,11 @@ func ParseFallbackECS(primary, secondary []interface{}, threshold, statLength in
 	}, nil
 }
 
-func (f *FallbackECS) ExecCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (goTwo string, earlyStop bool, err error) {
+func (f *FallbackECS) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (goTwo string, earlyStop bool, err error) {
 	return "", false, f.execCmd(ctx, qCtx, logger)
 }
 
-func (f *FallbackECS) execCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (err error) {
+func (f *FallbackECS) execCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
 	if f.primaryST.good() {
 		return f.execPrimary(ctx, qCtx, logger)
 	}
@@ -378,7 +358,7 @@ func (f *FallbackECS) execCmd(ctx context.Context, qCtx *Context, logger *zap.Lo
 	return f.doFallback(ctx, qCtx, logger)
 }
 
-func (f *FallbackECS) execPrimary(ctx context.Context, qCtx *Context, logger *zap.Logger) (err error) {
+func (f *FallbackECS) execPrimary(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
 	qCtxCopy := qCtx.Copy() // isolate qCtx
 	err = WalkExecutableCmd(ctx, qCtxCopy, logger, f.primary)
 	qCtx.SetResponse(qCtxCopy.R(), qCtxCopy.Status())
@@ -397,12 +377,12 @@ func (f *FallbackECS) execPrimary(ctx context.Context, qCtx *Context, logger *za
 
 type fallbackResult struct {
 	r      *dns.Msg
-	status ContextStatus
+	status handler.ContextStatus
 	err    error
 	from   string
 }
 
-func (f *FallbackECS) doFallback(ctx context.Context, qCtx *Context, logger *zap.Logger) (err error) {
+func (f *FallbackECS) doFallback(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
 	c := make(chan *fallbackResult, 2) // buf size is 2, avoid block.
 
 	qCtxCopyP := qCtx.Copy()
@@ -456,7 +436,7 @@ func (f *FallbackECS) doFallback(ctx context.Context, qCtx *Context, logger *zap
 	}
 
 	// No response
-	qCtx.SetResponse(nil, ContextStatusServerFailed)
+	qCtx.SetResponse(nil, handler.ContextStatusServerFailed)
 	return errors.New("no response")
 }
 
@@ -510,7 +490,7 @@ func parseExecutableCmd(in interface{}) (ExecutableCmd, error) {
 
 func parseParallelECS(m map[string]interface{}) (ec ExecutableCmd, err error) {
 	conf := new(ParallelECSConfig)
-	err = WeakDecode(m, conf)
+	err = handler.WeakDecode(m, conf)
 	if err != nil {
 		return nil, err
 	}
@@ -519,7 +499,7 @@ func parseParallelECS(m map[string]interface{}) (ec ExecutableCmd, err error) {
 
 func parseFallbackECS(m map[string]interface{}) (ec ExecutableCmd, err error) {
 	conf := new(FallbackConfig)
-	err = WeakDecode(m, conf)
+	err = handler.WeakDecode(m, conf)
 	if err != nil {
 		return nil, err
 	}
@@ -532,7 +512,7 @@ func hasKey(m map[string]interface{}, key string) bool {
 }
 
 // ExecCmd executes the sequence.
-func (es *ExecutableCmdSequence) ExecCmd(ctx context.Context, qCtx *Context, logger *zap.Logger) (goTwo string, earlyStop bool, err error) {
+func (es *ExecutableCmdSequence) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (goTwo string, earlyStop bool, err error) {
 	for _, cmd := range es.c {
 		goTwo, earlyStop, err = cmd.ExecCmd(ctx, qCtx, logger)
 		if err != nil {
@@ -552,7 +532,7 @@ func (es *ExecutableCmdSequence) Len() int {
 
 // WalkExecutableCmd executes the ExecutableCmd, include its `goto`.
 // This should only be used in root cmd node.
-func WalkExecutableCmd(ctx context.Context, qCtx *Context, logger *zap.Logger, entry ExecutableCmd) (err error) {
+func WalkExecutableCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger, entry ExecutableCmd) (err error) {
 	goTwo, _, err := entry.ExecCmd(ctx, qCtx, logger)
 	if err != nil {
 		return err
@@ -560,7 +540,7 @@ func WalkExecutableCmd(ctx context.Context, qCtx *Context, logger *zap.Logger, e
 
 	if len(goTwo) != 0 {
 		logger.Debug("goto plugin", qCtx.InfoField(), zap.String("goto", goTwo))
-		p, err := GetPlugin(goTwo)
+		p, err := handler.GetPlugin(goTwo)
 		if err != nil {
 			return err
 		}

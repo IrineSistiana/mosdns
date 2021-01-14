@@ -1,8 +1,9 @@
-package handler
+package utils
 
 import (
 	"context"
 	"errors"
+	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
@@ -11,8 +12,8 @@ import (
 )
 
 func Test_ECS(t *testing.T) {
-	PurgePluginRegister()
-	defer PurgePluginRegister()
+	handler.PurgePluginRegister()
+	defer handler.PurgePluginRegister()
 
 	mErr := errors.New("mErr")
 	eErr := errors.New("eErr")
@@ -95,40 +96,40 @@ exec:
 	}
 
 	// not_matched
-	MustRegPlugin(&DummyMatcherPlugin{
-		BP:      NewBP("not_matched", ""),
+	handler.MustRegPlugin(&handler.DummyMatcherPlugin{
+		BP:      handler.NewBP("not_matched", ""),
 		Matched: false,
 		WantErr: nil,
 	}, true)
 
 	// do something
-	MustRegPlugin(&DummyExecutablePlugin{
-		BP:      NewBP("exec", ""),
+	handler.MustRegPlugin(&handler.DummyExecutablePlugin{
+		BP:      handler.NewBP("exec", ""),
 		WantErr: nil,
 	}, true)
 
 	// do something and skip the following sequence
-	MustRegPlugin(&DummyESExecutablePlugin{
-		BP:       NewBP("exec_skip", ""),
+	handler.MustRegPlugin(&handler.DummyESExecutablePlugin{
+		BP:       handler.NewBP("exec_skip", ""),
 		WantSkip: true,
 	}, true)
 
 	// matched
-	MustRegPlugin(&DummyMatcherPlugin{
-		BP:      NewBP("matched", ""),
+	handler.MustRegPlugin(&handler.DummyMatcherPlugin{
+		BP:      handler.NewBP("matched", ""),
 		Matched: true,
 		WantErr: nil,
 	}, true)
 
 	// plugins should return an err.
-	MustRegPlugin(&DummyMatcherPlugin{
-		BP:      NewBP("match_err", ""),
+	handler.MustRegPlugin(&handler.DummyMatcherPlugin{
+		BP:      handler.NewBP("match_err", ""),
 		Matched: false,
 		WantErr: mErr,
 	}, true)
 
-	MustRegPlugin(&DummyExecutablePlugin{
-		BP:      NewBP("exec_err", ""),
+	handler.MustRegPlugin(&handler.DummyExecutablePlugin{
+		BP:      handler.NewBP("exec_err", ""),
 		WantErr: eErr,
 	}, true)
 
@@ -144,7 +145,7 @@ exec:
 				t.Fatal(err)
 			}
 
-			gotNext, gotEarlyStop, err := ecs.ExecCmd(context.Background(), NewContext(new(dns.Msg), nil), zap.NewNop())
+			gotNext, gotEarlyStop, err := ecs.ExecCmd(context.Background(), handler.NewContext(new(dns.Msg), nil), zap.NewNop())
 			if (err != nil || tt.wantErr != nil) && !errors.Is(err, tt.wantErr) {
 				t.Errorf("ExecCmd() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -161,15 +162,15 @@ exec:
 }
 
 func Test_ParallelECS(t *testing.T) {
-	PurgePluginRegister()
-	defer PurgePluginRegister()
+	handler.PurgePluginRegister()
+	defer handler.PurgePluginRegister()
 
 	r1 := new(dns.Msg)
 	r2 := new(dns.Msg)
-	p1 := &DummyExecutablePlugin{BP: NewBP("p1", "")}
-	p2 := &DummyExecutablePlugin{BP: NewBP("p2", "")}
-	MustRegPlugin(p1, true)
-	MustRegPlugin(p2, true)
+	p1 := &handler.DummyExecutablePlugin{BP: handler.NewBP("p1", "")}
+	p2 := &handler.DummyExecutablePlugin{BP: handler.NewBP("p2", "")}
+	handler.MustRegPlugin(p1, true)
+	handler.MustRegPlugin(p2, true)
 
 	er := errors.New("")
 	tests := []struct {
@@ -202,7 +203,7 @@ func Test_ParallelECS(t *testing.T) {
 			p2.WantR = tt.r2
 			p2.WantErr = tt.e2
 
-			qCtx := NewContext(new(dns.Msg), nil)
+			qCtx := handler.NewContext(new(dns.Msg), nil)
 			err := parallelECS.execCmd(ctx, qCtx, zap.NewNop())
 			if tt.wantErr != (err != nil) {
 				t.Fatalf("execCmd() error = %v, wantErr %v", err, tt.wantErr)
@@ -216,15 +217,15 @@ func Test_ParallelECS(t *testing.T) {
 }
 
 func Test_FallbackECS(t *testing.T) {
-	PurgePluginRegister()
-	defer PurgePluginRegister()
+	handler.PurgePluginRegister()
+	defer handler.PurgePluginRegister()
 
 	r1 := new(dns.Msg)
 	r2 := new(dns.Msg)
-	p1 := &DummyExecutablePlugin{BP: NewBP("p1", "")}
-	p2 := &DummyExecutablePlugin{BP: NewBP("p2", ""), WantR: r2}
-	MustRegPlugin(p1, true)
-	MustRegPlugin(p2, true)
+	p1 := &handler.DummyExecutablePlugin{BP: handler.NewBP("p1", "")}
+	p2 := &handler.DummyExecutablePlugin{BP: handler.NewBP("p2", ""), WantR: r2}
+	handler.MustRegPlugin(p1, true)
+	handler.MustRegPlugin(p2, true)
 	er := errors.New("")
 
 	tests := []struct {
@@ -259,7 +260,7 @@ func Test_FallbackECS(t *testing.T) {
 			p2.WantR = tt.r2
 			p2.WantErr = tt.e2
 
-			qCtx := NewContext(new(dns.Msg), nil)
+			qCtx := handler.NewContext(new(dns.Msg), nil)
 			err := fallbackECS.execCmd(ctx, qCtx, zap.NewNop())
 			if tt.wantErr != (err != nil) {
 				t.Fatalf("execCmd() error = %v, wantErr %v", err, tt.wantErr)

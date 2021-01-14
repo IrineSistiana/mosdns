@@ -15,18 +15,20 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package handler
+package utils
 
 import (
 	"context"
 	"fmt"
+	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
+	"testing"
 )
 
 type ServerHandler interface {
 	// ServeDNS uses ctx to control deadline, exchanges qCtx, and writes response to w.
-	ServeDNS(ctx context.Context, qCtx *Context, w ResponseWriter)
+	ServeDNS(ctx context.Context, qCtx *handler.Context, w ResponseWriter)
 }
 
 // ResponseWriter can write msg to the client.
@@ -65,7 +67,7 @@ func NewDefaultServerHandler(config *DefaultServerHandlerConfig) *DefaultServerH
 // ServeDNS:
 // If entry returns an err, a SERVFAIL response will be sent back to client.
 // If concurrentLimit is reached, the query will block and wait available token until ctx is done.
-func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *Context, w ResponseWriter) {
+func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *handler.Context, w ResponseWriter) {
 	if h.limiter != nil {
 		select {
 		case <-h.limiter.acquire():
@@ -86,7 +88,7 @@ func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *Context, w Re
 	}
 
 	var r *dns.Msg
-	if err != nil || qCtx.Status() == ContextStatusServerFailed {
+	if err != nil || qCtx.Status() == handler.ContextStatusServerFailed {
 		r = new(dns.Msg)
 		r.SetReply(qCtx.Q())
 		r.Rcode = dns.RcodeServerFailure
@@ -101,8 +103,8 @@ func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *Context, w Re
 	}
 }
 
-func (h *DefaultServerHandler) execEntry(ctx context.Context, qCtx *Context) error {
-	p, err := GetPlugin(h.config.Entry)
+func (h *DefaultServerHandler) execEntry(ctx context.Context, qCtx *handler.Context) error {
+	p, err := handler.GetPlugin(h.config.Entry)
 	if err != nil {
 		return err
 	}
@@ -153,4 +155,26 @@ func (l *concurrentLimiter) release() {
 
 func (l *concurrentLimiter) available() int {
 	return len(l.bucket)
+}
+
+type DummyServerHandler struct {
+	T       *testing.T
+	WantMsg *dns.Msg
+	WantErr error
+}
+
+func (d *DummyServerHandler) ServeDNS(_ context.Context, qCtx *handler.Context, w ResponseWriter) {
+	var r *dns.Msg
+	if d.WantMsg != nil {
+		r = d.WantMsg.Copy()
+		r.Id = qCtx.Q().Id
+	} else {
+		r = new(dns.Msg)
+		r.SetReply(qCtx.Q())
+	}
+
+	_, err := w.Write(r)
+	if err != nil {
+		d.T.Errorf("DummyServerHandler: %v", err)
+	}
 }
