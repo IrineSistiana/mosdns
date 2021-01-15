@@ -222,12 +222,14 @@ func PurgePluginRegister() {
 // It also has an internal logger, for convenience.
 type BP struct {
 	tag, typ string
-	logger   *zap.Logger
+	l        *zap.Logger
+	s        *zap.SugaredLogger
 }
 
 // NewBP creates a new BP and initials its logger.
 func NewBP(tag string, typ string) *BP {
-	return &BP{tag: tag, typ: typ, logger: mlog.NewPluginLogger(tag)}
+	l := mlog.NewPluginLogger(tag)
+	return &BP{tag: tag, typ: typ, l: l, s: l.Sugar()}
 }
 
 func (p *BP) Tag() string {
@@ -239,5 +241,9 @@ func (p *BP) Type() string {
 }
 
 func (p *BP) L() *zap.Logger {
-	return p.logger
+	return p.l
+}
+
+func (p *BP) S() *zap.SugaredLogger {
+	return p.s
 }
