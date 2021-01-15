@@ -60,7 +60,7 @@ type UpstreamConfig struct {
 	// Protocol: upstream protocol, can be:
 	// "", "udp" -> udp upstream
 	// "tcp" -> tcp upstream
-	// "dot" -> dns over tls upstream
+	// "dot", "tls" -> dns over tls upstream
 	// "doh", "https" -> dns over https (rfc 8844) upstream
 	Protocol string `yaml:"protocol"`
 
@@ -79,8 +79,9 @@ type UpstreamConfig struct {
 	Timeout uint `yaml:"timeout"`
 
 	// IdleTimeout used by all protocols to control connection idle timeout.
-	// If IdleTimeout == 0, connection reuse will be disabled.
+	// Default: "tcp" & "dot": 0 (disable connection reuse), "udp" & "doh": 30.
 	IdleTimeout        uint     `yaml:"idle_timeout"`
+	MaxConns           uint     `yaml:"max_conns"`            // used by "doh", max connections. Default: 1.
 	InsecureSkipVerify bool     `yaml:"insecure_skip_verify"` // used by "dot", "doh". Skip tls verification.
 	CA                 []string `yaml:"ca"`                   // certificate path, used by "dot", "doh" as ca root.
 }

@@ -78,7 +78,7 @@ func newFastUpstream(config *UpstreamConfig, logger *zap.Logger) (*fastUpstream,
 	} else {
 		timeout = generalReadTimeout
 	}
-	idleTimeout := time.Second * time.Duration(config.IdleTimeout)
+	var idleTimeout time.Duration = 0
 
 	u := new(fastUpstream)
 
@@ -88,17 +88,18 @@ func newFastUpstream(config *UpstreamConfig, logger *zap.Logger) (*fastUpstream,
 		u.mode = protocolUDP
 		config.Addr = utils.TryAddPort(config.Addr, 53)
 		u.address = "udp://" + config.Addr
+		idleTimeout = time.Second * 30
 	case "tcp":
 		u.mode = protocolTCP
 		config.Addr = utils.TryAddPort(config.Addr, 53)
 		u.address = "tcp://" + config.Addr
-	case "dot":
+	case "dot", "tls":
 		if len(config.ServerName) == 0 {
 			return nil, errors.New("dot server name is empty")
 		}
 		u.mode = protocolDoT
 		config.Addr = utils.TryAddPort(config.Addr, 853)
-		u.address = "dot://" + config.ServerName
+		u.address = "tls://" + config.ServerName
 	case "doh", "https":
 		if len(config.URL) == 0 {
 			return nil, errors.New("doh server url is empty")
@@ -106,8 +107,13 @@ func newFastUpstream(config *UpstreamConfig, logger *zap.Logger) (*fastUpstream,
 		u.mode = protocolDoH
 		config.Addr = utils.TryAddPort(config.Addr, 443)
 		u.address = config.URL
+		idleTimeout = time.Second * 30
 	default:
 		return nil, fmt.Errorf("unsupported protocol: %s", config.Protocol)
+	}
+
+	if config.IdleTimeout != 0 { // overwrite default idle timeout
+		idleTimeout = time.Second * time.Duration(config.IdleTimeout)
 	}
 
 	// init other stuffs in u
@@ -166,20 +172,24 @@ func newFastUpstream(config *UpstreamConfig, logger *zap.Logger) (*fastUpstream,
 		tlsConfig := new(tls.Config)
 		tlsConfig.RootCAs = u.certPool
 		tlsConfig.InsecureSkipVerify = config.InsecureSkipVerify
+
+		maxConn := 1
+		if config.MaxConns != 0 {
+			maxConn = int(config.MaxConns)
+		}
+
 		t := &http.Transport{
 			DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) { // overwrite server addr
 				return u.dialContext(ctx, network, config.Addr)
 			},
 			TLSClientConfig:       tlsConfig,
 			TLSHandshakeTimeout:   tlsHandshakeTimeout,
-			DisableCompression:    true,
-			DisableKeepAlives:     idleTimeout == 0,
 			IdleConnTimeout:       idleTimeout,
 			ResponseHeaderTimeout: timeout,
 			// MaxConnsPerHost and MaxIdleConnsPerHost should be equal.
 			// Otherwise, it might seriously affect the efficiency of connection reuse.
-			MaxConnsPerHost:     5,
-			MaxIdleConnsPerHost: 5,
+			MaxConnsPerHost:     maxConn,
+			MaxIdleConnsPerHost: maxConn,
 		}
 		_, err := http2.ConfigureTransports(t)
 		if err != nil {
