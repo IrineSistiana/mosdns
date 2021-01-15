@@ -27,6 +27,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"time"
 )
 
 type ExecutableCmd interface {
@@ -173,27 +174,29 @@ func ParseIfBlock(in map[string]interface{}) (*IfBlock, error) {
 }
 
 type ParallelECS struct {
-	s []*ExecutableCmdSequence
+	s       []*ExecutableCmdSequence
+	timeout time.Duration
 }
 
 type ParallelECSConfig struct {
 	Parallel [][]interface{} `yaml:"parallel"`
+	Timeout  uint            `yaml:"timeout"`
 }
 
-func ParseParallelECS(in [][]interface{}) (*ParallelECS, error) {
-	if len(in) < 2 {
-		return nil, fmt.Errorf("parallel needs at least 2 cmd sequences, but got %d", len(in))
+func ParseParallelECS(c *ParallelECSConfig) (*ParallelECS, error) {
+	if len(c.Parallel) < 2 {
+		return nil, fmt.Errorf("parallel needs at least 2 cmd sequences, but got %d", len(c.Parallel))
 	}
 
-	ps := make([]*ExecutableCmdSequence, 0, len(in))
-	for i, subSequence := range in {
+	ps := make([]*ExecutableCmdSequence, 0, len(c.Parallel))
+	for i, subSequence := range c.Parallel {
 		es, err := ParseExecutableCmdSequence(subSequence)
 		if err != nil {
 			return nil, fmt.Errorf("invalid parallel sequence at index %d: %w", i, err)
 		}
 		ps = append(ps, es)
 	}
-	return &ParallelECS{s: ps}, nil
+	return &ParallelECS{s: ps, timeout: time.Duration(c.Timeout) * time.Second}, nil
 }
 
 type parallelECSResult struct {
@@ -208,16 +211,35 @@ func (p *ParallelECS) ExecCmd(ctx context.Context, qCtx *handler.Context, logger
 }
 
 func (p *ParallelECS) execCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
+
+	var pCtx context.Context // only valid if p.timeout == 0
+	var cancel func()
+	if p.timeout == 0 {
+		pCtx, cancel = context.WithCancel(ctx)
+		defer cancel()
+	}
+
 	t := len(p.s)
 	c := make(chan *parallelECSResult, len(p.s)) // use buf chan to avoid block.
+
 	for i, sequence := range p.s {
 		i := i
 		sequence := sequence
 		qCtxCopy := qCtx.Copy()
+
 		go func() {
-			err := WalkExecutableCmd(ctx, qCtxCopy, logger, sequence)
+			var ecsCtx context.Context
+			var ecsCancel func()
+			if p.timeout == 0 {
+				ecsCtx = pCtx
+			} else {
+				ecsCtx, ecsCancel = context.WithTimeout(context.Background(), p.timeout)
+				defer ecsCancel()
+			}
+
+			err := WalkExecutableCmd(ecsCtx, qCtxCopy, logger, sequence)
 			if err == nil {
-				err = qCtxCopy.ExecDefer(ctx)
+				err = qCtxCopy.ExecDefer(pCtx)
 			}
 			c <- &parallelECSResult{
 				r:      qCtxCopy.R(),
@@ -352,22 +374,21 @@ func (f *FallbackECS) ExecCmd(ctx context.Context, qCtx *handler.Context, logger
 
 func (f *FallbackECS) execCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
 	if f.primaryST.good() {
-		return f.execPrimary(ctx, qCtx, logger)
+		qCtxCopy := qCtx.Copy()
+		err = f.execPrimary(ctx, qCtxCopy, logger)
+		if err == nil {
+			err = qCtxCopy.ExecDefer(ctx)
+		}
+		qCtx.SetResponse(qCtxCopy.R(), qCtxCopy.Status())
+		return err
 	}
 	logger.Debug("primary is not good", qCtx.InfoField())
 	return f.doFallback(ctx, qCtx, logger)
 }
 
 func (f *FallbackECS) execPrimary(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
-	qCtxCopy := qCtx.Copy() // isolate qCtx
-	err = WalkExecutableCmd(ctx, qCtxCopy, logger, f.primary)
-	qCtx.SetResponse(qCtxCopy.R(), qCtxCopy.Status())
-
-	if err == nil {
-		err = qCtxCopy.ExecDefer(ctx)
-	}
-
-	if err != nil || qCtxCopy.R() == nil {
+	err = WalkExecutableCmd(ctx, qCtx, logger, f.primary)
+	if err != nil || qCtx.R() == nil {
 		f.primaryST.update(1)
 	} else {
 		f.primaryST.update(0)
@@ -383,13 +404,16 @@ type fallbackResult struct {
 }
 
 func (f *FallbackECS) doFallback(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
+	fCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	c := make(chan *fallbackResult, 2) // buf size is 2, avoid block.
 
 	qCtxCopyP := qCtx.Copy()
 	go func() {
-		err := f.execPrimary(ctx, qCtxCopyP, logger)
+		err := f.execPrimary(fCtx, qCtxCopyP, logger)
 		if err == nil {
-			err = qCtxCopyP.ExecDefer(ctx)
+			err = qCtxCopyP.ExecDefer(fCtx)
 		}
 		c <- &fallbackResult{
 			r:      qCtxCopyP.R(),
@@ -401,9 +425,9 @@ func (f *FallbackECS) doFallback(ctx context.Context, qCtx *handler.Context, log
 
 	qCtxCopyS := qCtx.Copy()
 	go func() {
-		err := WalkExecutableCmd(ctx, qCtxCopyS, logger, f.secondary)
+		err := WalkExecutableCmd(fCtx, qCtxCopyS, logger, f.secondary)
 		if err == nil {
-			err = qCtxCopyS.ExecDefer(ctx)
+			err = qCtxCopyS.ExecDefer(fCtx)
 		}
 		c <- &fallbackResult{
 			r:      qCtxCopyS.R(),
@@ -494,7 +518,7 @@ func parseParallelECS(m map[string]interface{}) (ec ExecutableCmd, err error) {
 	if err != nil {
 		return nil, err
 	}
-	return ParseParallelECS(conf.Parallel)
+	return ParseParallelECS(conf)
 }
 
 func parseFallbackECS(m map[string]interface{}) (ec ExecutableCmd, err error) {

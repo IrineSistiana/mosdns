@@ -44,7 +44,7 @@ func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
 }
 
 func newParallel(bp *handler.BP, args *Args) (*parallel, error) {
-	ps, err := utils.ParseParallelECS(args.Parallel)
+	ps, err := utils.ParseParallelECS(args)
 	if err != nil {
 		return nil, err
 	}
