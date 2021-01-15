@@ -29,6 +29,7 @@ import (
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/parallel"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/pipeline"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/sequence"
+	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/sleep"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/hosts"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/query_matcher"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/response_matcher"
