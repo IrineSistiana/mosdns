@@ -50,9 +50,6 @@ func newPluginRegister() *pluginRegister {
 	}
 }
 
-// regPlugin registers p, if errIfDup is true and p.Tag is duplicated, an err will be returned.
-// If old plugin is a ServicePlugin, regPlugin will call ServicePlugin.Shutdown(). If it failed to
-// shutdown the old service, it will panic.
 func (r *pluginRegister) regPlugin(p Plugin, errIfDup bool) error {
 	r.Lock()
 
@@ -171,8 +168,9 @@ func NewPlugin(c *Config) (p Plugin, err error) {
 	return typeInfo.newPlugin(bp, c.Args)
 }
 
-// RegPlugin registers this Plugin globally.
-// Duplicate Plugin tag will overwrite the old one.
+// RegPlugin registers Plugin p. If errIfDup is true and Plugin.Tag()
+// is duplicated, an err will be returned. If old plugin is a Service,
+// RegPlugin will call Service.Shutdown(). If this failed, RegPlugin will panic.
 func RegPlugin(p Plugin, errIfDup bool) error {
 	return pluginTagRegister.regPlugin(p, errIfDup)
 }
@@ -186,6 +184,9 @@ func MustRegPlugin(p Plugin, errIfDup bool) {
 	}
 }
 
+// GetPlugin returns the plugin. If the tag is not registered, an err
+// will be returned.
+// Also see PluginWrapper.
 func GetPlugin(tag string) (p *PluginWrapper, err error) {
 	return pluginTagRegister.getPlugin(tag)
 }
@@ -198,13 +199,13 @@ func DelPlugin(tag string) {
 }
 
 // GetPluginAll returns all registered plugins.
-// This should only be used in test or debug.
+// This should only be used in testing or debugging.
 func GetPluginAll() []Plugin {
 	return pluginTagRegister.getPluginAll()
 }
 
 // GetConfigurablePluginTypes returns all plugin types which are configurable.
-// This should only be used in test or debug.
+// This should only be used in testing or debugging.
 func GetConfigurablePluginTypes() []string {
 	b := make([]string, 0, len(pluginTypeRegister))
 	for typ := range pluginTypeRegister {
@@ -213,7 +214,7 @@ func GetConfigurablePluginTypes() []string {
 	return b
 }
 
-// PurgePluginRegister should only be used in test.
+// PurgePluginRegister should only be used in testing.
 func PurgePluginRegister() {
 	pluginTagRegister.purge()
 }

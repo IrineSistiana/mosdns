@@ -75,7 +75,7 @@ func (status ContextStatus) String() string {
 var id uint32
 
 // NewContext creates a new query Context.
-// q is the query dns msg. it cannot be nil, or NewContext will panic.
+// q is the query dns msg. It cannot be nil, or NewContext will panic.
 // from is the client net.Addr. It can be nil.
 func NewContext(q *dns.Msg, from net.Addr) *Context {
 	if q == nil {
@@ -111,20 +111,25 @@ func (ctx *Context) From() net.Addr {
 	return ctx.from
 }
 
+// R returns the response. It might be nil.
 func (ctx *Context) R() *dns.Msg {
 	return ctx.r
 }
 
+// Status returns the context status.
 func (ctx *Context) Status() ContextStatus {
 	return ctx.status
 }
 
+// SetResponse stores the response r to the context.
+// Note: It just stores the pointer of r. So the caller
+// shouldn't modify or read r after the call.
 func (ctx *Context) SetResponse(r *dns.Msg, status ContextStatus) {
 	ctx.r = r
 	ctx.status = status
 }
 
-// CopyDeferFrom copies defer Executable from other Context.
+// CopyDeferFrom copies defer Executable from src.
 func (ctx *Context) CopyDeferFrom(src *Context) {
 	ctx.deferrable = make([]Executable, len(src.deferrable))
 	copy(ctx.deferrable, src.deferrable)
