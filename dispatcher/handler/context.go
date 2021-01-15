@@ -23,6 +23,7 @@ import (
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"net"
+	"strconv"
 	"sync/atomic"
 	"time"
 )
@@ -68,7 +69,7 @@ func (status ContextStatus) String() string {
 	if ok {
 		return s
 	}
-	return fmt.Sprintf("invalid status %d", status)
+	return strconv.Itoa(int(status))
 }
 
 var id uint32

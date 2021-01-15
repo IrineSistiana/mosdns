@@ -58,9 +58,9 @@ type ServerConfig struct {
 	// Protocol: server protocol, can be:
 	// "", "udp" -> udp
 	// "tcp" -> tcp
-	// "dot" -> dns over tls
+	// "dot", "tls" -> dns over tls
 	// "doh", "https" -> dns over https (rfc 8844)
-	// "http" -> dns over https (rfc 8844) but with out tls
+	// "http" -> dns over https (rfc 8844) but without tls
 	Protocol string `yaml:"protocol"`
 
 	// Addr: server "host:port" addr, "port" can be omitted.
@@ -198,7 +198,7 @@ func (s *server) listenAndStart(c *ServerConfig) error {
 	case "tcp":
 		utils.TryAddPort(c.Addr, 53)
 		return s.startTCP(c, false)
-	case "dot":
+	case "dot", "tls":
 		utils.TryAddPort(c.Addr, 853)
 		return s.startTCP(c, true)
 	case "doh", "https":
