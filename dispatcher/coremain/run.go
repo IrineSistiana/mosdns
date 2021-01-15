@@ -81,7 +81,7 @@ func loadConfig(f string, depth int) error {
 	}
 
 	for i, pluginConfig := range c.Plugin {
-		if len(pluginConfig.Tag) == 0 {
+		if len(pluginConfig.Tag) == 0 || len(pluginConfig.Type) == 0 {
 			continue
 		}
 		mlog.L().Info("loading plugin", zap.String("tag", pluginConfig.Tag))
