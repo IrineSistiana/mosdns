@@ -20,6 +20,7 @@ package handler
 import (
 	"context"
 	"github.com/miekg/dns"
+	"time"
 )
 
 // Types and funcs in this file are for testing only
@@ -36,11 +37,16 @@ func (d *DummyMatcherPlugin) Match(_ context.Context, _ *Context) (matched bool,
 
 type DummyExecutablePlugin struct {
 	*BP
+	Sleep   time.Duration
 	WantR   *dns.Msg
 	WantErr error
 }
 
 func (d *DummyExecutablePlugin) Exec(_ context.Context, qCtx *Context) (err error) {
+	if d.Sleep != 0 {
+		time.Sleep(d.Sleep)
+	}
+
 	if d.WantErr != nil {
 		return d.WantErr
 	}
@@ -52,12 +58,17 @@ func (d *DummyExecutablePlugin) Exec(_ context.Context, qCtx *Context) (err erro
 
 type DummyESExecutablePlugin struct {
 	*BP
+	Sleep    time.Duration
 	WantR    *dns.Msg
 	WantSkip bool
 	WantErr  error
 }
 
 func (d *DummyESExecutablePlugin) ExecES(_ context.Context, qCtx *Context) (earlyStop bool, err error) {
+	if d.Sleep != 0 {
+		time.Sleep(d.Sleep)
+	}
+
 	if d.WantErr != nil {
 		return false, d.WantErr
 	}

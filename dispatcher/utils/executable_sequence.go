@@ -250,30 +250,7 @@ func (p *ParallelECS) execCmd(ctx context.Context, qCtx *handler.Context, logger
 		}()
 	}
 
-	for i := 0; i < t; i++ {
-		select {
-		case res := <-c:
-			if res.err != nil {
-				logger.Warn("sequence failed", qCtx.InfoField(), zap.Int("sequence_index", res.from), zap.Error(res.err))
-				continue
-			}
-			if res.r == nil {
-				logger.Debug("sequence returned with an empty response", qCtx.InfoField(), zap.Int("sequence_index", res.from))
-				continue
-			}
-
-			logger.Debug("sequence returned a response", qCtx.InfoField(), zap.Int("sequence_index", res.from))
-			qCtx.SetResponse(res.r, res.status)
-			return nil
-
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-
-	// No valid response, all parallel sequences are failed.
-	qCtx.SetResponse(nil, handler.ContextStatusServerFailed)
-	return errors.New("no response")
+	return asyncWait(ctx, qCtx, logger, c, t)
 }
 
 type FallbackConfig struct {
@@ -284,12 +261,19 @@ type FallbackConfig struct {
 
 	StatLength int `yaml:"stat_length"` // default is 10
 	Threshold  int `yaml:"threshold"`   // default is 5
+
+	// FastFallback threshold in milliseconds. Zero means disable fast fallback.
+	FastFallback int `yaml:"fast_fallback"`
+
+	// AlwaysStandby: secondary should always standby in fast fallback.
+	AlwaysStandby bool `yaml:"always_standby"`
 }
 
 type FallbackECS struct {
-	primary   *ExecutableCmdSequence
-	secondary *ExecutableCmdSequence
-	threshold int
+	primary              *ExecutableCmdSequence
+	secondary            *ExecutableCmdSequence
+	fastFallbackDuration time.Duration
+	alwaysStandby        bool
 
 	primaryST *statusTracker
 }
@@ -332,39 +316,40 @@ func (t *statusTracker) update(s uint8) {
 	t.p++
 }
 
-func ParseFallbackECS(primary, secondary []interface{}, threshold, statLength int) (*FallbackECS, error) {
-	if len(primary) == 0 {
+func ParseFallbackECS(c *FallbackConfig) (*FallbackECS, error) {
+	if len(c.Primary) == 0 {
 		return nil, errors.New("primary sequence is empty")
 	}
-	if len(secondary) == 0 {
+	if len(c.Secondary) == 0 {
 		return nil, errors.New("secondary sequence is empty")
 	}
 
-	primaryECS, err := ParseExecutableCmdSequence(primary)
+	primaryECS, err := ParseExecutableCmdSequence(c.Primary)
 	if err != nil {
 		return nil, fmt.Errorf("invalid primary sequence: %w", err)
 	}
 
-	secondaryECS, err := ParseExecutableCmdSequence(secondary)
+	secondaryECS, err := ParseExecutableCmdSequence(c.Secondary)
 	if err != nil {
 		return nil, fmt.Errorf("invalid secondary sequence: %w", err)
 	}
 
-	if threshold > statLength {
-		threshold = statLength
+	if c.Threshold > c.StatLength {
+		c.Threshold = c.StatLength
 	}
-	if statLength <= 0 {
-		statLength = 10
+	if c.StatLength <= 0 {
+		c.StatLength = 10
 	}
-	if threshold <= 0 {
-		threshold = 5
+	if c.Threshold <= 0 {
+		c.Threshold = 5
 	}
 
 	return &FallbackECS{
-		primary:   primaryECS,
-		secondary: secondaryECS,
-		threshold: threshold,
-		primaryST: newStatusTracker(threshold, statLength),
+		primary:              primaryECS,
+		secondary:            secondaryECS,
+		fastFallbackDuration: time.Duration(c.FastFallback) * time.Millisecond,
+		alwaysStandby:        c.AlwaysStandby,
+		primaryST:            newStatusTracker(c.Threshold, c.Threshold),
 	}, nil
 }
 
@@ -374,20 +359,28 @@ func (f *FallbackECS) ExecCmd(ctx context.Context, qCtx *handler.Context, logger
 
 func (f *FallbackECS) execCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
 	if f.primaryST.good() {
-		qCtxCopy := qCtx.Copy()
-		err = f.execPrimary(ctx, qCtxCopy, logger)
-		if err == nil {
-			err = qCtxCopy.ExecDefer(ctx)
+		if f.fastFallbackDuration > 0 {
+			return f.doFastFallback(ctx, qCtx, logger)
+		} else {
+			return f.isolateDoPrimary(ctx, qCtx, logger)
 		}
-		qCtx.SetResponse(qCtxCopy.R(), qCtxCopy.Status())
-		return err
 	}
 	logger.Debug("primary is not good", qCtx.InfoField())
 	return f.doFallback(ctx, qCtx, logger)
 }
 
-func (f *FallbackECS) execPrimary(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
+func (f *FallbackECS) isolateDoPrimary(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
+	qCtxCopy := qCtx.Copy()
+	err = f.doPrimary(ctx, qCtxCopy, logger)
+	qCtx.SetResponse(qCtxCopy.R(), qCtxCopy.Status())
+	return err
+}
+
+func (f *FallbackECS) doPrimary(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
 	err = WalkExecutableCmd(ctx, qCtx, logger, f.primary)
+	if err == nil {
+		err = qCtx.ExecDefer(ctx)
+	}
 	if err != nil || qCtx.R() == nil {
 		f.primaryST.update(1)
 	} else {
@@ -396,30 +389,94 @@ func (f *FallbackECS) execPrimary(ctx context.Context, qCtx *handler.Context, lo
 	return err
 }
 
-type fallbackResult struct {
-	r      *dns.Msg
-	status handler.ContextStatus
-	err    error
-	from   string
-}
-
-func (f *FallbackECS) doFallback(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
+func (f *FallbackECS) doFastFallback(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
 	fCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	c := make(chan *fallbackResult, 2) // buf size is 2, avoid block.
+	timer := GetTimer(f.fastFallbackDuration)
+	defer ReleaseTimer(timer)
+
+	c := make(chan *parallelECSResult, 2) // this chan only has nil-err result.
+	primFailed := make(chan struct{})     // will be closed if primary returns an err.
 
 	qCtxCopyP := qCtx.Copy()
 	go func() {
-		err := f.execPrimary(fCtx, qCtxCopyP, logger)
-		if err == nil {
-			err = qCtxCopyP.ExecDefer(fCtx)
+		err := f.doPrimary(fCtx, qCtxCopyP, logger)
+		if err != nil {
+			logger.Warn("primary sequence failed", qCtx.InfoField(), zap.Error(err))
+			close(primFailed)
+			return // do not send this err
 		}
-		c <- &fallbackResult{
+		c <- &parallelECSResult{
+			r:      qCtxCopyP.R(),
+			status: qCtxCopyP.Status(),
+			err:    nil,
+			from:   1,
+		}
+	}()
+
+	qCtxCopyS := qCtx.Copy() // TODO: this copy sometime is unnecessary, try to avoid it?
+	go func() {
+		if !f.alwaysStandby { // not always standby, wait here.
+			select {
+			case <-fCtx.Done(): // primary is done, no needs to exec this.
+				return
+			case <-primFailed: // primary failed or timeout, exec now.
+			case <-timer.C:
+			}
+		}
+
+		err := f.doSecondary(fCtx, qCtxCopyS, logger)
+		if err != nil {
+			logger.Warn("secondary sequence failed", qCtx.InfoField(), zap.Error(err))
+			return
+		}
+		res := &parallelECSResult{
+			r:      qCtxCopyS.R(),
+			status: qCtxCopyS.Status(),
+			err:    nil,
+			from:   2,
+		}
+
+		if f.alwaysStandby { // always standby
+			select {
+			case <-fCtx.Done():
+				return
+			case <-primFailed: // only send secondary result when primary is failed.
+				c <- res
+			case <-timer.C: // or timeout.
+				c <- res
+			}
+		} else {
+			c <- res // not always standby, send the result asap.
+		}
+	}()
+
+	return asyncWait(ctx, qCtx, logger, c, 2)
+}
+
+func (f *FallbackECS) doSecondary(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
+	err = WalkExecutableCmd(ctx, qCtx, logger, f.secondary)
+	if err == nil {
+		err = qCtx.ExecDefer(ctx)
+	}
+	return err
+}
+
+func (f *FallbackECS) doFallback(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) error {
+	fCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	c := make(chan *parallelECSResult, 2) // buf size is 2, avoid block.
+
+	qCtxCopyP := qCtx.Copy()
+	go func() {
+		err := f.doPrimary(fCtx, qCtxCopyP, logger)
+		c <- &parallelECSResult{
 			r:      qCtxCopyP.R(),
 			status: qCtxCopyP.Status(),
 			err:    err,
-			from:   "primary",
+			from:   1,
 		}
 	}()
 
@@ -429,28 +486,32 @@ func (f *FallbackECS) doFallback(ctx context.Context, qCtx *handler.Context, log
 		if err == nil {
 			err = qCtxCopyS.ExecDefer(fCtx)
 		}
-		c <- &fallbackResult{
+		c <- &parallelECSResult{
 			r:      qCtxCopyS.R(),
 			status: qCtxCopyS.Status(),
 			err:    err,
-			from:   "secondary",
+			from:   2,
 		}
 	}()
 
-	for i := 0; i < 2; i++ {
+	return asyncWait(ctx, qCtx, logger, c, 2)
+}
+
+func asyncWait(ctx context.Context, qCtx *handler.Context, logger *zap.Logger, c chan *parallelECSResult, total int) error {
+	for i := 0; i < total; i++ {
 		select {
 		case res := <-c:
 			if res.err != nil {
-				logger.Warn("sequence failed", qCtx.InfoField(), zap.String("sequence", res.from), zap.Error(err))
+				logger.Warn("sequence failed", qCtx.InfoField(), zap.Int("sequence", res.from), zap.Error(res.err))
 				continue
 			}
 
 			if res.r == nil {
-				logger.Debug("sequence returned with an empty response ", qCtx.InfoField(), zap.String("sequence", res.from))
+				logger.Debug("sequence returned with an empty response", qCtx.InfoField(), zap.Int("sequence", res.from))
 				continue
 			}
 
-			logger.Debug("sequence returned a response", qCtx.InfoField(), zap.String("sequence", res.from))
+			logger.Debug("sequence returned a response", qCtx.InfoField(), zap.Int("sequence", res.from))
 			qCtx.SetResponse(res.r, res.status)
 			return nil
 
@@ -527,7 +588,7 @@ func parseFallbackECS(m map[string]interface{}) (ec ExecutableCmd, err error) {
 	if err != nil {
 		return nil, err
 	}
-	return ParseFallbackECS(conf.Primary, conf.Secondary, conf.Threshold, conf.StatLength)
+	return ParseFallbackECS(conf)
 }
 
 func hasKey(m map[string]interface{}, key string) bool {

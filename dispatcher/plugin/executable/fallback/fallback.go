@@ -44,7 +44,7 @@ func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
 }
 
 func newFallback(bp *handler.BP, args *Args) (*fallback, error) {
-	fallbackECS, err := utils.ParseFallbackECS(args.Primary, args.Secondary, args.Threshold, args.StatLength)
+	fallbackECS, err := utils.ParseFallbackECS(args)
 	if err != nil {
 		return nil, err
 	}

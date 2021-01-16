@@ -218,14 +218,14 @@ func Test_ParallelECS(t *testing.T) {
 	}
 }
 
-func Test_FallbackECS(t *testing.T) {
+func Test_FallbackECS_fallback(t *testing.T) {
 	handler.PurgePluginRegister()
 	defer handler.PurgePluginRegister()
 
 	r1 := new(dns.Msg)
 	r2 := new(dns.Msg)
 	p1 := &handler.DummyExecutablePlugin{BP: handler.NewBP("p1", "")}
-	p2 := &handler.DummyExecutablePlugin{BP: handler.NewBP("p2", ""), WantR: r2}
+	p2 := &handler.DummyExecutablePlugin{BP: handler.NewBP("p2", "")}
 	handler.MustRegPlugin(p1, true)
 	handler.MustRegPlugin(p2, true)
 	er := errors.New("")
@@ -248,8 +248,16 @@ func Test_FallbackECS(t *testing.T) {
 		{"success 2 failed 1", nil, er, nil, nil, nil, true}, // end of fallback, but primary returns an err again
 		{"success 1 failed 2", nil, er, nil, er, nil, true},  // no response
 	}
+	conf := &FallbackConfig{
+		Primary:       []interface{}{"p1"},
+		Secondary:     []interface{}{"p2"},
+		StatLength:    2,
+		Threshold:     3,
+		FastFallback:  0,
+		AlwaysStandby: false,
+	}
 
-	fallbackECS, err := ParseFallbackECS([]interface{}{"p1"}, []interface{}{"p2"}, 2, 3)
+	fallbackECS, err := ParseFallbackECS(conf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,6 +281,87 @@ func Test_FallbackECS(t *testing.T) {
 			}
 
 			time.Sleep(time.Millisecond * 20) // wait for statusTracker.update()
+		})
+	}
+}
+
+func Test_FallbackECS_fast_fallback(t *testing.T) {
+	handler.PurgePluginRegister()
+	defer handler.PurgePluginRegister()
+
+	r1 := new(dns.Msg)
+	r2 := new(dns.Msg)
+	p1 := &handler.DummyExecutablePlugin{BP: handler.NewBP("p1", "")}
+	p2 := &handler.DummyExecutablePlugin{BP: handler.NewBP("p2", "")}
+	handler.MustRegPlugin(p1, true)
+	handler.MustRegPlugin(p2, true)
+	er := errors.New("")
+
+	tests := []struct {
+		name          string
+		r1            *dns.Msg
+		e1            error
+		l1            int
+		r2            *dns.Msg
+		e2            error
+		l2            int
+		alwaysStandby bool
+		wantLatency   int
+		wantR         *dns.Msg
+		wantErr       bool
+	}{
+		{"p succeed", r1, nil, 50, r2, nil, 0, false, 70, r1, false},
+		{"p failed", nil, er, 0, r2, nil, 0, false, 20, r2, false},
+		{"p timeout", r1, nil, 200, r2, nil, 0, false, 120, r2, false},
+		{"p timeout, s failed", r1, nil, 200, nil, er, 0, false, 220, r1, false},
+		{"all timeout", r1, nil, 400, r2, nil, 400, false, 320, nil, true},
+		{"always standby p succeed", r1, nil, 50, r2, nil, 0, true, 70, r1, false},
+		{"always standby p failed", nil, er, 50, r2, nil, 50, true, 70, r2, false},
+		{"always standby p timeout", r1, nil, 200, r2, nil, 50, true, 120, r2, false},
+		{"always standby p timeout, s failed", r1, nil, 200, nil, er, 0, true, 220, r1, false},
+		{"always standby all timeout", r1, nil, 400, r2, nil, 400, true, 320, nil, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conf := &FallbackConfig{
+				Primary:       []interface{}{"p1"},
+				Secondary:     []interface{}{"p2"},
+				StatLength:    99999, // never trigger the fallback mode
+				Threshold:     99999,
+				FastFallback:  100,
+				AlwaysStandby: tt.alwaysStandby,
+			}
+
+			fallbackECS, err := ParseFallbackECS(conf)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			p1.WantR = tt.r1
+			p1.WantErr = tt.e1
+			p1.Sleep = time.Duration(tt.l1) * time.Millisecond
+			p2.WantR = tt.r2
+			p2.WantErr = tt.e2
+			p2.Sleep = time.Duration(tt.l2) * time.Millisecond
+
+			ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+			defer cancel()
+
+			start := time.Now()
+			qCtx := handler.NewContext(new(dns.Msg), nil)
+			err = fallbackECS.execCmd(ctx, qCtx, zap.NewNop())
+			if time.Since(start) > time.Millisecond*time.Duration(tt.wantLatency) {
+				t.Fatalf("execCmd() timeout: latency = %vms, want = %vms", time.Since(start).Milliseconds(), tt.wantLatency)
+			}
+			if tt.wantErr != (err != nil) {
+				t.Fatalf("execCmd() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if tt.wantR != qCtx.R() {
+				t.Fatalf("execCmd() qCtx.R() = %p, wantR %p", qCtx.R(), tt.wantR)
+			}
+
 		})
 	}
 }
