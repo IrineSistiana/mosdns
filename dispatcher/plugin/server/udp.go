@@ -47,30 +47,30 @@ func (u *udpResponseWriter) Write(m *dns.Msg) (n int, err error) {
 	return utils.WriteUDPMsgTo(m, u.c, u.to)
 }
 
-func (s *server) startUDP(conf *ServerConfig) error {
+func (sg *ServerGroup) startUDP(conf *ServerConfig) error {
 	c, err := net.ListenPacket("udp", conf.Addr)
 	if err != nil {
 		return err
 	}
-	s.listener[c] = struct{}{}
-	s.L().Info("udp server started", zap.Stringer("addr", c.LocalAddr()))
+	sg.listener[c] = struct{}{}
+	sg.L().Info("udp server started", zap.Stringer("addr", c.LocalAddr()))
 	go func() {
 		listenerCtx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		for {
 			q, from, _, err := utils.ReadUDPMsgFrom(c, utils.IPv4UdpMaxPayload)
 			if err != nil {
-				if s.isClosed() {
+				if sg.isClosed() {
 					return
 				}
 				netErr, ok := err.(net.Error)
 				if ok { // is a net err
 					if netErr.Temporary() {
-						s.L().Warn("listener temporary err", zap.Stringer("addr", c.LocalAddr()), zap.Error(err))
+						sg.L().Warn("listener temporary err", zap.Stringer("addr", c.LocalAddr()), zap.Error(err))
 						time.Sleep(time.Second * 5)
 						continue
 					} else {
-						s.errChan <- fmt.Errorf("unexpected listener err: %w", err)
+						sg.errChan <- fmt.Errorf("unexpected listener err: %w", err)
 						return
 					}
 				} else { // invalid msg
@@ -83,12 +83,12 @@ func (s *server) startUDP(conf *ServerConfig) error {
 				maxSize: getMaxSizeFromQuery(q),
 			}
 			qCtx := handler.NewContext(q, from)
-			s.L().Debug("new query", qCtx.InfoField(), zap.Stringer("from", from))
+			sg.L().Debug("new query", qCtx.InfoField(), zap.Stringer("from", from))
 
 			go func() {
 				queryCtx, cancel := context.WithTimeout(listenerCtx, time.Second*5)
 				defer cancel()
-				s.handler.ServeDNS(queryCtx, qCtx, w)
+				sg.handler.ServeDNS(queryCtx, qCtx, w)
 			}()
 		}
 	}()

@@ -33,7 +33,7 @@ import (
 	"time"
 )
 
-func (s *server) startDoH(conf *ServerConfig, noTLS bool) error {
+func (sg *ServerGroup) startDoH(conf *ServerConfig, noTLS bool) error {
 	if !noTLS && (len(conf.Cert) == 0 || len(conf.Key) == 0) { // no cert
 		return errors.New("doh server needs cert and key")
 	}
@@ -43,12 +43,12 @@ func (s *server) startDoH(conf *ServerConfig, noTLS bool) error {
 		return err
 	}
 
-	s.L().Info("doh server started", zap.Stringer("addr", l.Addr()))
-	s.listener[l] = struct{}{}
+	sg.L().Info("doh server started", zap.Stringer("addr", l.Addr()))
+	sg.listener[l] = struct{}{}
 
 	httpServer := &http.Server{
 		Handler: &dohHandler{
-			s:    s,
+			s:    sg,
 			conf: conf,
 		},
 		ReadTimeout:    time.Second * 5,
@@ -65,10 +65,10 @@ func (s *server) startDoH(conf *ServerConfig, noTLS bool) error {
 			err = httpServer.ServeTLS(l, conf.Cert, conf.Key)
 		}
 		if err != nil {
-			if s.isClosed() {
+			if sg.isClosed() {
 				return
 			}
-			s.errChan <- err
+			sg.errChan <- err
 		}
 	}()
 
@@ -77,7 +77,7 @@ func (s *server) startDoH(conf *ServerConfig, noTLS bool) error {
 }
 
 type dohHandler struct {
-	s    *server
+	s    *ServerGroup
 	conf *ServerConfig
 }
 

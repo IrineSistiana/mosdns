@@ -43,13 +43,13 @@ func (t *tcpResponseWriter) Write(m *dns.Msg) (n int, err error) {
 	return utils.WriteMsgToTCP(t.c, m)
 }
 
-func (s *server) startTCP(conf *ServerConfig, isDoT bool) error {
+func (sg *ServerGroup) startTCP(conf *ServerConfig, isDoT bool) error {
 	l, err := net.Listen("tcp", conf.Addr)
 	if err != nil {
 		return err
 	}
-	s.listener[l] = struct{}{}
-	s.L().Info("tcp server started", zap.Stringer("addr", l.Addr()))
+	sg.listener[l] = struct{}{}
+	sg.L().Info("tcp server started", zap.Stringer("addr", l.Addr()))
 
 	if isDoT {
 		if len(conf.Cert) == 0 || len(conf.Key) == 0 {
@@ -72,17 +72,17 @@ func (s *server) startTCP(conf *ServerConfig, isDoT bool) error {
 		for {
 			c, err := l.Accept()
 			if err != nil {
-				if s.isClosed() {
+				if sg.isClosed() {
 					return
 				}
 
 				netErr, ok := err.(net.Error)
 				if ok && netErr.Temporary() {
-					s.L().Warn("listener temporary err", zap.Stringer("addr", l.Addr()), zap.Error(err))
+					sg.L().Warn("listener temporary err", zap.Stringer("addr", l.Addr()), zap.Error(err))
 					time.Sleep(time.Second * 5)
 					continue
 				} else {
-					s.errChan <- fmt.Errorf("unexpected listener err: %w", err)
+					sg.errChan <- fmt.Errorf("unexpected listener err: %w", err)
 					return
 				}
 			}
@@ -102,12 +102,12 @@ func (s *server) startTCP(conf *ServerConfig, isDoT bool) error {
 					w := &tcpResponseWriter{c: c}
 
 					qCtx := handler.NewContext(q, c.RemoteAddr())
-					s.L().Debug("new query", qCtx.InfoField(), zap.Stringer("from", c.RemoteAddr()))
+					sg.L().Debug("new query", qCtx.InfoField(), zap.Stringer("from", c.RemoteAddr()))
 
 					ctx, cancelQuery := context.WithTimeout(tcpConnCtx, conf.queryTimeout)
 					go func() {
 						defer cancelQuery()
-						s.handler.ServeDNS(ctx, qCtx, w)
+						sg.handler.ServeDNS(ctx, qCtx, w)
 					}()
 				}
 			}()

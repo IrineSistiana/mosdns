@@ -46,14 +46,11 @@ func TestUdpServer_ListenAndServe(t *testing.T) {
 			return
 		}
 		func() {
-			server, err := newServer(handler.NewBP("test", PluginType), &Args{Server: []*ServerConfig{tt.config}, Entry: "test"})
-			if err != nil {
-				t.Error(err)
+			sg := NewServerGroup(handler.NewBP("test", PluginType), &utils.DummyServerHandler{T: t}, []*ServerConfig{tt.config})
+			if err := sg.Activate(); err != nil {
+				t.Fatal(err)
 			}
-			defer server.Shutdown()
-
-			// replace server handler
-			server.handler = &utils.DummyServerHandler{T: t}
+			defer sg.Shutdown()
 
 			time.Sleep(time.Millisecond * 100)
 			opt := upstream.Options{
@@ -61,6 +58,7 @@ func TestUdpServer_ListenAndServe(t *testing.T) {
 				InsecureSkipVerify: true,
 			}
 			var u upstream.Upstream
+			var err error
 			switch tt.config.Protocol {
 			case "udp":
 				u, err = upstream.AddressToUpstream(tt.config.Addr, opt)

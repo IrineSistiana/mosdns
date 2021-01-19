@@ -33,16 +33,15 @@ func init() {
 	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 }
 
-type server struct {
+type ServerGroup struct {
 	*handler.BP
-	args *Args
+	configs []*ServerConfig
 
 	handler utils.ServerHandler
 
 	m         sync.Mutex
 	activated bool
 	closed    bool
-	closeChan chan struct{}
 	errChan   chan error
 	listener  map[io.Closer]struct{}
 }
@@ -87,7 +86,7 @@ func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
 	return newServer(bp, args.(*Args))
 }
 
-func newServer(bp *handler.BP, args *Args) (*server, error) {
+func newServer(bp *handler.BP, args *Args) (*ServerGroup, error) {
 	if len(args.Server) == 0 {
 		return nil, errors.New("no server")
 	}
@@ -95,87 +94,89 @@ func newServer(bp *handler.BP, args *Args) (*server, error) {
 		return nil, errors.New("empty entry")
 	}
 
-	s := &server{
-		BP:   bp,
-		args: args,
+	sh := utils.NewDefaultServerHandler(&utils.DefaultServerHandlerConfig{
+		Logger:          bp.L(),
+		Entry:           args.Entry,
+		ConcurrentLimit: args.MaxConcurrentQueries,
+	})
 
-		handler: utils.NewDefaultServerHandler(&utils.DefaultServerHandlerConfig{
-			Logger:          bp.L(),
-			Entry:           args.Entry,
-			ConcurrentLimit: args.MaxConcurrentQueries,
-		}),
-
-		closeChan: make(chan struct{}),
-		errChan:   make(chan error, len(args.Server)), // must be a buf chan to avoid block.
-		listener:  map[io.Closer]struct{}{},
-	}
-
-	err := s.Activate()
-	if err != nil {
+	sg := NewServerGroup(bp, sh, args.Server)
+	if err := sg.Activate(); err != nil {
 		return nil, err
 	}
-
 	go func() {
-		for i := 0; i < len(args.Server); i++ {
-			err := <-s.errChan
-			if err != nil {
-				s.Shutdown()
-				handler.PluginFatalErr(bp.Tag(), fmt.Sprintf("server exited with err: %v", err))
-			}
+		if err := sg.WaitErr(); err != nil {
+			handler.PluginFatalErr(bp.Tag(), fmt.Sprintf("server exited with err: %v", err))
 		}
 	}()
-	return s, nil
+
+	return sg, nil
 }
 
-func (s *server) isClosed() bool {
-	s.m.Lock()
-	defer s.m.Unlock()
-	return s.closed
-}
+func NewServerGroup(bp *handler.BP, handler utils.ServerHandler, configs []*ServerConfig) *ServerGroup {
+	s := &ServerGroup{
+		BP:      bp,
+		configs: configs,
+		handler: handler,
 
-func (s *server) Shutdown() error {
-	s.m.Lock()
-	defer s.m.Unlock()
-
-	return s.shutdownNoLock()
-}
-
-func (s *server) shutdownNoLock() error {
-	if !s.closed {
-		close(s.closeChan) // close chan once
-		s.closed = true
+		errChan:  make(chan error, len(configs)), // must be a buf chan to avoid block.
+		listener: map[io.Closer]struct{}{},
 	}
-	for l := range s.listener {
-		err := l.Close()
-		if err != nil {
-			return err
-		} else {
-			delete(s.listener, l)
-		}
+	return s
+}
+
+func (sg *ServerGroup) isClosed() bool {
+	sg.m.Lock()
+	defer sg.m.Unlock()
+	return sg.closed
+}
+
+func (sg *ServerGroup) Shutdown() error {
+	sg.m.Lock()
+	defer sg.m.Unlock()
+
+	return sg.shutdownNoLock()
+}
+
+func (sg *ServerGroup) shutdownNoLock() error {
+	sg.closed = true
+	for l := range sg.listener {
+		l.Close()
+		delete(sg.listener, l)
 	}
 	return nil
 }
 
-func (s *server) Activate() error {
-	s.m.Lock()
-	defer s.m.Unlock()
+func (sg *ServerGroup) Activate() error {
+	sg.m.Lock()
+	defer sg.m.Unlock()
 
-	if s.activated {
+	if sg.activated {
 		return errors.New("server has been activated")
 	}
-	s.activated = true
+	sg.activated = true
 
-	for _, conf := range s.args.Server {
-		err := s.listenAndStart(conf)
+	for _, conf := range sg.configs {
+		err := sg.listenAndStart(conf)
 		if err != nil {
-			s.shutdownNoLock()
+			sg.shutdownNoLock()
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *server) listenAndStart(c *ServerConfig) error {
+func (sg *ServerGroup) WaitErr() error {
+	for i := 0; i < len(sg.configs); i++ {
+		err := <-sg.errChan
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (sg *ServerGroup) listenAndStart(c *ServerConfig) error {
 	if len(c.Addr) == 0 {
 		return errors.New("server addr is empty")
 	}
@@ -194,19 +195,19 @@ func (s *server) listenAndStart(c *ServerConfig) error {
 	switch c.Protocol {
 	case "", "udp":
 		utils.TryAddPort(c.Addr, 53)
-		return s.startUDP(c)
+		return sg.startUDP(c)
 	case "tcp":
 		utils.TryAddPort(c.Addr, 53)
-		return s.startTCP(c, false)
+		return sg.startTCP(c, false)
 	case "dot", "tls":
 		utils.TryAddPort(c.Addr, 853)
-		return s.startTCP(c, true)
+		return sg.startTCP(c, true)
 	case "doh", "https":
 		utils.TryAddPort(c.Addr, 443)
-		return s.startDoH(c, false)
+		return sg.startDoH(c, false)
 	case "http":
 		utils.TryAddPort(c.Addr, 80)
-		return s.startDoH(c, true)
+		return sg.startDoH(c, true)
 	default:
 		return fmt.Errorf("unsupported protocol: %s", c.Protocol)
 	}
