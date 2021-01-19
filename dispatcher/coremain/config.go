@@ -19,8 +19,6 @@ package coremain
 
 import (
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/forward"
-	"github.com/IrineSistiana/mosdns/dispatcher/plugin/server"
 	"gopkg.in/yaml.v3"
 	"io/ioutil"
 	"os"
@@ -53,11 +51,21 @@ func parseConfig(f string) (*Config, error) {
 
 // GenConfig generates a config template to path p.
 func GenConfig(p string) error {
-	c, err := GetTemplateConfig()
-	if err != nil {
-		return err
-	}
+	c := new(Config)
+	c.Log.Level = "info"
 
+	argsPlaceholder := map[string]interface{}{"arg1": "value1", "arg2": "value2"}
+	c.Plugin = append(c.Plugin, &handler.Config{
+		Tag:  "server",
+		Type: "server",
+		Args: argsPlaceholder,
+	})
+
+	c.Plugin = append(c.Plugin, &handler.Config{
+		Tag:  "forward",
+		Type: "forward",
+		Args: argsPlaceholder,
+	})
 	return c.Save(p)
 }
 
@@ -77,63 +85,4 @@ func (c *Config) Save(p string) error {
 	}
 
 	return err
-}
-
-func (c *Config) AddPlugin(tag, typ string, args interface{}) error {
-	out, err := objToGeneral(args)
-	if err != nil {
-		return err
-	}
-
-	c.Plugin = append(c.Plugin, &handler.Config{
-		Tag:  tag,
-		Type: typ,
-		Args: out,
-	})
-	return nil
-}
-
-func objToGeneral(in interface{}) (out map[string]interface{}, err error) {
-	b, err := yaml.Marshal(in)
-	if err != nil {
-		return nil, err
-	}
-
-	out = make(map[string]interface{})
-	err = yaml.Unmarshal(b, out)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func GetTemplateConfig() (*Config, error) {
-	c := new(Config)
-
-	err := c.AddPlugin("server", server.PluginType, server.Args{
-		Server: []*server.ServerConfig{
-			{Protocol: "udp", Addr: "127.0.0.1:53"},
-			{Protocol: "tcp", Addr: "127.0.0.1:53"},
-			{Protocol: "udp", Addr: "[::1]:53"},
-			{Protocol: "tcp", Addr: "[::1]:53"},
-		},
-		Entry: "forward_google_doh",
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	err = c.AddPlugin("forward_google_doh", forward.PluginType, forward.Args{
-		UpstreamConfig: []forward.UpstreamConfig{
-			{
-				Addr:   "https://dns.google/dns-query",
-				IPAddr: []string{"8.8.8.8", "2001:4860:4860::8888"},
-			},
-		},
-		Timeout: 10,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return c, nil
 }
