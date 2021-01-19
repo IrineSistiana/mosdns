@@ -31,6 +31,8 @@ var test_hosts = `
      # empty line
 dns.google 8.8.8.8 8.8.4.4 2001:4860:4860::8844 2001:4860:4860::8888
 regexp:^123456789 192.168.1.1
+test.com 1.2.3.4
+test.com 2.3.4.5
 # nxdomain.com 1.2.3.4
 `
 
@@ -58,8 +60,9 @@ func Test_hostsContainer_Match(t *testing.T) {
 		{"matched A", args{name: "dns.google.", typ: dns.TypeA}, true, []string{"8.8.8.8", "8.8.4.4"}},
 		{"matched AAAA", args{name: "dns.google.", typ: dns.TypeAAAA}, true, []string{"2001:4860:4860::8844", "2001:4860:4860::8888"}},
 		{"not matched A", args{name: "nxdomain.com.", typ: dns.TypeA}, false, nil},
-		{"matched regexp A", args{name: "123456789.text", typ: dns.TypeA}, true, []string{"192.168.1.1"}},
-		{"not matched regexp A", args{name: "0123456789.text", typ: dns.TypeA}, false, nil},
+		{"matched regexp A", args{name: "123456789.test.", typ: dns.TypeA}, true, []string{"192.168.1.1"}},
+		{"not matched regexp A", args{name: "0123456789.test.", typ: dns.TypeA}, false, nil},
+		{"test appendable", args{name: "test.com.", typ: dns.TypeA}, true, []string{"1.2.3.4", "2.3.4.5"}},
 	}
 	for _, tt := range tests {
 		q := new(dns.Msg)

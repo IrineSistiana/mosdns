@@ -38,7 +38,7 @@ func NewMixMatcher() *MixMatcher {
 	}
 }
 
-func (m *MixMatcher) AddElem(typ v2data.Domain_Type, s string, v interface{}) error {
+func (m *MixMatcher) AddElem(typ v2data.Domain_Type, s string, v Appendable) error {
 	switch typ {
 	case v2data.Domain_Plain:
 		m.keyword.Add(s, v)
@@ -72,4 +72,12 @@ func (m *MixMatcher) Match(fqdn string) (v interface{}, ok bool) {
 		return
 	}
 	return
+}
+
+func (m *MixMatcher) Len() int {
+	sum := 0
+	for _, m := range [...]Matcher{m.domain, m.keyword, m.regex, m.full} {
+		sum += m.Len()
+	}
+	return sum
 }

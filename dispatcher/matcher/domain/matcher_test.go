@@ -25,92 +25,121 @@ import (
 func assertFunc(t *testing.T, m Matcher) func(fqdn string, wantBool bool, wantV interface{}) {
 	return func(fqdn string, wantBool bool, wantV interface{}) {
 		v, ok := m.Match(fqdn)
-		if ok != wantBool || !reflect.DeepEqual(v, wantV) {
-			t.Fatal()
+		if ok != wantBool {
+			t.Fatalf("%s, wantBool = %v, got = %v", fqdn, wantBool, ok)
+		}
+
+		if !reflect.DeepEqual(v, wantV) {
+			t.Fatalf("%s, wantV = %v, got = %v", fqdn, wantV, v)
 		}
 	}
+}
+
+type aStr struct {
+	s string
+}
+
+func s(str string) *aStr {
+	return &aStr{s: str}
+}
+
+func (a *aStr) Append(v interface{}) {
+	a.s = a.s + v.(*aStr).s
 }
 
 func Test_DomainMatcher(t *testing.T) {
 	m := NewDomainMatcher(MatchModeDomain)
-	add := func(fqdn string) {
-		m.Add(fqdn, fqdn)
+	add := func(fqdn string, v Appendable) {
+		m.Add(fqdn, v)
 	}
-	assertMatched := func(fqdn, base string) {
-		v, ok := m.Match(fqdn)
-		if !ok || base != v.(string) {
-			t.Fatal()
-		}
-	}
-	assertNotMatched := func(fqdn string) {
-		v, ok := m.Match(fqdn)
-		if ok || v != nil {
-			t.Fatal()
-		}
-	}
-	add("cn.")
-	add("a.com.")
-	add("b.com.")
-	add("abc.com.")
-	add("123456789012345678901234567890.com.")
+	assert := assertFunc(t, m)
 
-	assertMatched("a.cn.", "cn.")
-	assertMatched("a.b.cn.", "cn.")
-	assertMatched("a.com.", "a.com.")
-	assertMatched("b.com.", "b.com.")
-	assertMatched("abc.abc.com.", "abc.com.")
-	assertMatched("123456.123456789012345678901234567890.com.", "123456789012345678901234567890.com.")
+	add("cn.", nil)
+	assert("cn.", true, nil)
+	assert("a.cn.", true, nil)
+	assert("a.com.", false, nil)
+	add("a.b.com.", nil)
+	assert("a.b.com.", true, nil)
+	assert("q.w.e.r.a.b.com.", true, nil)
+	assert("c.a.com.", false, nil)
 
-	assertNotMatched("us.")
-	assertNotMatched("c.com.")
-	assertNotMatched("a.c.com.")
+	// test appendable
+	add("append.", nil)
+	assert("a.append.", true, nil)
+	add("append.", s("a"))
+	assert("b.append.", true, s("a"))
+	add("append.", s("b"))
+	assert("c.append.", true, s("ab"))
 
-	m.mode = MatchModeFull
-	assertNotMatched("a.cn.")
-	assertMatched("a.com.", "a.com.")
-	assertNotMatched("b.a.com.")
+	m = NewDomainMatcher(MatchModeFull)
+	assert = assertFunc(t, m)
+
+	add("cn.", nil)
+	assert("cn.", true, nil)
+	assert("a.cn.", false, nil)
+	add("test.test.", nil)
+	assert("test.test.", true, nil)
+	assert("test.a.test.", false, nil)
 }
 
 func Test_KeywordMatcher(t *testing.T) {
 	m := NewKeywordMatcher()
-	add := func(keyword string) {
-		m.Add(keyword, keyword)
+	add := func(fqdn string, v Appendable) {
+		m.Add(fqdn, v)
 	}
 
 	assert := assertFunc(t, m)
 
-	add("123")
-	assert("123456.cn.", true, "123")
-	assert("456.cn.", false, nil)
-	add("example.com")
-	assert("sub.example.com.", true, "example.com")
+	add("123", s("a"))
+	assert("123456.cn.", true, s("a"))
+	assert("111123.com.", true, s("a"))
+	assert("111111.cn.", false, nil)
+	add("example.com", nil)
+	assert("sub.example.com.", true, nil)
 	assert("example_sub.com.", false, nil)
+
+	// test appendable
+	add("append.", nil)
+	assert("a.append.", true, nil)
+	add("append.", s("a"))
+	assert("b.append.", true, s("a"))
+	add("append.", s("b"))
+	assert("c.append.", true, s("ab"))
 }
 
 func Test_RegexMatcher(t *testing.T) {
 	m := NewRegexMatcher()
-	add := func(expr string, wantErr bool) {
-		err := m.Add(expr, expr)
-		if err != nil && !wantErr {
-			t.Fatal(err)
+	add := func(expr string, v Appendable, wantErr bool) {
+		err := m.Add(expr, v)
+		if (err != nil) != wantErr {
+			t.Fatalf("%s: want err %v, got %v", expr, wantErr, err != nil)
 		}
 	}
 
 	assert := assertFunc(t, m)
 
-	s := "^github-production-release-asset-[0-9a-za-z]{6}\\.s3\\.amazonaws\\.com$"
-	add(s, false)
-	assert("github-production-release-asset-000000.s3.amazonaws.com", true, s)
-	assert("github-production-release-asset-aaaaaa.s3.amazonaws.com", true, s)
+	expr := "^github-production-release-asset-[0-9a-za-z]{6}\\.s3\\.amazonaws\\.com$"
+	add(expr, nil, false)
+	assert("github-production-release-asset-000000.s3.amazonaws.com", true, nil)
+	assert("github-production-release-asset-aaaaaa.s3.amazonaws.com", true, nil)
 	assert("github-production-release-asset-aa.s3.amazonaws.com", false, nil)
 	assert("prefix_github-production-release-asset-000000.s3.amazonaws.com", false, nil)
 	assert("github-production-release-asset-000000.s3.amazonaws.com.suffix", false, nil)
 
-	s = "^example"
-	add(s, false)
-	assert("example.com", true, s)
+	expr = "^example"
+	add(expr, nil, false)
+	assert("example.com", true, nil)
 	assert("sub.example.com", false, nil)
 
-	s = "*"
-	add(s, true)
+	// test appendable
+	expr = "append.$"
+	add(expr, nil, false)
+	assert("append.", true, nil)
+	add(expr, s("a"), false)
+	assert("a.append.", true, s("a"))
+	add(expr, s("b"), false)
+	assert("b.append.", true, s("ab"))
+
+	expr = "*"
+	add(expr, nil, true)
 }

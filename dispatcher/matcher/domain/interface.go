@@ -19,4 +19,9 @@ package domain
 
 type Matcher interface {
 	Match(fqdn string) (v interface{}, ok bool)
+	Len() int
+}
+
+type Appendable interface {
+	Append(v interface{})
 }

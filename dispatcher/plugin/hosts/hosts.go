@@ -95,6 +95,8 @@ func (h *hostsContainer) matchAndSet(qCtx *handler.Context) (matched bool) {
 			r := new(dns.Msg)
 			r.SetReply(qCtx.Q())
 			for _, ip := range record.ipv4 {
+				ipCopy := make(net.IP, len(ip))
+				copy(ipCopy, ip)
 				rr := &dns.A{
 					Hdr: dns.RR_Header{
 						Name:   fqdn,
@@ -102,7 +104,7 @@ func (h *hostsContainer) matchAndSet(qCtx *handler.Context) (matched bool) {
 						Class:  dns.ClassINET,
 						Ttl:    3600,
 					},
-					A: ip,
+					A: ipCopy,
 				}
 				r.Answer = append(r.Answer, rr)
 			}
@@ -115,6 +117,8 @@ func (h *hostsContainer) matchAndSet(qCtx *handler.Context) (matched bool) {
 			r := new(dns.Msg)
 			r.SetReply(qCtx.Q())
 			for _, ip := range record.ipv6 {
+				ipCopy := make(net.IP, len(ip))
+				copy(ipCopy, ip)
 				rr := &dns.AAAA{
 					Hdr: dns.RR_Header{
 						Name:   fqdn,
@@ -122,7 +126,7 @@ func (h *hostsContainer) matchAndSet(qCtx *handler.Context) (matched bool) {
 						Class:  dns.ClassINET,
 						Ttl:    3600,
 					},
-					AAAA: ip,
+					AAAA: ipCopy,
 				}
 				r.Answer = append(r.Answer, rr)
 			}
@@ -138,7 +142,13 @@ type ipRecord struct {
 	ipv6 []net.IP
 }
 
-func parseIP(s []string) (interface{}, error) {
+func (r *ipRecord) Append(v interface{}) {
+	n := v.(*ipRecord)
+	r.ipv4 = append(r.ipv4, n.ipv4...)
+	r.ipv6 = append(r.ipv6, n.ipv6...)
+}
+
+func parseIP(s []string) (domain.Appendable, error) {
 	if len(s) == 0 {
 		return nil, nil
 	}

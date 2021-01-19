@@ -52,19 +52,35 @@ func (m *DomainMatcher) Add(domain string, v interface{}) {
 	fqdn := dns.Fqdn(domain)
 	n := len(fqdn)
 
+	var old interface{}
 	switch {
 	case n <= 16:
 		var b [16]byte
 		copy(b[:], fqdn)
-		m.s[b] = v
+		mm := m.s
+		if old = mm[b]; old == nil {
+			mm[b] = v
+		}
 	case n <= 32:
 		var b [32]byte
 		copy(b[:], fqdn)
-		m.m[b] = v
+		mm := m.m
+		if old = mm[b]; old == nil {
+			mm[b] = v
+		}
 	default:
 		var b [256]byte
 		copy(b[:], fqdn)
-		m.l[b] = v
+		mm := m.l
+		if old = mm[b]; old == nil {
+			mm[b] = v
+		}
+	}
+
+	if old != nil && v != nil {
+		if appendable, ok := old.(Appendable); ok {
+			appendable.Append(v)
+		}
 	}
 }
 
@@ -127,35 +143,41 @@ func (m *DomainMatcher) Len() int {
 }
 
 type KeywordMatcher struct {
-	kws []*kwElem
-}
-
-type kwElem struct {
-	s string
-	v interface{}
+	kws map[string]interface{}
 }
 
 func NewKeywordMatcher() *KeywordMatcher {
 	return &KeywordMatcher{
-		kws: make([]*kwElem, 0),
+		kws: make(map[string]interface{}),
 	}
 }
 
 func (m *KeywordMatcher) Add(keyword string, v interface{}) {
-	m.kws = append(m.kws, &kwElem{s: keyword, v: v})
+	o := m.kws[keyword]
+	if o == nil {
+		m.kws[keyword] = v
+	} else if v != nil {
+		if appendable, ok := o.(Appendable); ok {
+			appendable.Append(v)
+		}
+	}
 }
 
 func (m *KeywordMatcher) Match(fqdn string) (v interface{}, ok bool) {
-	for _, e := range m.kws {
-		if strings.Contains(fqdn, e.s) {
-			return e.v, true
+	for k, v := range m.kws {
+		if strings.Contains(fqdn, k) {
+			return v, true
 		}
 	}
 	return nil, false
 }
 
+func (m *KeywordMatcher) Len() int {
+	return len(m.kws)
+}
+
 type RegexMatcher struct {
-	regs []*regElem
+	regs map[string]*regElem
 }
 
 type regElem struct {
@@ -164,15 +186,28 @@ type regElem struct {
 }
 
 func NewRegexMatcher() *RegexMatcher {
-	return &RegexMatcher{regs: make([]*regElem, 0)}
+	return &RegexMatcher{regs: make(map[string]*regElem)}
 }
 
 func (m *RegexMatcher) Add(expr string, v interface{}) error {
-	reg, err := regexp.Compile(expr)
-	if err != nil {
-		return err
+	e := m.regs[expr]
+	if e == nil {
+		reg, err := regexp.Compile(expr)
+		if err != nil {
+			return err
+		}
+		m.regs[expr] = &regElem{
+			reg: reg,
+			v:   v,
+		}
+	} else if v != nil {
+		if e.v == nil {
+			e.v = v
+		} else if appendable, ok := e.v.(Appendable); ok {
+			appendable.Append(v)
+		}
 	}
-	m.regs = append(m.regs, &regElem{reg: reg, v: v})
+
 	return nil
 }
 
@@ -185,8 +220,16 @@ func (m *RegexMatcher) Match(fqdn string) (v interface{}, ok bool) {
 	return nil, false
 }
 
+func (m *RegexMatcher) Len() int {
+	return len(m.regs)
+}
+
 type MatcherGroup struct {
 	m []Matcher
+}
+
+func NewMatcherGroup(m []Matcher) *MatcherGroup {
+	return &MatcherGroup{m: m}
 }
 
 func (mg *MatcherGroup) Match(fqdn string) (v interface{}, ok bool) {
@@ -198,6 +241,10 @@ func (mg *MatcherGroup) Match(fqdn string) (v interface{}, ok bool) {
 	return nil, false
 }
 
-func NewMatcherGroup(m []Matcher) *MatcherGroup {
-	return &MatcherGroup{m: m}
+func (mg *MatcherGroup) Len() int {
+	sum := 0
+	for _, m := range mg.m {
+		sum = sum + m.Len()
+	}
+	return sum
 }
