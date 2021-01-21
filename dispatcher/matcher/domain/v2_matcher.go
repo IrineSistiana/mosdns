@@ -38,7 +38,7 @@ func NewMixMatcher() *MixMatcher {
 	}
 }
 
-func (m *MixMatcher) AddElem(typ v2data.Domain_Type, s string, v Appendable) error {
+func (m *MixMatcher) AddElem(typ v2data.Domain_Type, s string, v interface{}) error {
 	switch typ {
 	case v2data.Domain_Plain:
 		m.keyword.Add(s, v)

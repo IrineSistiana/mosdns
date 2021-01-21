@@ -148,7 +148,7 @@ func (r *ipRecord) Append(v interface{}) {
 	r.ipv6 = append(r.ipv6, n.ipv6...)
 }
 
-func parseIP(s []string) (domain.Appendable, error) {
+func parseIP(s []string) (interface{}, error) {
 	if len(s) == 0 {
 		return nil, nil
 	}

@@ -39,7 +39,7 @@ const (
 )
 
 // ParseValueFunc parses additional `attr` to an interface. The given []string could have a 0 length or is nil.
-type ParseValueFunc func([]string) (Appendable, error)
+type ParseValueFunc func([]string) (interface{}, error)
 
 // FilterRecordFunc determines whether a record is acceptable. The given []string could have a 0 length or is nil.
 type FilterRecordFunc func([]string) (accept bool, err error)
@@ -170,7 +170,7 @@ func (m *MixMatcher) LoadFormText(s string, filterRecord FilterRecordFunc, parse
 
 	typ, ok := typeStrToDomainType[typStr]
 	if ok {
-		var v Appendable
+		var v interface{}
 		var err error
 		if filterRecord != nil {
 			accept, err := filterRecord(e[1:])
@@ -216,7 +216,7 @@ func (m *MixMatcher) LoadFormDAT(file, countryCode string, filterRecord FilterRe
 			}
 		}
 
-		var v Appendable
+		var v interface{}
 		var err error
 		if parseValue != nil {
 			v, err = parseValue(attr)
