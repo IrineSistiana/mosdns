@@ -21,10 +21,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/AdguardTeam/dnsproxy/fastip"
 	"github.com/AdguardTeam/dnsproxy/upstream"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
+	"go.uber.org/zap"
 	"net"
 	"time"
 )
@@ -42,6 +44,9 @@ type forwarder struct {
 	upstream    []utils.TrustedUpstream
 	deduplicate bool
 
+	fastIPHandler  *fastip.FastestAddr // nil if fast ip is disabled
+	upstreamFastIP []upstream.Upstream // same as upstream, just used by fastIPHandler
+
 	sfGroup utils.ExchangeSingleFlightGroup
 }
 
@@ -51,6 +56,7 @@ type Args struct {
 	Timeout            int              `yaml:"timeout"`
 	InsecureSkipVerify bool             `yaml:"insecure_skip_verify"`
 	Bootstrap          []string         `yaml:"bootstrap"`
+	FastestIP          bool             `yaml:"fastest_ip"`
 
 	// options for mosdns
 	Deduplicate bool `yaml:"deduplicate"`
@@ -111,6 +117,14 @@ func newForwarder(bp *handler.BP, args *Args) (*forwarder, error) {
 		})
 	}
 
+	if args.FastestIP {
+		f.fastIPHandler = fastip.NewFastestAddr()
+		f.upstreamFastIP = make([]upstream.Upstream, 0, len(f.upstream))
+		for _, u := range f.upstream {
+			f.upstreamFastIP = append(f.upstreamFastIP, u.(*trustedUpstream).Upstream)
+		}
+	}
+
 	return f, nil
 }
 
@@ -134,7 +148,11 @@ func (f *forwarder) Exec(ctx context.Context, qCtx *handler.Context) (err error)
 func (f *forwarder) exec(ctx context.Context, qCtx *handler.Context) error {
 	var r *dns.Msg
 	var err error
-	if f.deduplicate {
+	if f.fastIPHandler != nil {
+		var u upstream.Upstream
+		r, u, err = f.fastIPHandler.ExchangeFastest(qCtx.Q().Copy(), f.upstreamFastIP)
+		f.L().Debug("fastest ip received", zap.String("from", u.Address()))
+	} else if f.deduplicate {
 		r, err = f.sfGroup.Exchange(ctx, qCtx, f.upstream, f.L())
 	} else {
 		r, err = utils.ExchangeParallel(ctx, qCtx, f.upstream, f.L())
