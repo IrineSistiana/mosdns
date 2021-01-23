@@ -18,13 +18,15 @@
 package cache
 
 import (
-	"github.com/miekg/dns"
+	"context"
 	"sync"
 	"time"
 )
 
-// cache is a simple dns cache.
-type cache struct {
+type OnEvictFunc func(key string, v []byte)
+
+// memCache is a simple cache that stores msgs in memory.
+type memCache struct {
 	size            int
 	cleanerInterval time.Duration
 
@@ -34,32 +36,46 @@ type cache struct {
 }
 
 type elem struct {
-	v              *dns.Msg
+	v              []byte
 	expirationTime time.Time
 }
 
-// newCache returns a cache object.
-// If cleanerInterval < 0, cache cleaner is disabled.
+// newMemCache returns a memCache.
+// If cleanerInterval < 0, memCache cleaner is disabled.
 // if size <= 0, a default value is used.
-// Default size is 1024. Default cleaner interval is 10 sec.
-func newCache(size int, cleanerInterval time.Duration) *cache {
+// Default size is 1024. Default cleaner interval is 2 minutes.
+func newMemCache(size int, cleanerInterval time.Duration) *memCache {
 	if size <= 0 {
 		size = 1024
 	}
 
 	if cleanerInterval == 0 {
-		cleanerInterval = time.Second * 10
+		cleanerInterval = time.Minute * 2
 	}
 
-	return &cache{
+	return &memCache{
 		size:            size,
 		cleanerInterval: cleanerInterval,
 		m:               make(map[string]elem, size),
 	}
 }
 
-func (c *cache) add(key string, ttl uint32, r *dns.Msg) {
-	if ttl == 0 || r == nil {
+func (c *memCache) get(_ context.Context, key string) (v []byte, ttl time.Duration, ok bool, err error) {
+	c.RLock()
+	defer c.RUnlock()
+
+	if e, ok := c.m[key]; ok {
+		if ttl = time.Until(e.expirationTime); ttl > 0 {
+			v := make([]byte, len(e.v))
+			copy(v, e.v)
+			return v, ttl, true, nil
+		}
+	}
+	return nil, 0, false, nil
+}
+
+func (c *memCache) store(_ context.Context, key string, v []byte, ttl time.Duration) (err error) {
+	if ttl == 0 {
 		return
 	}
 
@@ -102,28 +118,13 @@ func (c *cache) add(key string, ttl uint32, r *dns.Msg) {
 	}
 
 	c.m[key] = elem{
-		v:              r,
-		expirationTime: time.Now().Add(time.Duration(ttl) * time.Second),
+		v:              v,
+		expirationTime: time.Now().Add(ttl),
 	}
-
 	return
 }
 
-func (c *cache) get(key string) (r *dns.Msg, ttl time.Duration) {
-	c.RLock()
-	defer c.RUnlock()
-
-	if e, ok := c.m[key]; ok {
-		if ttl = time.Until(e.expirationTime); ttl > 0 {
-			m := new(dns.Msg)
-			e.v.CopyTo(m)
-			return m, ttl
-		}
-	}
-	return nil, 0
-}
-
-func (c *cache) clean() (remain, cleaned int) {
+func (c *memCache) clean() (remain, cleaned int) {
 	now := time.Now()
 	for key, e := range c.m {
 		if e.expirationTime.Before(now) {
@@ -135,36 +136,9 @@ func (c *cache) clean() (remain, cleaned int) {
 	return len(c.m), cleaned
 }
 
-func (c *cache) len() int {
+func (c *memCache) len() int {
 	c.RLock()
 	defer c.RUnlock()
 
 	return len(c.m)
-}
-
-func getMinimalTTL(m *dns.Msg) uint32 {
-	ttl := ^uint32(0)
-	for _, r := range [3][]dns.RR{m.Answer, m.Ns, m.Extra} {
-		for i := range r {
-			t := r[i].Header().Ttl
-			if t < ttl && t != 0 { // don't count RRs with zero ttl. Their ttl might mean nothing.
-				ttl = t
-			}
-		}
-	}
-
-	if ttl == ^uint32(0) { // no ttl applied
-		return 0
-	}
-	return ttl
-}
-
-func setTTL(m *dns.Msg, ttl uint32) {
-	for _, r := range [3][]dns.RR{m.Answer, m.Ns, m.Extra} {
-		for i := range r {
-			if r[i].Header().Ttl != 0 {
-				r[i].Header().Ttl = ttl
-			}
-		}
-	}
 }

@@ -39,6 +39,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unsafe"
 )
 
 // GetIPFromAddr returns net.IP from net.Addr.
@@ -106,20 +107,20 @@ func (n *NetAddr) String() string {
 
 // GetMsgKey unpacks m and set its id to 0.
 func GetMsgKey(m *dns.Msg) (string, error) {
-	buf, err := GetMsgBufFor(m)
-	if err != nil {
-		return "", err
-	}
-	defer ReleaseMsgBuf(buf)
-
+	buf := make([]byte, m.Len())
 	wireMsg, err := m.PackBuffer(buf)
 	if err != nil {
 		return "", err
 	}
 
 	wireMsg[0] = 0
-	wireMsg[1] = 1
-	return string(wireMsg), nil
+	wireMsg[1] = 0
+	return BytesToStringUnsafe(wireMsg), nil
+}
+
+// BytesToStringUnsafe converts bytes to string.
+func BytesToStringUnsafe(b []byte) string {
+	return *(*string)(unsafe.Pointer(&b))
 }
 
 // LoadCertPool reads and loads certificates in certs.
@@ -306,4 +307,28 @@ func ExchangeParallel(ctx context.Context, qCtx *handler.Context, upstreams []Tr
 
 	// all upstreams are failed
 	return nil, errors.New("no response")
+}
+
+// GetMinimalAnswerTTL returns the minimal ttl of m.Answer section.
+// If msg m has no answer, it returns 0.
+func GetMinimalAnswerTTL(m *dns.Msg) uint32 {
+	minTTL := ^uint32(0)
+	for _, r := range m.Answer {
+		ttl := r.Header().Ttl
+		if ttl < minTTL {
+			minTTL = ttl
+		}
+	}
+
+	if minTTL == ^uint32(0) { // no ttl applied
+		return 0
+	}
+	return minTTL
+}
+
+// SetAnswerTTL sets all of the m.Answer to ttl.
+func SetAnswerTTL(m *dns.Msg, ttl uint32) {
+	for _, r := range m.Answer {
+		r.Header().Ttl = ttl
+	}
 }

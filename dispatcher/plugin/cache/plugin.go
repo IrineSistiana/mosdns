@@ -18,6 +18,7 @@ package cache
 
 import (
 	"context"
+	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
@@ -34,47 +35,88 @@ const (
 func init() {
 	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 
-	handler.MustRegPlugin(newCachePlugin(handler.NewBP("_default_cache", PluginType), &Args{}), true)
+	handler.MustRegPlugin(preset(handler.NewBP("_default_cache", PluginType), &Args{}), true)
 }
 
 var _ handler.ESExecutablePlugin = (*cachePlugin)(nil)
 var _ handler.ContextPlugin = (*cachePlugin)(nil)
 
 type Args struct {
-	Size            int `yaml:"size"`
-	CleanerInterval int `yaml:"cleaner_interval"`
+	Size            int    `yaml:"size"`
+	CleanerInterval int    `yaml:"cleaner_interval"`
+	Redis           string `yaml:"redis"`
 }
 
 type cachePlugin struct {
 	*handler.BP
 
-	c *cache
+	c cache
 }
 
-func (c *cachePlugin) ExecES(_ context.Context, qCtx *handler.Context) (earlyStop bool, err error) {
-	key, cacheHit := c.searchAndReply(qCtx)
+type cache interface {
+	get(ctx context.Context, key string) (v []byte, ttl time.Duration, ok bool, err error)
+	store(ctx context.Context, key string, v []byte, ttl time.Duration) (err error)
+}
+
+func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
+	return newCachePlugin(bp, args.(*Args))
+}
+
+func newCachePlugin(bp *handler.BP, args *Args) (*cachePlugin, error) {
+	var c cache
+	var err error
+	if len(args.Redis) != 0 {
+		c, err = newRedisCache(args.Redis)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		c = newMemCache(args.Size, time.Duration(args.CleanerInterval)*time.Second)
+	}
+	return &cachePlugin{
+		BP: bp,
+		c:  c,
+	}, nil
+}
+
+// ExecES searches the cache. If cache hits, earlyStop will be true.
+// It never returns an err. Because a cache fault should not terminate the query process.
+func (c *cachePlugin) ExecES(ctx context.Context, qCtx *handler.Context) (earlyStop bool, err error) {
+	key, cacheHit := c.searchAndReply(ctx, qCtx)
 	if cacheHit {
 		return true, nil
 	}
 
 	if len(key) != 0 {
-		de := newDeferExecutable(key, c.c)
+		de := newDeferExecutable(key, c)
 		qCtx.DeferExec(de)
 	}
 
 	return false, nil
 }
 
-func (c *cachePlugin) searchAndReply(qCtx *handler.Context) (key string, cacheHit bool) {
+func (c *cachePlugin) searchAndReply(ctx context.Context, qCtx *handler.Context) (key string, cacheHit bool) {
 	key, err := utils.GetMsgKey(qCtx.Q())
 	if err != nil {
-		c.L().Warn("unable to get msg key, skip the cache", qCtx.InfoField(), zap.Error(err))
+		c.L().Warn("unable to get msg key, skip it", qCtx.InfoField(), zap.Error(err))
 		return "", false
 	}
-	if r, ttl := c.c.get(key); r != nil { // if cache hit
+	v, ttl, _, err := c.c.get(ctx, key)
+	if err != nil {
+		c.L().Warn("unable to get cache, skip it", qCtx.InfoField(), zap.Error(err))
+		return key, false
+	}
+
+	if len(v) != 0 { // if cache hit
+		r := new(dns.Msg)
+		if err := r.Unpack(v); err != nil {
+			c.L().Warn("failed to unpack cached data", qCtx.InfoField(), zap.Error(err))
+			return key, false
+		}
+
 		c.L().Debug("cache hit", qCtx.InfoField())
 		r.Id = qCtx.Q().Id
-		setTTL(r, uint32(ttl/time.Second))
+		utils.SetAnswerTTL(r, uint32(ttl/time.Second))
 		qCtx.SetResponse(r, handler.ContextStatusResponded)
 		return key, true
 	}
@@ -83,26 +125,41 @@ func (c *cachePlugin) searchAndReply(qCtx *handler.Context) (key string, cacheHi
 
 type deferExecutable struct {
 	key string
-	c   *cache
+	p   *cachePlugin
 }
 
-func newDeferExecutable(key string, c *cache) *deferExecutable {
-	return &deferExecutable{key: key, c: c}
+func newDeferExecutable(key string, p *cachePlugin) *deferExecutable {
+	return &deferExecutable{key: key, p: p}
 }
 
-func (d *deferExecutable) Exec(_ context.Context, qCtx *handler.Context) (err error) {
-	if qCtx.R() != nil && qCtx.R().Rcode == dns.RcodeSuccess && len(qCtx.R().Answer) != 0 {
-		ttl := getMinimalTTL(qCtx.R())
+// Exec caches the response.
+// It never returns an err. Because a cache fault should not terminate the query process.
+func (d *deferExecutable) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
+	if err := d.exec(ctx, qCtx); err != nil {
+		d.p.L().Warn("failed to cache the data", qCtx.InfoField(), zap.Error(err))
+	}
+	return nil
+}
+
+func (d *deferExecutable) exec(ctx context.Context, qCtx *handler.Context) (err error) {
+	r := qCtx.R()
+	if r != nil && r.Rcode == dns.RcodeSuccess && len(r.Answer) != 0 {
+		ttl := utils.GetMinimalAnswerTTL(r)
 		if ttl > maxTTL {
 			ttl = maxTTL
 		}
-		d.c.add(d.key, ttl, qCtx.R())
+		buf := make([]byte, r.Len())
+		v, err := r.PackBuffer(buf)
+		if err != nil {
+			return err
+		}
+		return d.p.c.store(ctx, d.key, v, time.Duration(ttl)*time.Second)
 	}
 	return nil
 }
 
 func (c *cachePlugin) Connect(ctx context.Context, qCtx *handler.Context, pipeCtx *handler.PipeContext) (err error) {
-	key, cacheHit := c.searchAndReply(qCtx)
+	key, cacheHit := c.searchAndReply(ctx, qCtx)
 	if cacheHit {
 		return nil
 	}
@@ -113,19 +170,16 @@ func (c *cachePlugin) Connect(ctx context.Context, qCtx *handler.Context, pipeCt
 	}
 
 	if len(key) != 0 {
-		newDeferExecutable(key, c.c).Exec(ctx, qCtx)
+		_ = newDeferExecutable(key, c).Exec(ctx, qCtx)
 	}
 
 	return nil
 }
 
-func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
-	return newCachePlugin(bp, args.(*Args)), nil
-}
-
-func newCachePlugin(bp *handler.BP, args *Args) *cachePlugin {
-	return &cachePlugin{
-		BP: bp,
-		c:  newCache(args.Size, time.Duration(args.CleanerInterval)*time.Second),
+func preset(bp *handler.BP, args *Args) *cachePlugin {
+	p, err := newCachePlugin(bp, args)
+	if err != nil {
+		panic(fmt.Sprintf("cache: preset plugin: %s", err))
 	}
+	return p
 }
