@@ -23,6 +23,7 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
+	"go.uber.org/zap"
 	"net"
 )
 
@@ -31,7 +32,7 @@ const PluginType = "ecs"
 func init() {
 	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 
-	handler.MustRegPlugin(&noECS{tag: "_no_ecs"}, true)
+	handler.MustRegPlugin(&noECS{BP: handler.NewBP("_no_ecs", PluginType)}, true)
 }
 
 var _ handler.ExecutablePlugin = (*ecsPlugin)(nil)
@@ -105,35 +106,53 @@ func newPlugin(bp *handler.BP, args *Args) (p handler.Plugin, err error) {
 // Exec tries to append ECS to qCtx.Q().
 // If an error occurred, Do will just log it.
 // Therefore, Do will never return an err.
-func (e ecsPlugin) Exec(_ context.Context, qCtx *handler.Context) (err error) {
-	if e.args.ForceOverwrite || getMsgECS(qCtx.Q()) == nil {
-		if e.args.Auto && qCtx.From() != nil {
-			ip := utils.GetIPFromAddr(qCtx.From())
-			if ip == nil {
-				e.L().Warn("internal err: can not get client ip address", qCtx.InfoField())
-				return nil
-			}
-			var ecs *dns.EDNS0_SUBNET
-			if ip4 := ip.To4(); ip4 != nil { // is ipv4
-				ecs = newEDNS0Subnet(ip4, e.args.Mask4, false)
-			} else {
-				if ip6 := ip.To16(); ip6 != nil { // is ipv6
-					ecs = newEDNS0Subnet(ip6, e.args.Mask6, true)
-				} else { // non
-					e.L().Warn("internal err: client ip address is not a valid ip address", qCtx.InfoField())
-					return nil
-				}
-			}
-			setECS(qCtx.Q(), ecs)
+func (e ecsPlugin) Exec(_ context.Context, qCtx *handler.Context) (_ error) {
+	qHasECS := getMsgECS(qCtx.Q()) != nil
+	if qHasECS && !e.args.ForceOverwrite {
+		return nil
+	}
+
+	var ecs *dns.EDNS0_SUBNET
+	if e.args.Auto && qCtx.From() != nil {
+		ip := utils.GetIPFromAddr(qCtx.From())
+		if ip == nil {
+			e.L().Warn("internal err: can not parse client ip address", qCtx.InfoField(), zap.Stringer("from", qCtx.From()))
+			return nil
+		}
+		if ip4 := ip.To4(); ip4 != nil { // is ipv4
+			ecs = newEDNS0Subnet(ip4, e.args.Mask4, false)
 		} else {
-			switch {
-			case e.ipv4 != nil && checkQueryType(qCtx.Q(), dns.TypeA):
-				setECS(qCtx.Q(), e.ipv4)
-			case e.ipv6 != nil && checkQueryType(qCtx.Q(), dns.TypeAAAA):
-				setECS(qCtx.Q(), e.ipv6)
+			if ip6 := ip.To16(); ip6 != nil { // is ipv6
+				ecs = newEDNS0Subnet(ip6, e.args.Mask6, true)
+			} else { // non
+				e.L().Warn("internal err: client ip address is not a valid ip address", qCtx.InfoField(), zap.Stringer("from", qCtx.From()))
+				return nil
 			}
 		}
 	}
+
+	switch {
+	case e.ipv4 != nil && checkQueryType(qCtx.Q(), dns.TypeA):
+		ecs = e.ipv4
+	case e.ipv6 != nil && checkQueryType(qCtx.Q(), dns.TypeAAAA):
+		ecs = e.ipv6
+	}
+
+	if ecs != nil {
+		setECS(qCtx.Q(), ecs)
+
+		// According to https://tools.ietf.org/html/rfc7871#section-7.2.2
+		// > Because a client that did not use an ECS option might not
+		// > be able to understand it, the server MUST NOT provide one in
+		// > its response.
+		//
+		// If the original query did not have an ECS option, remove ECS from
+		// its response.
+		if !qHasECS {
+			qCtx.DeferExec(removeResponseECS{})
+		}
+	}
+
 	return nil
 }
 
@@ -145,15 +164,7 @@ func checkQueryType(m *dns.Msg, typ uint16) bool {
 }
 
 type noECS struct {
-	tag string
-}
-
-func (n *noECS) Tag() string {
-	return n.tag
-}
-
-func (n *noECS) Type() string {
-	return PluginType
+	*handler.BP
 }
 
 var _ handler.ExecutablePlugin = (*noECS)(nil)
@@ -164,4 +175,14 @@ func (n noECS) Exec(_ context.Context, qCtx *handler.Context) (_ error) {
 		removeECS(qCtx.R())
 	}
 	return
+}
+
+type removeResponseECS struct{}
+
+func (e removeResponseECS) Exec(_ context.Context, qCtx *handler.Context) (_ error) {
+	r := qCtx.R()
+	if r != nil {
+		removeECS(r)
+	}
+	return nil
 }
