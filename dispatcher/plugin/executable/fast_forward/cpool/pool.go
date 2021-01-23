@@ -76,15 +76,20 @@ func (p *Pool) Put(c net.Conn) {
 	}
 	pe := &poolElem{c: c, expiredTime: time.Now().Add(p.ttl)}
 	p.pool.PushBack(pe)
+
+	// try to start the cleaner
+	if p.cleanerInterval > 0 {
+		if p.cleanerStatus == cleanerOffline {
+			p.cleanerStatus = cleanerOnline
+			go p.startCleaner()
+		}
+	}
 	p.Unlock()
 
 	if poppedPoolElem != nil {
 		poppedPoolElem.c.Close() // release the old connection
 	}
 
-	if p.cleanerInterval > 0 {
-		p.tryStartCleanerGoroutine()
-	}
 }
 
 func (p *Pool) popLatest() (pe *poolElem) {
@@ -120,16 +125,6 @@ func (p *Pool) ConnRemain() int {
 	defer p.Unlock()
 
 	return p.pool.Len()
-}
-
-func (p *Pool) tryStartCleanerGoroutine() {
-	p.Lock()
-	defer p.Unlock()
-
-	if p.cleanerStatus == cleanerOffline {
-		p.cleanerStatus = cleanerOnline
-		go p.startCleaner()
-	}
 }
 
 func (p *Pool) startCleaner() {
