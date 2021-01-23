@@ -36,6 +36,10 @@ type Args struct {
 	SetName6 string `yaml:"set_name6"`
 	Mask4    uint8  `yaml:"mask4"` // default 24
 	Mask6    uint8  `yaml:"mask6"` // default 32
+
+	// max A/AAAA record ttl value.
+	MaxTTL4 uint32 `yaml:"max_ttl4"`
+	MaxTTL6 uint32 `yaml:"max_ttl6"`
 }
 
 type ipsetPlugin struct {

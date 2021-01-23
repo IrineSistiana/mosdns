@@ -39,6 +39,9 @@ func (p *ipsetPlugin) addIPSet(r *dns.Msg) error {
 				Mask:    p.args.Mask4,
 				IsNET6:  false,
 			}
+			if p.args.MaxTTL4 > 0 && rr.Hdr.Ttl > p.args.MaxTTL4 {
+				rr.Hdr.Ttl = p.args.MaxTTL4
+			}
 		case *dns.AAAA:
 			if len(p.args.SetName6) == 0 {
 				continue
@@ -48,6 +51,9 @@ func (p *ipsetPlugin) addIPSet(r *dns.Msg) error {
 				IP:      rr.AAAA,
 				Mask:    p.args.Mask6,
 				IsNET6:  true,
+			}
+			if p.args.MaxTTL6 > 0 && rr.Hdr.Ttl > p.args.MaxTTL6 {
+				rr.Hdr.Ttl = p.args.MaxTTL6
 			}
 		default:
 			continue
