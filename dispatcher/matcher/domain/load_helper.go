@@ -38,21 +38,25 @@ const (
 	cacheTTL = time.Second * 30
 )
 
-// ParseValueFunc parses additional `attr` to an interface. The given []string could have a 0 length or is nil.
-type ParseValueFunc func([]string) (interface{}, error)
+// ProcessAttrFunc processes the additional attributions. The given []string could have a 0 length or is nil.
+type ProcessAttrFunc func([]string) (v interface{}, accept bool, err error)
 
-// FilterRecordFunc determines whether a record is acceptable. The given []string could have a 0 length or is nil.
-type FilterRecordFunc func([]string) (accept bool, err error)
-
-// LoadFormFile loads data from file.
-func (m *MixMatcher) LoadFormFile(file string, filterRecord FilterRecordFunc, parseValue ParseValueFunc) error {
+// LoadFromFile loads data from the file.
+// File can be a text file or a v2ray data file.
+// Only MixMatcher can load v2ray data file.
+// v2ray data file needs to specify the data category by using ':', e.g. 'geosite.dat:cn'
+func LoadFromFile(m Matcher, file string, processAttr ProcessAttrFunc) error {
 	var err error
 	if tmp := strings.SplitN(file, ":", 2); len(tmp) == 2 { // is a v2ray data file
+		mixMatcher, ok := m.(*MixMatcher)
+		if !ok {
+			return errors.New("only MixMatcher can load v2ray data file")
+		}
 		filePath := tmp[0]
 		countryCode := tmp[1]
-		err = m.LoadFormDAT(filePath, countryCode, filterRecord, parseValue)
+		err = mixMatcher.LoadFromDAT(filePath, countryCode, processAttr)
 	} else { // is a text file
-		err = m.LoadFormTextFile(file, filterRecord, parseValue)
+		err = LoadFromTextFile(m, file, processAttr)
 	}
 	if err != nil {
 		return err
@@ -61,24 +65,27 @@ func (m *MixMatcher) LoadFormFile(file string, filterRecord FilterRecordFunc, pa
 	return nil
 }
 
-// LoadFormFileAsV2Matcher loads data from a file.
-// File can be a text file or a v2ray data file.
-// v2ray data file needs to specify the data category by using ':', e.g. 'geosite:cn'
-// v2ray data file can also have multiple @attr. e.g. 'geosite:cn@attr1@attr2'.
-// Only the domain with all of the @attr will be used.
-func (m *MixMatcher) LoadFormFileAsV2Matcher(file string) error {
+// LoadFromFileAsV2Matcher loads data from a file.
+// v2ray data file can also have multiple @attr. e.g. 'geosite.dat:cn@attr1@attr2'.
+// Only the record with all of the @attr will be loaded.
+// Also see LoadFromFile.
+func LoadFromFileAsV2Matcher(m Matcher, file string) error {
 	var err error
 	if tmp := strings.SplitN(file, ":", 2); len(tmp) == 2 { // is a v2ray data file
+		mixMatcher, ok := m.(*MixMatcher)
+		if !ok {
+			return errors.New("only MixMatcher can load v2ray data file")
+		}
 		filePath := tmp[0]
 		tmp := strings.Split(tmp[1], "@")
 		countryCode := tmp[0]
 		wantedAttr := tmp[1:]
-		filterFunc := func(attr []string) (accept bool, err error) {
-			return mustHaveAttr(attr, wantedAttr), nil
+		processAttr := func(attr []string) (v interface{}, accept bool, err error) {
+			return nil, mustHaveAttr(attr, wantedAttr), nil
 		}
-		err = m.LoadFormDAT(filePath, countryCode, filterFunc, nil)
+		err = mixMatcher.LoadFromDAT(filePath, countryCode, processAttr)
 	} else { // is a text file
-		err = m.LoadFormTextFile(file, nil, nil)
+		err = LoadFromTextFile(m, file, nil)
 	}
 	if err != nil {
 		return err
@@ -87,69 +94,51 @@ func (m *MixMatcher) LoadFormFileAsV2Matcher(file string) error {
 	return nil
 }
 
-// BatchLoadMixMatcher loads multiple files using MixMatcher.LoadFormFile
-func BatchLoadMixMatcher(f []string, filterRecord FilterRecordFunc, parseValue ParseValueFunc) (*MixMatcher, error) {
-	if len(f) == 0 {
-		return nil, errors.New("no file to load")
-	}
-
-	m := NewMixMatcher()
+// BatchLoadMatcher loads multiple files using LoadFromFile
+func BatchLoadMatcher(m Matcher, f []string, processAttr ProcessAttrFunc) error {
 	for _, file := range f {
-		err := m.LoadFormFile(file, filterRecord, parseValue)
+		err := LoadFromFile(m, file, processAttr)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load file %s: %w", file, err)
+			return fmt.Errorf("failed to load file %s: %w", file, err)
 		}
 	}
-	return m, nil
+	return nil
 }
 
-// BatchLoadMixMatcherV2Matcher loads multiple files using MixMatcher.LoadFormFileAsV2Matcher
-func BatchLoadMixMatcherV2Matcher(f []string) (Matcher, error) {
-	if len(f) == 0 {
-		return nil, errors.New("no file to load")
-	}
-
-	m := NewMixMatcher()
+// BatchLoadMixMatcherV2Matcher loads multiple files using LoadFromFileAsV2Matcher
+func BatchLoadMixMatcherV2Matcher(m Matcher, f []string) error {
 	for _, file := range f {
-		err := m.LoadFormFileAsV2Matcher(file)
+		err := LoadFromFileAsV2Matcher(m, file)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load file %s: %w", file, err)
+			return fmt.Errorf("failed to load file %s: %w", file, err)
 		}
 	}
-	return m, nil
+	return nil
 }
 
-func (m *MixMatcher) LoadFormTextFile(file string, filterRecord FilterRecordFunc, parseValue ParseValueFunc) error {
+func LoadFromTextFile(m Matcher, file string, processAttr ProcessAttrFunc) error {
 	data, err := ioutil.ReadFile(file)
 	if err != nil {
 		return err
 	}
 
-	return m.LoadFormTextReader(bytes.NewBuffer(data), filterRecord, parseValue)
+	return LoadFromTextReader(m, bytes.NewBuffer(data), processAttr)
 }
 
-func (m *MixMatcher) LoadFormTextReader(r io.Reader, filterRecord FilterRecordFunc, parseValue ParseValueFunc) error {
+func LoadFromTextReader(m Matcher, r io.Reader, processAttr ProcessAttrFunc) error {
 	lineCounter := 0
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		lineCounter++
-		err := m.LoadFormText(scanner.Text(), filterRecord, parseValue)
+		err := LoadFromText(m, scanner.Text(), processAttr)
 		if err != nil {
 			return fmt.Errorf("line %d: %v", lineCounter, err)
 		}
 	}
-	return nil
+	return scanner.Err()
 }
 
-var typeStrToDomainType = map[string]v2data.Domain_Type{
-	"":        v2data.Domain_Domain,
-	"domain":  v2data.Domain_Domain,
-	"keyword": v2data.Domain_Plain,
-	"regexp":  v2data.Domain_Regex,
-	"full":    v2data.Domain_Full,
-}
-
-func (m *MixMatcher) LoadFormText(s string, filterRecord FilterRecordFunc, parseValue ParseValueFunc) error {
+func LoadFromText(m Matcher, s string, processAttr ProcessAttrFunc) error {
 	t := utils.RemoveComment(s, "#")
 	e := utils.SplitLine(t)
 
@@ -158,43 +147,21 @@ func (m *MixMatcher) LoadFormText(s string, filterRecord FilterRecordFunc, parse
 	}
 
 	pattern := e[0]
-	kv := strings.SplitN(pattern, ":", 2)
-	var typStr string
-	var str string
-	if len(kv) == 1 {
-		str = kv[0]
-	} else {
-		typStr = kv[0]
-		str = kv[1]
-	}
-
-	typ, ok := typeStrToDomainType[typStr]
-	if ok {
-		var v interface{}
-		var err error
-		if filterRecord != nil {
-			accept, err := filterRecord(e[1:])
-			if err != nil {
-				return err
-			}
-			if !accept {
-				return nil
-			}
+	attr := e[1:]
+	if processAttr != nil {
+		v, accept, err := processAttr(attr)
+		if err != nil {
+			return err
 		}
-
-		if parseValue != nil {
-			v, err = parseValue(e[1:])
-			if err != nil {
-				return err
-			}
+		if !accept {
+			return nil
 		}
-		return m.AddElem(typ, str, v)
-	} else {
-		return fmt.Errorf("unexpected pattern type %s", typStr)
+		return m.Add(pattern, v)
 	}
+	return m.Add(pattern, nil)
 }
 
-func (m *MixMatcher) LoadFormDAT(file, countryCode string, filterRecord FilterRecordFunc, parseValue ParseValueFunc) error {
+func (m *MixMatcher) LoadFromDAT(file, countryCode string, processAttr ProcessAttrFunc) error {
 	geoSite, err := LoadGeoSiteFromDAT(file, countryCode)
 	if err != nil {
 		return err
@@ -206,8 +173,11 @@ func (m *MixMatcher) LoadFormDAT(file, countryCode string, filterRecord FilterRe
 			attr = append(attr, a.Key)
 		}
 
-		if filterRecord != nil {
-			accept, err := filterRecord(attr)
+		var v interface{}
+		if processAttr != nil {
+			var accept bool
+			var err error
+			v, accept, err = processAttr(attr)
 			if err != nil {
 				return err
 			}
@@ -216,16 +186,21 @@ func (m *MixMatcher) LoadFormDAT(file, countryCode string, filterRecord FilterRe
 			}
 		}
 
-		var v interface{}
-		var err error
-		if parseValue != nil {
-			v, err = parseValue(attr)
-			if err != nil {
-				return err
-			}
+		var typ MixMatcherPatternType
+		switch d.Type {
+		case v2data.Domain_Plain:
+			typ = MixMatcherPatternTypeKeyword
+		case v2data.Domain_Regex:
+			typ = MixMatcherPatternTypeRegexp
+		case v2data.Domain_Domain:
+			typ = MixMatcherPatternTypeDomain
+		case v2data.Domain_Full:
+			typ = MixMatcherPatternTypeFull
+		default:
+			return fmt.Errorf("invalid v2ray Domain_Type %d", d.Type)
 		}
 
-		err = m.AddElem(d.Type, d.Value, v)
+		err = m.AddElem(typ, d.Value, v)
 		if err != nil {
 			return err
 		}

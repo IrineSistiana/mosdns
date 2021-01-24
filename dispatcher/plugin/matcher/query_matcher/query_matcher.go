@@ -80,7 +80,8 @@ func newQueryMatcher(bp *handler.BP, args *Args) (m *queryMatcher, err error) {
 		m.matcherGroup = append(m.matcherGroup, newClientIPMatcher(ipMatcher))
 	}
 	if len(args.Domain) > 0 {
-		mixMatcher, err := domain.BatchLoadMixMatcherV2Matcher(args.Domain)
+		mixMatcher := domain.NewMixMatcher()
+		err := domain.BatchLoadMixMatcherV2Matcher(mixMatcher, args.Domain)
 		if err != nil {
 			return nil, err
 		}

@@ -48,7 +48,7 @@ func (a *aStr) Append(v interface{}) {
 }
 
 func Test_DomainMatcher(t *testing.T) {
-	m := NewDomainMatcher(MatchModeDomain)
+	m := NewDomainMatcher(DomainMatcherModeDomain)
 	add := func(fqdn string, v Appendable) {
 		m.Add(fqdn, v)
 	}
@@ -71,7 +71,7 @@ func Test_DomainMatcher(t *testing.T) {
 	add("append.", s("b"))
 	assert("c.append.", true, s("ab"))
 
-	m = NewDomainMatcher(MatchModeFull)
+	m = NewDomainMatcher(DomainMatcherModeFull)
 	assert = assertFunc(t, m)
 
 	add("cn.", nil)

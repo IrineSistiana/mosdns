@@ -25,21 +25,21 @@ import (
 )
 
 type DomainMatcher struct {
-	mode MatchMode
+	mode DomainMatcherMode
 
 	s map[[16]byte]interface{}
 	m map[[32]byte]interface{}
 	l map[[256]byte]interface{}
 }
 
-type MatchMode uint8
+type DomainMatcherMode uint8
 
 const (
-	MatchModeDomain MatchMode = iota
-	MatchModeFull
+	DomainMatcherModeDomain DomainMatcherMode = iota
+	DomainMatcherModeFull
 )
 
-func NewDomainMatcher(mode MatchMode) *DomainMatcher {
+func NewDomainMatcher(mode DomainMatcherMode) *DomainMatcher {
 	return &DomainMatcher{
 		mode: mode,
 		s:    make(map[[16]byte]interface{}),
@@ -48,7 +48,12 @@ func NewDomainMatcher(mode MatchMode) *DomainMatcher {
 	}
 }
 
-func (m *DomainMatcher) Add(domain string, v interface{}) {
+func (m *DomainMatcher) Add(domain string, v interface{}) error {
+	m.add(domain, v)
+	return nil
+}
+
+func (m *DomainMatcher) add(domain string, v interface{}) {
 	fqdn := dns.Fqdn(domain)
 	n := len(fqdn)
 
@@ -84,11 +89,33 @@ func (m *DomainMatcher) Add(domain string, v interface{}) {
 	}
 }
 
+func (m *DomainMatcher) Del(domain string) {
+	fqdn := dns.Fqdn(domain)
+	n := len(fqdn)
+	switch {
+	case n <= 16:
+		var b [16]byte
+		copy(b[:], fqdn)
+		mm := m.s
+		delete(mm, b)
+	case n <= 32:
+		var b [32]byte
+		copy(b[:], fqdn)
+		mm := m.m
+		delete(mm, b)
+	default:
+		var b [256]byte
+		copy(b[:], fqdn)
+		mm := m.l
+		delete(mm, b)
+	}
+}
+
 func (m *DomainMatcher) Match(fqdn string) (v interface{}, ok bool) {
 	switch m.mode {
-	case MatchModeFull:
+	case DomainMatcherModeFull:
 		return m.fullMatch(fqdn)
-	case MatchModeDomain:
+	case DomainMatcherModeDomain:
 		return m.domainMatch(fqdn)
 	default:
 		panic(fmt.Sprintf("domain: invalid match mode %d", m.mode))
@@ -152,7 +179,12 @@ func NewKeywordMatcher() *KeywordMatcher {
 	}
 }
 
-func (m *KeywordMatcher) Add(keyword string, v interface{}) {
+func (m *KeywordMatcher) Add(keyword string, v interface{}) error {
+	m.add(keyword, v)
+	return nil
+}
+
+func (m *KeywordMatcher) add(keyword string, v interface{}) {
 	o := m.kws[keyword]
 	if o == nil {
 		m.kws[keyword] = v
@@ -161,6 +193,10 @@ func (m *KeywordMatcher) Add(keyword string, v interface{}) {
 			appendable.Append(v)
 		}
 	}
+}
+
+func (m *KeywordMatcher) Del(keyword string) {
+	delete(m.kws, keyword)
 }
 
 func (m *KeywordMatcher) Match(fqdn string) (v interface{}, ok bool) {
@@ -211,6 +247,10 @@ func (m *RegexMatcher) Add(expr string, v interface{}) error {
 	return nil
 }
 
+func (m *RegexMatcher) Del(expr string) {
+	delete(m.regs, expr)
+}
+
 func (m *RegexMatcher) Match(fqdn string) (v interface{}, ok bool) {
 	for _, e := range m.regs {
 		if e.reg.MatchString(fqdn) {
@@ -224,27 +264,125 @@ func (m *RegexMatcher) Len() int {
 	return len(m.regs)
 }
 
-type MatcherGroup struct {
-	m []Matcher
+type MixMatcherPatternType uint8
+
+const (
+	MixMatcherPatternTypeDomain MixMatcherPatternType = iota
+	MixMatcherPatternTypeFull
+	MixMatcherPatternTypeKeyword
+	MixMatcherPatternTypeRegexp
+)
+
+type MixMatcher struct {
+	typMap map[string]MixMatcherPatternType
+
+	keyword *KeywordMatcher
+	regex   *RegexMatcher
+	domain  *DomainMatcher
+	full    *DomainMatcher
 }
 
-func NewMatcherGroup(m []Matcher) *MatcherGroup {
-	return &MatcherGroup{m: m}
-}
-
-func (mg *MatcherGroup) Match(fqdn string) (v interface{}, ok bool) {
-	for _, m := range mg.m {
-		if v, ok = m.Match(fqdn); ok {
-			return
-		}
+func NewMixMatcher() *MixMatcher {
+	return &MixMatcher{
+		keyword: NewKeywordMatcher(),
+		regex:   NewRegexMatcher(),
+		domain:  NewDomainMatcher(DomainMatcherModeDomain),
+		full:    NewDomainMatcher(DomainMatcherModeFull),
 	}
-	return nil, false
 }
 
-func (mg *MatcherGroup) Len() int {
+var defaultStrToPatternType = map[string]MixMatcherPatternType{
+	"":        MixMatcherPatternTypeDomain,
+	"domain":  MixMatcherPatternTypeDomain,
+	"keyword": MixMatcherPatternTypeKeyword,
+	"regexp":  MixMatcherPatternTypeRegexp,
+	"full":    MixMatcherPatternTypeFull,
+}
+
+func (m *MixMatcher) SetPattenTypeMap(typMap map[string]MixMatcherPatternType) {
+	m.typMap = typMap
+}
+
+func (m *MixMatcher) Add(pattern string, v interface{}) error {
+	typ, pattern, err := m.splitTypeAndPattern(pattern)
+	if err != nil {
+		return err
+	}
+	return m.AddElem(typ, pattern, v)
+}
+
+func (m *MixMatcher) AddElem(typ MixMatcherPatternType, pattern string, v interface{}) error {
+	return m.getSubMatcher(typ).Add(pattern, v)
+}
+
+func (m *MixMatcher) Del(pattern string) {
+	typ, pattern, err := m.splitTypeAndPattern(pattern)
+	if err != nil {
+		return
+	}
+	m.getSubMatcher(typ).Del(pattern)
+}
+
+func (m *MixMatcher) Match(fqdn string) (v interface{}, ok bool) {
+	// it seems v2ray match full matcher first, then domain, reg and keyword matcher.
+	if v, ok = m.full.Match(fqdn); ok {
+		return
+	}
+	if v, ok = m.domain.Match(fqdn); ok {
+		return
+	}
+	if v, ok = m.regex.Match(fqdn); ok {
+		return
+	}
+	if v, ok = m.keyword.Match(fqdn); ok {
+		return
+	}
+	return
+}
+
+func (m *MixMatcher) Len() int {
 	sum := 0
-	for _, m := range mg.m {
-		sum = sum + m.Len()
+	for _, m := range [...]Matcher{m.domain, m.keyword, m.regex, m.full} {
+		sum += m.Len()
 	}
 	return sum
+}
+
+func (m *MixMatcher) splitTypeAndPattern(pattern string) (MixMatcherPatternType, string, error) {
+	typMap := m.typMap
+	if typMap == nil {
+		typMap = defaultStrToPatternType
+	}
+
+	kv := strings.SplitN(pattern, ":", 2)
+	var typStr string
+	var str string
+	if len(kv) == 1 {
+		str = kv[0]
+	} else {
+		typStr = kv[0]
+		str = kv[1]
+	}
+
+	typ, ok := typMap[typStr]
+	if !ok {
+		return 0, "", fmt.Errorf("unexpected pattern type %s", typStr)
+	}
+
+	return typ, str, nil
+}
+
+func (m *MixMatcher) getSubMatcher(typ MixMatcherPatternType) Matcher {
+	switch typ {
+	case MixMatcherPatternTypeKeyword:
+		return m.keyword
+	case MixMatcherPatternTypeRegexp:
+		return m.regex
+	case MixMatcherPatternTypeDomain:
+		return m.domain
+	case MixMatcherPatternTypeFull:
+		return m.full
+	default:
+		panic(fmt.Sprintf("MixMatcher: invalid type %d", typ))
+	}
 }

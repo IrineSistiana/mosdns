@@ -70,7 +70,8 @@ func newResponseMatcher(bp *handler.BP, args *Args) (m *responseMatcher, err err
 	}
 
 	if len(args.CNAME) > 0 {
-		mixMatcher, err := domain.BatchLoadMixMatcherV2Matcher(args.CNAME)
+		mixMatcher := domain.NewMixMatcher()
+		err := domain.BatchLoadMixMatcherV2Matcher(mixMatcher, args.CNAME)
 		if err != nil {
 			return nil, err
 		}

@@ -135,7 +135,7 @@ func BenchIPMatcher(f string) error {
 
 func BenchDomainMatcher(f string) error {
 	matcher := domain.NewMixMatcher()
-	err := matcher.LoadFormFileAsV2Matcher(f)
+	err := domain.LoadFromFileAsV2Matcher(matcher, f)
 	if err != nil {
 		return err
 	}

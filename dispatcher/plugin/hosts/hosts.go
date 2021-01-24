@@ -50,18 +50,28 @@ func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
 	return newHostsContainer(bp, args.(*Args))
 }
 
+var patternTypeMap = map[string]domain.MixMatcherPatternType{
+	"domain":  domain.MixMatcherPatternTypeDomain,
+	"keyword": domain.MixMatcherPatternTypeKeyword,
+	"regexp":  domain.MixMatcherPatternTypeRegexp,
+	"":        domain.MixMatcherPatternTypeFull,
+	"full":    domain.MixMatcherPatternTypeFull,
+}
+
 func newHostsContainer(bp *handler.BP, args *Args) (*hostsContainer, error) {
 	if len(args.Hosts) == 0 {
 		return nil, errors.New("no hosts file is configured")
 	}
 
-	matcher, err := domain.BatchLoadMixMatcher(args.Hosts, nil, parseIP)
+	mixMatcher := domain.NewMixMatcher()
+	mixMatcher.SetPattenTypeMap(patternTypeMap)
+	err := domain.BatchLoadMatcher(mixMatcher, args.Hosts, parseIP)
 	if err != nil {
 		return nil, err
 	}
 	return &hostsContainer{
 		BP:      bp,
-		matcher: matcher,
+		matcher: mixMatcher,
 	}, nil
 }
 
@@ -148,16 +158,16 @@ func (r *ipRecord) Append(v interface{}) {
 	r.ipv6 = append(r.ipv6, n.ipv6...)
 }
 
-func parseIP(s []string) (interface{}, error) {
+func parseIP(s []string) (v interface{}, accept bool, err error) {
 	if len(s) == 0 {
-		return nil, nil
+		return nil, false, nil
 	}
 
 	record := new(ipRecord)
 	for _, ipStr := range s {
 		ip := net.ParseIP(ipStr)
 		if ip == nil {
-			return nil, fmt.Errorf("invalid ip addr %s", ipStr)
+			return nil, false, fmt.Errorf("invalid ip addr %s", ipStr)
 		}
 
 		if ipv4 := ip.To4(); ipv4 != nil { // is ipv4
@@ -165,8 +175,8 @@ func parseIP(s []string) (interface{}, error) {
 		} else if ipv6 := ip.To16(); ipv6 != nil { // is ipv6
 			record.ipv6 = append(record.ipv6, ipv6)
 		} else { // invalid
-			return nil, fmt.Errorf("%s is not an ipv4 or ipv6 addr", ipStr)
+			return nil, false, fmt.Errorf("%s is not an ipv4 or ipv6 addr", ipStr)
 		}
 	}
-	return record, nil
+	return record, true, nil
 }
