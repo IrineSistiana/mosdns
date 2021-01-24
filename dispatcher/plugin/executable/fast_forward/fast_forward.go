@@ -19,7 +19,9 @@ package fastforward
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
+	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
@@ -53,6 +55,7 @@ type fastForward struct {
 type Args struct {
 	Upstream    []*UpstreamConfig `yaml:"upstream"`
 	Deduplicate bool              `yaml:"deduplicate"`
+	CA          []string          `yaml:"ca"` // certificate path, used by "dot", "doh" as ca root.
 }
 
 // UpstreamConfig: Note: It is not reusable.
@@ -80,10 +83,9 @@ type UpstreamConfig struct {
 
 	// IdleTimeout used by all protocols to control connection idle timeout.
 	// Default: "tcp" & "dot": 0 (disable connection reuse), "udp" & "doh": 30.
-	IdleTimeout        uint     `yaml:"idle_timeout"`
-	MaxConns           uint     `yaml:"max_conns"`            // used by "doh", max connections. Default: 1.
-	InsecureSkipVerify bool     `yaml:"insecure_skip_verify"` // used by "dot", "doh". Skip tls verification.
-	CA                 []string `yaml:"ca"`                   // certificate path, used by "dot", "doh" as ca root.
+	IdleTimeout        uint `yaml:"idle_timeout"`
+	MaxConns           uint `yaml:"max_conns"`            // used by "doh", max connections. Default: 1.
+	InsecureSkipVerify bool `yaml:"insecure_skip_verify"` // used by "dot", "doh". Skip tls verification.
 }
 
 func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
@@ -101,8 +103,18 @@ func newFastForward(bp *handler.BP, args *Args) (*fastForward, error) {
 		upstream: make([]utils.TrustedUpstream, 0),
 	}
 
+	// certPool
+	var certPool *x509.CertPool
+	if len(args.CA) != 0 {
+		var err error
+		certPool, err = utils.LoadCertPool(args.CA)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load ca: %w", err)
+		}
+	}
+
 	for _, config := range args.Upstream {
-		u, err := newFastUpstream(config, bp.L())
+		u, err := newFastUpstream(config, bp.L(), certPool)
 		if err != nil {
 			return nil, err
 		}

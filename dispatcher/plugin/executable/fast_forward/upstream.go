@@ -67,7 +67,7 @@ const (
 	protocolDoH
 )
 
-func newFastUpstream(config *UpstreamConfig, logger *zap.Logger) (*fastUpstream, error) {
+func newFastUpstream(config *UpstreamConfig, logger *zap.Logger, certPool *x509.CertPool) (*fastUpstream, error) {
 	if len(config.Addr) == 0 { // Addr should never be empty
 		return nil, errors.New("empty upstream addr")
 	}
@@ -81,6 +81,7 @@ func newFastUpstream(config *UpstreamConfig, logger *zap.Logger) (*fastUpstream,
 	var idleTimeout time.Duration = 0
 
 	u := new(fastUpstream)
+	u.certPool = certPool
 
 	// pares protocol and add port and check config.
 	switch config.Protocol {
@@ -128,15 +129,6 @@ func newFastUpstream(config *UpstreamConfig, logger *zap.Logger) (*fastUpstream,
 	if (u.mode == protocolUDP || u.mode == protocolTCP || u.mode == protocolDoT) && config.IdleTimeout > 0 {
 		poolLogger := logger.With(zap.String("addr", config.Addr), zap.String("protocol", "tcp"))
 		u.tcpPool = cpool.New(0xffff, idleTimeout, time.Second*2, poolLogger)
-	}
-
-	// certPool
-	if len(config.CA) != 0 {
-		certPool, err := utils.LoadCertPool(config.CA)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load ca: %w", err)
-		}
-		u.certPool = certPool
 	}
 
 	// dialContext

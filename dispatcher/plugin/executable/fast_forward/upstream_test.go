@@ -111,7 +111,7 @@ func Test_fastUpstream(t *testing.T) {
 	// TODO: add test for socks5
 
 	for i, c := range conf {
-		u, err := newFastUpstream(c, testLogger)
+		u, err := newFastUpstream(c, testLogger, nil)
 		if err != nil {
 			t.Fatalf("test %d: %v", i, err)
 		}
