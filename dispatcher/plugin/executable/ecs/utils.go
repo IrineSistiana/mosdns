@@ -18,7 +18,6 @@
 package ecs
 
 import (
-	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
 	"net"
 )
@@ -46,11 +45,7 @@ func removeECS(m *dns.Msg) (removedECS *dns.EDNS0_SUBNET) {
 	for i := range opt.Option {
 		if opt.Option[i].Option() == dns.EDNS0SUBNET {
 			removedECS = opt.Option[i].(*dns.EDNS0_SUBNET)
-			if i < len(opt.Option) {
-				opt.Option = append(opt.Option[:i], opt.Option[i+1:]...)
-			} else {
-				opt.Option = opt.Option[:len(opt.Option)-1]
-			}
+			opt.Option = append(opt.Option[:i], opt.Option[i+1:]...)
 			return
 		}
 	}
@@ -61,7 +56,7 @@ func setECS(m *dns.Msg, ecs *dns.EDNS0_SUBNET) *dns.Msg {
 	opt := m.IsEdns0()
 	if opt == nil { // no opt, we need a new opt
 		o := new(dns.OPT)
-		o.SetUDPSize(utils.IPv6UdpMaxPayload)
+		o.SetUDPSize(dns.MinMsgSize)
 		o.Hdr.Name = "."
 		o.Hdr.Rrtype = dns.TypeOPT
 		o.Option = []dns.EDNS0{ecs}
