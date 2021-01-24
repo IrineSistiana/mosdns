@@ -30,18 +30,19 @@ type Config struct {
 		Level string `yaml:"level"`
 		File  string `yaml:"file"`
 	} `yaml:"log"`
+	Library []string          `yaml:"library"`
 	Plugin  []*handler.Config `yaml:"plugin"`
 	Include []string          `yaml:"include"`
 }
 
 // parseConfig loads a yaml config from path f.
 func parseConfig(f string) (*Config, error) {
-	c := new(Config)
 	b, err := ioutil.ReadFile(f)
 	if err != nil {
 		return nil, err
 	}
 
+	c := new(Config)
 	if err := yaml.Unmarshal(b, c); err != nil {
 		return nil, err
 	}

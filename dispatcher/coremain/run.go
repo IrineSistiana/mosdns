@@ -27,6 +27,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"os"
 	"os/signal"
+	"plugin"
 	"syscall"
 )
 
@@ -63,7 +64,8 @@ func loadConfig(f string, depth int) error {
 		return fmt.Errorf("failed to parse config from file %s: %w", f, err)
 	}
 
-	if depth == 1 { // init logger
+	if depth == 1 {
+		// init logger
 		level, err := parseLogLevel(c.Log.Level)
 		if err != nil {
 			return err
@@ -77,6 +79,14 @@ func loadConfig(f string, depth int) error {
 			}
 			mlog.L().Info("redirecting log to file, end of console log", zap.String("file", c.Log.File))
 			mlog.Writer().Replace(f)
+		}
+
+		for _, lib := range c.Library {
+			mlog.L().Info("loading library", zap.String("library", lib))
+			_, err := plugin.Open(lib)
+			if err != nil {
+				return fmt.Errorf("failed to open library %s: %w", lib, err)
+			}
 		}
 	}
 
