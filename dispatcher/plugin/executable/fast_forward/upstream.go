@@ -72,11 +72,9 @@ func newFastUpstream(config *UpstreamConfig, logger *zap.Logger, certPool *x509.
 		return nil, errors.New("empty upstream addr")
 	}
 
-	var timeout time.Duration
+	timeout := generalReadTimeout
 	if config.Timeout > 0 {
 		timeout = time.Second * time.Duration(config.Timeout)
-	} else {
-		timeout = generalReadTimeout
 	}
 	var idleTimeout time.Duration = 0
 
@@ -183,10 +181,13 @@ func newFastUpstream(config *UpstreamConfig, logger *zap.Logger, certPool *x509.
 			MaxConnsPerHost:     maxConn,
 			MaxIdleConnsPerHost: maxConn,
 		}
-		_, err := http2.ConfigureTransports(t)
+		t2, err := http2.ConfigureTransports(t)
 		if err != nil {
 			return nil, err
 		}
+
+		t2.ReadIdleTimeout = time.Second * 30
+		t2.PingTimeout = time.Second * 5
 
 		u.httpClient = &http.Client{
 			Transport: t,
