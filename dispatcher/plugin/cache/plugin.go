@@ -42,7 +42,6 @@ var _ handler.ESExecutablePlugin = (*cachePlugin)(nil)
 var _ handler.ContextPlugin = (*cachePlugin)(nil)
 
 type Args struct {
-	EDNS0           bool   `yaml:"edns0"`
 	Size            int    `yaml:"size"`
 	CleanerInterval int    `yaml:"cleaner_interval"`
 	Redis           string `yaml:"redis"`
@@ -98,20 +97,27 @@ func (c *cachePlugin) ExecES(ctx context.Context, qCtx *handler.Context) (earlyS
 	return false, nil
 }
 
+const (
+	saltUDP uint16 = iota
+	saltTCP
+)
+
 func (c *cachePlugin) searchAndReply(ctx context.Context, qCtx *handler.Context) (key string, cacheHit bool) {
 	q := qCtx.Q()
-	if q.IsEdns0() != nil && !c.args.EDNS0 {
-		return "", false
+	var salt uint16
+	if qCtx.IsTCPClient() {
+		salt = saltTCP
+	} else {
+		salt = saltUDP
 	}
-
-	key, err := utils.GetMsgKey(q)
+	key, err := utils.GetMsgKey(q, salt)
 	if err != nil {
 		c.L().Warn("unable to get msg key, skip it", qCtx.InfoField(), zap.Error(err))
 		return "", false
 	}
 	v, ttl, _, err := c.c.get(ctx, key)
 	if err != nil {
-		c.L().Warn("unable to get cache, skip it", qCtx.InfoField(), zap.Error(err))
+		c.L().Warn("unable to access cache, skip it", qCtx.InfoField(), zap.Error(err))
 		return key, false
 	}
 
