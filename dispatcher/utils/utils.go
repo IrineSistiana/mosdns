@@ -105,16 +105,14 @@ func (n *NetAddr) String() string {
 	return n.str
 }
 
-// GetMsgKey unpacks m and set its id to 0.
-func GetMsgKey(m *dns.Msg) (string, error) {
-	buf := make([]byte, m.Len())
-	wireMsg, err := m.PackBuffer(buf)
+// GetMsgKey unpacks m and set its id to salt.
+func GetMsgKey(m *dns.Msg, salt uint16) (string, error) {
+	wireMsg, err := m.Pack()
 	if err != nil {
 		return "", err
 	}
-
-	wireMsg[0] = 0
-	wireMsg[1] = 0
+	wireMsg[0] = byte(salt >> 8)
+	wireMsg[1] = byte(salt)
 	return BytesToStringUnsafe(wireMsg), nil
 }
 
@@ -198,7 +196,7 @@ type ExchangeSingleFlightGroup struct {
 }
 
 func (g *ExchangeSingleFlightGroup) Exchange(ctx context.Context, qCtx *handler.Context, upstreams []Upstream, logger *zap.Logger) (r *dns.Msg, err error) {
-	key, err := GetMsgKey(qCtx.Q())
+	key, err := GetMsgKey(qCtx.Q(), 0)
 	if err != nil {
 		return nil, fmt.Errorf("failed to caculate msg key, %w", err)
 	}
@@ -309,26 +307,65 @@ func ExchangeParallel(ctx context.Context, qCtx *handler.Context, upstreams []Up
 	return nil, errors.New("no response")
 }
 
-// GetMinimalAnswerTTL returns the minimal ttl of m.Answer section.
-// If msg m has no answer, it returns 0.
-func GetMinimalAnswerTTL(m *dns.Msg) uint32 {
+// GetMinimalTTL returns the minimal ttl of this msg.
+// If msg m has no record, it returns 0.
+func GetMinimalTTL(m *dns.Msg) uint32 {
 	minTTL := ^uint32(0)
-	for _, r := range m.Answer {
-		ttl := r.Header().Ttl
-		if ttl < minTTL {
-			minTTL = ttl
+	hasRecord := false
+	for _, section := range [...][]dns.RR{m.Answer, m.Ns, m.Extra} {
+		for _, rr := range section {
+			if rr.Header().Rrtype == dns.TypeOPT {
+				continue // opt record ttl is not ttl.
+			}
+			hasRecord = true
+			ttl := rr.Header().Ttl
+			if ttl < minTTL {
+				minTTL = ttl
+			}
 		}
 	}
 
-	if minTTL == ^uint32(0) { // no ttl applied
+	if !hasRecord { // no ttl applied
 		return 0
 	}
 	return minTTL
 }
 
-// SetAnswerTTL sets all of the m.Answer to ttl.
-func SetAnswerTTL(m *dns.Msg, ttl uint32) {
-	for _, r := range m.Answer {
-		r.Header().Ttl = ttl
+// SetTTL updates all records' ttl to ttl, except opt record.
+func SetTTL(m *dns.Msg, ttl uint32) {
+	for _, section := range [...][]dns.RR{m.Answer, m.Ns, m.Extra} {
+		for _, rr := range section {
+			if rr.Header().Rrtype == dns.TypeOPT {
+				continue // opt record ttl is not ttl.
+			}
+			rr.Header().Ttl = ttl
+		}
+	}
+}
+
+func ApplyMaximumTTL(m *dns.Msg, ttl uint32) {
+	applyTTL(m, ttl, true)
+}
+
+func ApplyMinimalTTL(m *dns.Msg, ttl uint32) {
+	applyTTL(m, ttl, false)
+}
+
+func applyTTL(m *dns.Msg, ttl uint32, maximum bool) {
+	for _, section := range [...][]dns.RR{m.Answer, m.Ns, m.Extra} {
+		for _, rr := range section {
+			if rr.Header().Rrtype == dns.TypeOPT {
+				continue // opt record ttl is not ttl.
+			}
+			if maximum {
+				if rr.Header().Ttl > ttl {
+					rr.Header().Ttl = ttl
+				}
+			} else {
+				if rr.Header().Ttl < ttl {
+					rr.Header().Ttl = ttl
+				}
+			}
+		}
 	}
 }

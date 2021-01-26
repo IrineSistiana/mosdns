@@ -124,7 +124,7 @@ func (c *cachePlugin) searchAndReply(ctx context.Context, qCtx *handler.Context)
 
 		c.L().Debug("cache hit", qCtx.InfoField())
 		r.Id = q.Id
-		utils.SetAnswerTTL(r, uint32(ttl/time.Second))
+		utils.SetTTL(r, uint32(ttl/time.Second))
 		qCtx.SetResponse(r, handler.ContextStatusResponded)
 		return key, true
 	}
@@ -152,7 +152,7 @@ func (d *deferExecutable) Exec(ctx context.Context, qCtx *handler.Context) (err 
 func (d *deferExecutable) exec(ctx context.Context, qCtx *handler.Context) (err error) {
 	r := qCtx.R()
 	if r != nil && r.Rcode == dns.RcodeSuccess && len(r.Answer) != 0 {
-		ttl := utils.GetMinimalAnswerTTL(r)
+		ttl := utils.GetMinimalTTL(r)
 		if ttl > maxTTL {
 			ttl = maxTTL
 		}
