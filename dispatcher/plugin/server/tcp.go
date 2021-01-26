@@ -102,6 +102,7 @@ func (sg *ServerGroup) startTCP(conf *ServerConfig, isDoT bool) error {
 					w := &tcpResponseWriter{c: c}
 
 					qCtx := handler.NewContext(q, c.RemoteAddr())
+					qCtx.SetTCPClient(true)
 					sg.L().Debug("new query", qCtx.InfoField(), zap.Stringer("from", c.RemoteAddr()))
 
 					ctx, cancelQuery := context.WithTimeout(tcpConnCtx, conf.queryTimeout)

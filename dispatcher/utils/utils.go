@@ -197,7 +197,7 @@ type ExchangeSingleFlightGroup struct {
 	singleflight.Group
 }
 
-func (g *ExchangeSingleFlightGroup) Exchange(ctx context.Context, qCtx *handler.Context, upstreams []TrustedUpstream, logger *zap.Logger) (r *dns.Msg, err error) {
+func (g *ExchangeSingleFlightGroup) Exchange(ctx context.Context, qCtx *handler.Context, upstreams []Upstream, logger *zap.Logger) (r *dns.Msg, err error) {
 	key, err := GetMsgKey(qCtx.Q())
 	if err != nil {
 		return nil, fmt.Errorf("failed to caculate msg key, %w", err)
@@ -244,8 +244,8 @@ func BoolLogic(ctx context.Context, qCtx *handler.Context, fs []handler.Matcher,
 	return matched, nil
 }
 
-type TrustedUpstream interface {
-	Exchange(m *dns.Msg) (*dns.Msg, error)
+type Upstream interface {
+	Exchange(qCtx *handler.Context) (*dns.Msg, error)
 	Address() string
 	Trusted() bool
 }
@@ -253,17 +253,17 @@ type TrustedUpstream interface {
 type parallelResult struct {
 	r    *dns.Msg
 	err  error
-	from TrustedUpstream
+	from Upstream
 }
 
-func ExchangeParallel(ctx context.Context, qCtx *handler.Context, upstreams []TrustedUpstream, logger *zap.Logger) (r *dns.Msg, err error) {
+func ExchangeParallel(ctx context.Context, qCtx *handler.Context, upstreams []Upstream, logger *zap.Logger) (r *dns.Msg, err error) {
 	t := len(upstreams)
 	if t == 0 {
 		return nil, errors.New("no upstream is configured")
 	}
 	if t == 1 {
 		u := upstreams[0]
-		r, err = u.Exchange(qCtx.Q())
+		r, err = u.Exchange(qCtx)
 		if err != nil {
 			return nil, err
 		}
@@ -272,7 +272,7 @@ func ExchangeParallel(ctx context.Context, qCtx *handler.Context, upstreams []Tr
 	}
 
 	c := make(chan *parallelResult, t) // use buf chan to avoid block.
-	qCopy := qCtx.Q().Copy()           // qCtx is not safe for concurrent use.
+	qCopy := qCtx.Copy()               // qCtx is not safe for concurrent use.
 	for _, u := range upstreams {
 		u := u
 		go func() {

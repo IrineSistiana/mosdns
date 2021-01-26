@@ -95,6 +95,7 @@ func (h *dohHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	qCtx := handler.NewContext(q, utils.NewNetAddr(req.RemoteAddr, req.URL.Scheme))
+	qCtx.SetTCPClient(true)
 	h.s.L().Debug("new query", qCtx.InfoField(), zap.String("from", req.RemoteAddr))
 
 	responseWriter := &httpDnsRespWriter{httpRespWriter: w}

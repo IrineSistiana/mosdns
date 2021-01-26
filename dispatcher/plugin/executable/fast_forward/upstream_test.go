@@ -21,42 +21,52 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"github.com/AdguardTeam/dnsproxy/upstream"
-	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
+	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
+	"go.uber.org/zap"
 	"net"
 	"sync"
 	"testing"
 	"time"
 )
 
-var (
-	dummyIP     = net.IPv4(1, 2, 3, 4)
-	dummyServer = &vServer{ip: dummyIP, latency: 0}
-
-	testLogger = mlog.NewPluginLogger("test")
-)
-
-func Test_fastUpstream(t *testing.T) {
+func newUDPTCPTestServer(t *testing.T, handler dns.Handler) (addr string, shutdownFunc func()) {
 	udpConn, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	udpAddr := udpConn.LocalAddr().String()
-	udpServer := dns.Server{Net: "udp", PacketConn: udpConn, Handler: dummyServer}
+	udpServer := dns.Server{PacketConn: udpConn, Handler: handler}
 	go udpServer.ActivateAndServe()
-	defer udpServer.Shutdown()
 
+	l, err := net.Listen("tcp", udpAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tcpServer := dns.Server{Listener: l, Handler: handler}
+	go tcpServer.ActivateAndServe()
+
+	return udpAddr, func() {
+		udpServer.Shutdown()
+		tcpServer.Shutdown()
+	}
+}
+
+func newTCPTestServer(t *testing.T, handler dns.Handler) (addr string, shutdownFunc func()) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	tcpAddr := l.Addr().String()
-	tcpServer := dns.Server{Net: "udp", Listener: l, Handler: dummyServer}
+	tcpServer := dns.Server{Listener: l, Handler: handler}
 	go tcpServer.ActivateAndServe()
-	defer tcpServer.Shutdown()
+	return tcpAddr, func() {
+		tcpServer.Shutdown()
+	}
+}
 
+func newDoTTestServer(t *testing.T, handler dns.Handler) (addr string, shutdownFunc func()) {
 	serverName := "test"
 	cert, err := utils.GenerateCertificate(serverName)
 	tlsConfig := new(tls.Config)
@@ -65,63 +75,67 @@ func Test_fastUpstream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tlsAddr := tlsListener.Addr().String()
-	tlsServer := dns.Server{Net: "tcp-tls", Listener: tlsListener, TLSConfig: tlsConfig, Handler: dummyServer}
-	go tlsServer.ActivateAndServe()
-	defer tlsServer.Shutdown()
+	doTAddr := tlsListener.Addr().String()
+	doTServer := dns.Server{Net: "tcp-tls", Listener: tlsListener, TLSConfig: tlsConfig, Handler: handler}
+	go doTServer.ActivateAndServe()
+	return doTAddr, func() {
+		doTServer.Shutdown()
+	}
+}
 
-	conf := []*UpstreamConfig{
-		{
-			Protocol:    "",
-			Addr:        udpAddr,
-			IdleTimeout: 0,
-		},
-		{
-			Protocol:    "udp",
-			Addr:        udpAddr,
-			IdleTimeout: 5,
-		},
-		{
-			Protocol:    "tcp",
-			Addr:        tcpAddr,
-			IdleTimeout: 0,
-		},
-		{
-			Protocol:    "tcp",
-			Addr:        tcpAddr,
-			IdleTimeout: 5,
-		},
-		{
-			Protocol:           "dot",
-			Addr:               tlsAddr,
-			IdleTimeout:        0,
-			ServerName:         serverName,
-			InsecureSkipVerify: true,
-		},
-		{
-			Protocol:           "dot",
-			Addr:               tlsAddr,
-			IdleTimeout:        5,
-			ServerName:         serverName,
-			InsecureSkipVerify: true,
-		},
+type newTestServerFunc func(t *testing.T, handler dns.Handler) (addr string, shutdownFunc func())
+
+func Test_fastUpstream(t *testing.T) {
+	m := map[string]newTestServerFunc{
+		"udp": newUDPTCPTestServer,
+		"tcp": newTCPTestServer,
+		"dot": newDoTTestServer,
 	}
 
 	// TODO: add test for doh
 	// TODO: add test for socks5
 
-	for i, c := range conf {
-		u, err := newFastUpstream(c, testLogger, nil)
-		if err != nil {
-			t.Fatalf("test %d: %v", i, err)
+	// server config
+	for protocol, f := range m {
+		for _, bigMsg := range [...]bool{true, false} {
+			for _, latency := range [...]time.Duration{0, time.Millisecond * 10, time.Millisecond * 50} {
+
+				// client specific
+				for _, idleTimeout := range [...]uint{0, 1} {
+
+					func() {
+						addr, shutdownServer := f(t, &vServer{
+							latency: latency,
+							bigMsg:  bigMsg,
+						})
+						defer shutdownServer()
+
+						c := &UpstreamConfig{
+							Protocol:           protocol,
+							Addr:               addr,
+							ServerName:         "test",
+							IdleTimeout:        idleTimeout,
+							InsecureSkipVerify: true,
+						}
+
+						u, err := newFastUpstream(c, zap.NewNop(), nil)
+						if err != nil {
+							t.Fatal(err)
+						}
+
+						if err := testUpstream(u); err != nil {
+							t.Fatal(err)
+						}
+					}()
+
+				}
+			}
 		}
-		if err := testUpstream(u); err != nil {
-			t.Fatalf("test %d: %v", i, err)
-		}
+
 	}
 }
 
-func testUpstream(u upstream.Upstream) error {
+func testUpstream(u *fastUpstream) error {
 	wg := sync.WaitGroup{}
 	errs := make([]error, 0)
 	errsLock := sync.Mutex{}
@@ -138,24 +152,27 @@ func testUpstream(u upstream.Upstream) error {
 		return s
 	}
 
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for _, noTruncation := range [...]bool{false, true} {
+		for i := 0; i < 10; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
 
-			q := new(dns.Msg)
-			q.SetQuestion("example.com.", dns.TypeA)
-
-			r, err := u.Exchange(q)
-			if err != nil {
-				logErr(err)
-				return
-			}
-			if !r.Answer[0].(*dns.A).A.Equal(dummyIP) {
-				logErr(errors.New("data corrupted"))
-				return
-			}
-		}()
+				q := new(dns.Msg)
+				q.SetQuestion("example.com.", dns.TypeA)
+				qCtx := handler.NewContext(q, nil)
+				qCtx.SetTCPClient(noTruncation)
+				r, err := u.Exchange(qCtx)
+				if err != nil {
+					logErr(err)
+					return
+				}
+				if r.Id != q.Id {
+					logErr(dns.ErrId)
+					return
+				}
+			}()
+		}
 	}
 	wg.Wait()
 	if len(errs) != 0 {
@@ -166,25 +183,19 @@ func testUpstream(u upstream.Upstream) error {
 
 type vServer struct {
 	latency time.Duration
-	ip      net.IP
+	bigMsg  bool // with 1kb padding
 }
 
+var padding = make([]byte, 1024)
+
 func (s *vServer) ServeDNS(w dns.ResponseWriter, q *dns.Msg) {
-	name := q.Question[0].Name
 	r := new(dns.Msg)
 	r.SetReply(q)
-	var rr dns.RR
-	hdr := dns.RR_Header{
-		Name:     name,
-		Class:    dns.ClassINET,
-		Ttl:      300,
-		Rdlength: 0,
+	if s.bigMsg {
+		r.SetEdns0(dns.MaxMsgSize, false)
+		opt := r.IsEdns0()
+		opt.Option = append(opt.Option, &dns.EDNS0_PADDING{Padding: padding})
 	}
-
-	hdr.Rrtype = dns.TypeA
-
-	rr = &dns.A{Hdr: hdr, A: s.ip}
-	r.Answer = append(r.Answer, rr)
 
 	time.Sleep(s.latency)
 	w.WriteMsg(r)

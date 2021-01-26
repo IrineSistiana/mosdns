@@ -63,7 +63,7 @@ func (u *fastUpstream) exchangeDoH(q *dns.Msg) (r *dns.Msg, err error) {
 	encoder.Write(rRaw)
 	encoder.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), u.timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), u.readTimeout)
 	defer cancel()
 
 	r, err = u.doHTTP(ctx, urlBuilder.String())

@@ -26,7 +26,6 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
-	"go.uber.org/zap"
 	"net"
 	"time"
 )
@@ -41,7 +40,7 @@ var _ handler.ExecutablePlugin = (*forwarder)(nil)
 
 type forwarder struct {
 	*handler.BP
-	upstream    []utils.TrustedUpstream
+	upstream    []utils.Upstream
 	deduplicate bool
 
 	fastIPHandler  *fastip.FastestAddr // nil if fast ip is disabled
@@ -81,6 +80,10 @@ func newForwarder(bp *handler.BP, args *Args) (*forwarder, error) {
 	f.BP = bp
 	f.deduplicate = args.Deduplicate
 
+	if args.FastestIP {
+		f.fastIPHandler = fastip.NewFastestAddr()
+	}
+
 	for _, conf := range args.UpstreamConfig {
 		if len(conf.Addr) == 0 {
 			return nil, errors.New("missing upstream address")
@@ -111,17 +114,13 @@ func newForwarder(bp *handler.BP, args *Args) (*forwarder, error) {
 			return nil, fmt.Errorf("failed to init upsteam: %w", err)
 		}
 
-		f.upstream = append(f.upstream, &trustedUpstream{
-			Upstream: u,
-			trusted:  conf.Trusted,
-		})
-	}
-
-	if args.FastestIP {
-		f.fastIPHandler = fastip.NewFastestAddr()
-		f.upstreamFastIP = make([]upstream.Upstream, 0, len(f.upstream))
-		for _, u := range f.upstream {
-			f.upstreamFastIP = append(f.upstreamFastIP, u.(*trustedUpstream).Upstream)
+		if args.FastestIP {
+			f.upstreamFastIP = append(f.upstreamFastIP, u)
+		} else {
+			f.upstream = append(f.upstream, &trustedUpstream{
+				dnsproxyUpstream: u,
+				trusted:          conf.Trusted,
+			})
 		}
 	}
 
@@ -129,8 +128,16 @@ func newForwarder(bp *handler.BP, args *Args) (*forwarder, error) {
 }
 
 type trustedUpstream struct {
-	upstream.Upstream
-	trusted bool
+	dnsproxyUpstream upstream.Upstream
+	trusted          bool
+}
+
+func (u *trustedUpstream) Address() string {
+	return u.dnsproxyUpstream.Address()
+}
+
+func (u *trustedUpstream) Exchange(qCtx *handler.Context) (*dns.Msg, error) {
+	return u.dnsproxyUpstream.Exchange(qCtx.Q())
 }
 
 func (u *trustedUpstream) Trusted() bool {
@@ -149,9 +156,7 @@ func (f *forwarder) exec(ctx context.Context, qCtx *handler.Context) error {
 	var r *dns.Msg
 	var err error
 	if f.fastIPHandler != nil {
-		var u upstream.Upstream
-		r, u, err = f.fastIPHandler.ExchangeFastest(qCtx.Q().Copy(), f.upstreamFastIP)
-		f.L().Debug("fastest ip received", zap.String("from", u.Address()))
+		r, _, err = f.fastIPHandler.ExchangeFastest(qCtx.Q().Copy(), f.upstreamFastIP)
 	} else if f.deduplicate {
 		r, err = f.sfGroup.Exchange(ctx, qCtx, f.upstream, f.L())
 	} else {

@@ -23,6 +23,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/fast_forward/cpool"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
@@ -39,8 +40,8 @@ type fastUpstream struct {
 	logger *zap.Logger
 	config *UpstreamConfig
 
-	mode    upstreamProtocol
-	timeout time.Duration
+	protocol    dnsProtocol
+	readTimeout time.Duration
 
 	// upstream address
 	address string
@@ -49,19 +50,15 @@ type fastUpstream struct {
 	udpPool *cpool.Pool // used by udp
 	tcpPool *cpool.Pool // used by udp, tcp, dot.
 
-	// ca pool, used by dot, doh.
-	certPool *x509.CertPool
-
-	// used by tcp, dot to dial server connection. It cannot be nil.
-	dialTCP func() (net.Conn, error)
+	tlsConfig *tls.Config // Used by dot. It cannot be nil.
 
 	httpClient *http.Client // Used by doh. It cannot be nil.
 }
 
-type upstreamProtocol uint8
+type dnsProtocol uint8
 
 const (
-	protocolUDP upstreamProtocol = iota
+	protocolUDP dnsProtocol = iota
 	protocolTCP
 	protocolDoT
 	protocolDoH
@@ -76,36 +73,39 @@ func newFastUpstream(config *UpstreamConfig, logger *zap.Logger, certPool *x509.
 	if config.Timeout > 0 {
 		timeout = time.Second * time.Duration(config.Timeout)
 	}
-	var idleTimeout time.Duration = 0
 
-	u := new(fastUpstream)
-	u.certPool = certPool
-
-	// pares protocol and add port and check config.
+	// pares protocol and idleTimeout, add default port, check config.
+	var (
+		idleTimeout time.Duration // used by tcp, dot, doh
+		protocol    dnsProtocol
+		address     string
+	)
 	switch config.Protocol {
 	case "", "udp":
-		u.mode = protocolUDP
+		protocol = protocolUDP
 		config.Addr = utils.TryAddPort(config.Addr, 53)
-		u.address = "udp://" + config.Addr
-		idleTimeout = time.Second * 30
+		address = "udp://" + config.Addr
+		idleTimeout = time.Second * 0 // this is for tcp fallback
 	case "tcp":
-		u.mode = protocolTCP
+		protocol = protocolTCP
 		config.Addr = utils.TryAddPort(config.Addr, 53)
-		u.address = "tcp://" + config.Addr
+		address = "tcp://" + config.Addr
+		idleTimeout = time.Second * 0
 	case "dot", "tls":
 		if len(config.ServerName) == 0 {
 			return nil, errors.New("dot server name is empty")
 		}
-		u.mode = protocolDoT
+		protocol = protocolDoT
 		config.Addr = utils.TryAddPort(config.Addr, 853)
-		u.address = "tls://" + config.ServerName
+		address = "tls://" + config.ServerName
+		idleTimeout = time.Second * 0
 	case "doh", "https":
 		if len(config.URL) == 0 {
 			return nil, errors.New("doh server url is empty")
 		}
-		u.mode = protocolDoH
+		protocol = protocolDoH
 		config.Addr = utils.TryAddPort(config.Addr, 443)
-		u.address = config.URL
+		address = config.URL
 		idleTimeout = time.Second * 30
 	default:
 		return nil, fmt.Errorf("unsupported protocol: %s", config.Protocol)
@@ -118,51 +118,42 @@ func newFastUpstream(config *UpstreamConfig, logger *zap.Logger, certPool *x509.
 	// init other stuffs in u
 
 	// udpPool
-	if (u.mode == protocolUDP || u.mode == protocolTCP) && config.IdleTimeout > 0 {
-		poolLogger := logger.With(zap.String("addr", config.Addr), zap.String("protocol", "udp"))
-		u.udpPool = cpool.New(0xffff, idleTimeout, time.Second*2, poolLogger)
+	var udpPool *cpool.Pool
+	if protocol == protocolUDP && config.IdleTimeout > 0 {
+		poolLogger := logger.With(zap.String("addr", address), zap.String("protocol", "udp"))
+		udpPool = cpool.New(0xffff, time.Second*30, time.Second*15, poolLogger)
 	}
 
 	// tcpPool
-	if (u.mode == protocolUDP || u.mode == protocolTCP || u.mode == protocolDoT) && config.IdleTimeout > 0 {
-		poolLogger := logger.With(zap.String("addr", config.Addr), zap.String("protocol", "tcp"))
-		u.tcpPool = cpool.New(0xffff, idleTimeout, time.Second*2, poolLogger)
+	var tcpPool *cpool.Pool
+	if (protocol == protocolUDP || protocol == protocolTCP || protocol == protocolDoT) && config.IdleTimeout > 0 {
+		poolLogger := logger.With(zap.String("addr", address), zap.String("protocol", "tcp"))
+		tcpPool = cpool.New(0xffff, idleTimeout, time.Second*2, poolLogger)
 	}
 
-	// dialContext
-	if u.mode == protocolTCP {
-		u.dialTCP = func() (net.Conn, error) {
-			return u.dialTimeout("tcp", config.Addr, dialTimeout)
-		}
-	}
-	if u.mode == protocolDoT {
-		tlsConfig := new(tls.Config)
+	// tlsConfig
+	var tlsConfig *tls.Config
+	if protocol == protocolDoT {
+		tlsConfig = new(tls.Config)
 		tlsConfig.ServerName = config.ServerName
-		tlsConfig.RootCAs = u.certPool
+		tlsConfig.RootCAs = certPool
 		tlsConfig.InsecureSkipVerify = config.InsecureSkipVerify
+	}
 
-		u.dialTCP = func() (net.Conn, error) {
-			c, err := u.dialTimeout("tcp", config.Addr, dialTimeout)
-			if err != nil {
-				return nil, err
-			}
-			tlsConn := tls.Client(c, tlsConfig)
-			c.SetDeadline(time.Now().Add(tlsHandshakeTimeout))
-			if err := tlsConn.Handshake(); err != nil {
-				c.Close()
-				return nil, err
-			}
-			c.SetDeadline(time.Time{})
-			return tlsConn, nil
-		}
+	u := &fastUpstream{
+		logger:      logger.With(zap.String("addr", address)),
+		config:      config,
+		protocol:    protocol,
+		readTimeout: timeout,
+		address:     address,
+		udpPool:     udpPool,
+		tcpPool:     tcpPool,
+		tlsConfig:   tlsConfig,
+		httpClient:  nil, // init it later
 	}
 
 	// httpClient
-	if u.mode == protocolDoH {
-		tlsConfig := new(tls.Config)
-		tlsConfig.RootCAs = u.certPool
-		tlsConfig.InsecureSkipVerify = config.InsecureSkipVerify
-
+	if protocol == protocolDoH {
 		maxConn := 1
 		if config.MaxConns != 0 {
 			maxConn = int(config.MaxConns)
@@ -170,9 +161,12 @@ func newFastUpstream(config *UpstreamConfig, logger *zap.Logger, certPool *x509.
 
 		t := &http.Transport{
 			DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) { // overwrite server addr
-				return u.dialContext(ctx, network, config.Addr)
+				return u.dialContext(ctx, network)
 			},
-			TLSClientConfig:       tlsConfig,
+			TLSClientConfig: &tls.Config{
+				RootCAs:            certPool,
+				InsecureSkipVerify: config.InsecureSkipVerify,
+			},
 			TLSHandshakeTimeout:   tlsHandshakeTimeout,
 			IdleConnTimeout:       idleTimeout,
 			ResponseHeaderTimeout: timeout,
@@ -194,9 +188,6 @@ func newFastUpstream(config *UpstreamConfig, logger *zap.Logger, certPool *x509.
 		}
 	}
 
-	u.logger = logger.With(zap.String("addr", u.address))
-	u.config = config
-	u.timeout = timeout
 	return u, nil
 }
 
@@ -208,31 +199,56 @@ func (u *fastUpstream) Trusted() bool {
 	return u.config.Trusted
 }
 
-func (u *fastUpstream) Exchange(q *dns.Msg) (r *dns.Msg, err error) {
-	switch u.mode {
+func (u *fastUpstream) Exchange(qCtx *handler.Context) (r *dns.Msg, err error) {
+	q := qCtx.Q()
+	switch u.protocol {
 	case protocolUDP:
-		return u.exchangeUDPWithTCPFallback(q)
-	case protocolTCP, protocolDoT:
-		return u.exchangeTCP(q)
+		if qCtx.IsTCPClient() { // force upgrade to tcp
+			return u.exchangeTCP(q, u.dialTCP)
+		}
+		return u.exchangeUDP(q)
+	case protocolTCP:
+		return u.exchangeTCP(q, u.dialTCP)
+	case protocolDoT:
+		return u.exchangeTCP(q, u.dialTLS)
 	case protocolDoH:
 		return u.exchangeDoH(q)
 	default:
-		panic(fmt.Sprintf("fastUpstream: invalid mode %d", u.mode))
+		panic(fmt.Sprintf("fastUpstream: invalid protocol %d", u.protocol))
 	}
 }
 
+func (u *fastUpstream) dialTCP() (net.Conn, error) {
+	return u.dialTimeout("tcp", dialTimeout)
+}
+
+func (u *fastUpstream) dialTLS() (net.Conn, error) {
+	c, err := u.dialTimeout("tcp", dialTimeout)
+	if err != nil {
+		return nil, err
+	}
+	tlsConn := tls.Client(c, u.tlsConfig)
+	c.SetDeadline(time.Now().Add(tlsHandshakeTimeout))
+	if err := tlsConn.Handshake(); err != nil {
+		c.Close()
+		return nil, err
+	}
+	c.SetDeadline(time.Time{})
+	return tlsConn, nil
+}
+
 // dialTimeout: see dialContext.
-func (u *fastUpstream) dialTimeout(network, addr string, timeout time.Duration) (net.Conn, error) {
+func (u *fastUpstream) dialTimeout(network string, timeout time.Duration) (net.Conn, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	return u.dialContext(ctx, network, addr)
+	return u.dialContext(ctx, network)
 }
 
 // dialContext dials a connection.
 // If network is "tcp", "tcp4", "tcp6", and UpstreamConfig.Socks5 is not empty, it will
 // dial through the socks5 server.
-func (u *fastUpstream) dialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+func (u *fastUpstream) dialContext(ctx context.Context, network string) (net.Conn, error) {
 	switch network {
 	case "tcp", "tcp4", "tcp6":
 		if len(u.config.Socks5) != 0 {
@@ -241,20 +257,20 @@ func (u *fastUpstream) dialContext(ctx context.Context, network, addr string) (n
 				return nil, fmt.Errorf("failed to init socks5 dialer: %w", err)
 			}
 
-			return socks5Dialer.(proxy.ContextDialer).DialContext(ctx, "tcp", addr)
+			return socks5Dialer.(proxy.ContextDialer).DialContext(ctx, "tcp", u.config.Addr)
 		}
 	}
 
 	d := net.Dialer{}
-	return d.DialContext(ctx, network, addr)
+	return d.DialContext(ctx, network, u.config.Addr)
 }
 
-func (u *fastUpstream) exchangeTCP(q *dns.Msg) (r *dns.Msg, err error) {
+func (u *fastUpstream) exchangeTCP(q *dns.Msg, dialFunc func() (net.Conn, error)) (r *dns.Msg, err error) {
 	if u.tcpPool != nil {
-		return u.exchangeTCPWithPool(q, u.tcpPool)
+		return u.exchangeTCPWithPool(q, dialFunc)
 	}
 
-	c, err := u.dialTCP()
+	c, err := dialFunc()
 	if err != nil {
 		return nil, err
 	}
@@ -263,14 +279,14 @@ func (u *fastUpstream) exchangeTCP(q *dns.Msg) (r *dns.Msg, err error) {
 	return u.exchangeViaTCPConn(q, c)
 }
 
-func (u *fastUpstream) exchangeTCPWithPool(q *dns.Msg, pool *cpool.Pool) (r *dns.Msg, err error) {
-	c := pool.Get()
+func (u *fastUpstream) exchangeTCPWithPool(q *dns.Msg, dialFunc func() (net.Conn, error)) (r *dns.Msg, err error) {
+	c := u.tcpPool.Get()
 	start := time.Now()
 
 exchange:
 	var isNewConn bool
 	if c == nil {
-		c, err = u.dialTCP()
+		c, err = dialFunc()
 		if err != nil {
 			return nil, err
 		}
@@ -291,7 +307,7 @@ exchange:
 		}
 	}
 
-	pool.Put(c)
+	u.tcpPool.Put(c)
 	return r, nil
 }
 
@@ -301,7 +317,7 @@ func (u *fastUpstream) exchangeViaTCPConn(q *dns.Msg, c net.Conn) (r *dns.Msg, e
 	if err != nil {
 		return nil, err
 	}
-	c.SetReadDeadline(time.Now().Add(u.timeout))
+	c.SetReadDeadline(time.Now().Add(u.readTimeout))
 	r, _, err = utils.ReadMsgFromTCP(c)
 	if err != nil {
 		return nil, err
@@ -309,21 +325,9 @@ func (u *fastUpstream) exchangeViaTCPConn(q *dns.Msg, c net.Conn) (r *dns.Msg, e
 	return r, nil
 }
 
-func (u *fastUpstream) exchangeUDPWithTCPFallback(q *dns.Msg) (r *dns.Msg, err error) {
-	r, err = u.exchangeUDP(q)
-	if err != nil {
-		return nil, err
-	}
-
-	if r != nil && r.Truncated { // fallback to tcp
-		return u.exchangeTCP(q)
-	}
-	return r, nil
-}
-
 func (u *fastUpstream) exchangeUDP(q *dns.Msg) (r *dns.Msg, err error) {
 	if u.udpPool != nil {
-		return u.exchangeUDPWithPool(q, u.udpPool)
+		return u.exchangeUDPWithPool(q)
 	}
 
 	dialer := net.Dialer{Timeout: dialTimeout}
@@ -336,8 +340,8 @@ func (u *fastUpstream) exchangeUDP(q *dns.Msg) (r *dns.Msg, err error) {
 	return u.exchangeViaUDPConn(q, c, false)
 }
 
-func (u *fastUpstream) exchangeUDPWithPool(q *dns.Msg, pool *cpool.Pool) (r *dns.Msg, err error) {
-	c := pool.Get()
+func (u *fastUpstream) exchangeUDPWithPool(q *dns.Msg) (r *dns.Msg, err error) {
+	c := u.udpPool.Get()
 	isNewConn := false
 	if c == nil {
 		dialer := net.Dialer{Timeout: dialTimeout}
@@ -354,7 +358,7 @@ func (u *fastUpstream) exchangeUDPWithPool(q *dns.Msg, pool *cpool.Pool) (r *dns
 		return nil, err
 	}
 
-	pool.Put(c)
+	u.udpPool.Put(c)
 	return r, nil
 }
 
@@ -364,7 +368,7 @@ func (u *fastUpstream) exchangeViaUDPConn(q *dns.Msg, c net.Conn, isNewConn bool
 	if err != nil { // write err typically is a fatal err
 		return nil, err
 	}
-	c.SetReadDeadline(time.Now().Add(u.timeout))
+	c.SetReadDeadline(time.Now().Add(u.readTimeout))
 
 	if isNewConn {
 		r, _, err = utils.ReadMsgFromUDP(c, utils.IPv4UdpMaxPayload)

@@ -33,11 +33,15 @@ import (
 // Context MUST be created by NewContext.
 type Context struct {
 	// init at beginning
-	q         *dns.Msg
-	from      net.Addr
-	info      string // a short Context summary for logging
-	id        uint32 // additional uint to distinguish duplicated msg
-	startTime time.Time
+	q          *dns.Msg
+	clientAddr net.Addr
+	info       string // a short Context summary for logging
+	id         uint32 // additional uint to distinguish duplicated msg
+	startTime  time.Time
+
+	// tcpClient indicates that client is using a tcp-like protocol (tcp, dot etc...).
+	// It means the response can have an arbitrary length and will not be truncated.
+	tcpClient bool
 
 	status ContextStatus
 	r      *dns.Msg
@@ -83,10 +87,10 @@ func NewContext(q *dns.Msg, from net.Addr) *Context {
 	}
 
 	ctx := &Context{
-		q:         q,
-		from:      from,
-		id:        atomic.AddUint32(&id, 1),
-		startTime: time.Now(),
+		q:          q,
+		clientAddr: from,
+		id:         atomic.AddUint32(&id, 1),
+		startTime:  time.Now(),
 
 		status: ContextStatusWaitingResponse,
 	}
@@ -108,7 +112,15 @@ func (ctx *Context) Q() *dns.Msg {
 
 // From returns the client net.Addr. It might be nil.
 func (ctx *Context) From() net.Addr {
-	return ctx.from
+	return ctx.clientAddr
+}
+
+func (ctx *Context) SetTCPClient(b bool) {
+	ctx.tcpClient = b
+}
+
+func (ctx *Context) IsTCPClient() bool {
+	return ctx.tcpClient
 }
 
 // R returns the response. It might be nil.
@@ -190,10 +202,11 @@ func (ctx *Context) Copy() *Context {
 	newCtx := new(Context)
 
 	newCtx.q = ctx.q.Copy()
-	newCtx.from = ctx.from
+	newCtx.clientAddr = ctx.clientAddr
 	newCtx.info = ctx.info
 	newCtx.id = ctx.id
 	newCtx.startTime = ctx.startTime
+	newCtx.tcpClient = ctx.tcpClient
 
 	newCtx.status = ctx.status
 	if ctx.r != nil {

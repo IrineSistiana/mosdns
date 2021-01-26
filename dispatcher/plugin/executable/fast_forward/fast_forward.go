@@ -47,7 +47,7 @@ type fastForward struct {
 	*handler.BP
 	args *Args
 
-	upstream []utils.TrustedUpstream
+	upstream []utils.Upstream
 
 	sfGroup utils.ExchangeSingleFlightGroup
 }
@@ -82,7 +82,7 @@ type UpstreamConfig struct {
 	Timeout uint `yaml:"timeout"`
 
 	// IdleTimeout used by all protocols to control connection idle timeout.
-	// Default: "tcp" & "dot": 0 (disable connection reuse), "udp" & "doh": 30.
+	// Default: "tcp" & "dot": 0 (disable connection reuse), "doh": 30.
 	IdleTimeout        uint `yaml:"idle_timeout"`
 	MaxConns           uint `yaml:"max_conns"`            // used by "doh", max connections. Default: 1.
 	InsecureSkipVerify bool `yaml:"insecure_skip_verify"` // used by "dot", "doh". Skip tls verification.
@@ -100,7 +100,7 @@ func newFastForward(bp *handler.BP, args *Args) (*fastForward, error) {
 	f := &fastForward{
 		BP:       bp,
 		args:     args,
-		upstream: make([]utils.TrustedUpstream, 0),
+		upstream: make([]utils.Upstream, 0),
 	}
 
 	// certPool
