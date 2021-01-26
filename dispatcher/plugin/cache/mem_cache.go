@@ -19,11 +19,10 @@ package cache
 
 import (
 	"context"
+	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"sync"
 	"time"
 )
-
-type OnEvictFunc func(key string, v []byte)
 
 // memCache is a simple cache that stores msgs in memory.
 type memCache struct {
@@ -31,7 +30,7 @@ type memCache struct {
 	cleanerInterval time.Duration
 
 	sync.RWMutex
-	m                map[string]elem
+	lru              *utils.LRU
 	cleanerIsRunning bool
 }
 
@@ -56,7 +55,7 @@ func newMemCache(size int, cleanerInterval time.Duration) *memCache {
 	return &memCache{
 		size:            size,
 		cleanerInterval: cleanerInterval,
-		m:               make(map[string]elem, size),
+		lru:             utils.NewLRU(size, nil),
 	}
 }
 
@@ -64,7 +63,8 @@ func (c *memCache) get(_ context.Context, key string) (v []byte, ttl time.Durati
 	c.RLock()
 	defer c.RUnlock()
 
-	if e, ok := c.m[key]; ok {
+	if v, ok := c.lru.Get(key); ok {
+		e := v.(*elem)
 		if ttl = time.Until(e.expirationTime); ttl > 0 {
 			v := make([]byte, len(e.v))
 			copy(v, e.v)
@@ -93,8 +93,8 @@ func (c *memCache) store(_ context.Context, key string, v []byte, ttl time.Durat
 				select {
 				case <-ticker.C:
 					c.Lock()
-					remain, _ := c.clean()
-					if remain == 0 {
+					c.lru.Clean(cleanFunc)
+					if c.lru.Len() == 0 {
 						c.cleanerIsRunning = false
 						c.Unlock()
 						return
@@ -105,40 +105,21 @@ func (c *memCache) store(_ context.Context, key string, v []byte, ttl time.Durat
 		}()
 	}
 
-	// remove some entries if cache is full.
-	n := len(c.m) - c.size + 1
-	if n > 0 {
-		for key := range c.m {
-			if n <= 0 {
-				break
-			}
-			delete(c.m, key)
-			n--
-		}
-	}
-
-	c.m[key] = elem{
+	e := &elem{
 		v:              v,
 		expirationTime: time.Now().Add(ttl),
 	}
+	c.lru.Add(key, e)
 	return
 }
 
-func (c *memCache) clean() (remain, cleaned int) {
-	now := time.Now()
-	for key, e := range c.m {
-		if e.expirationTime.Before(now) {
-			delete(c.m, key)
-			cleaned++
-		}
-	}
-
-	return len(c.m), cleaned
+func cleanFunc(_ string, v interface{}) bool {
+	return v.(*elem).expirationTime.Before(time.Now())
 }
 
 func (c *memCache) len() int {
 	c.RLock()
 	defer c.RUnlock()
 
-	return len(c.m)
+	return c.lru.Len()
 }

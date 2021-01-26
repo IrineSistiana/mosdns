@@ -29,7 +29,7 @@ import (
 const (
 	PluginType = "cache"
 
-	maxTTL uint32 = 3600
+	maxTTL uint32 = 3600 * 24 * 7 // one week
 )
 
 func init() {
@@ -42,6 +42,7 @@ var _ handler.ESExecutablePlugin = (*cachePlugin)(nil)
 var _ handler.ContextPlugin = (*cachePlugin)(nil)
 
 type Args struct {
+	EDNS0           bool   `yaml:"edns0"`
 	Size            int    `yaml:"size"`
 	CleanerInterval int    `yaml:"cleaner_interval"`
 	Redis           string `yaml:"redis"`
@@ -49,6 +50,7 @@ type Args struct {
 
 type cachePlugin struct {
 	*handler.BP
+	args *Args
 
 	c cache
 }
@@ -74,8 +76,9 @@ func newCachePlugin(bp *handler.BP, args *Args) (*cachePlugin, error) {
 		c = newMemCache(args.Size, time.Duration(args.CleanerInterval)*time.Second)
 	}
 	return &cachePlugin{
-		BP: bp,
-		c:  c,
+		BP:   bp,
+		args: args,
+		c:    c,
 	}, nil
 }
 
@@ -96,7 +99,12 @@ func (c *cachePlugin) ExecES(ctx context.Context, qCtx *handler.Context) (earlyS
 }
 
 func (c *cachePlugin) searchAndReply(ctx context.Context, qCtx *handler.Context) (key string, cacheHit bool) {
-	key, err := utils.GetMsgKey(qCtx.Q())
+	q := qCtx.Q()
+	if q.IsEdns0() != nil && !c.args.EDNS0 {
+		return "", false
+	}
+
+	key, err := utils.GetMsgKey(q)
 	if err != nil {
 		c.L().Warn("unable to get msg key, skip it", qCtx.InfoField(), zap.Error(err))
 		return "", false
@@ -115,7 +123,7 @@ func (c *cachePlugin) searchAndReply(ctx context.Context, qCtx *handler.Context)
 		}
 
 		c.L().Debug("cache hit", qCtx.InfoField())
-		r.Id = qCtx.Q().Id
+		r.Id = q.Id
 		utils.SetAnswerTTL(r, uint32(ttl/time.Second))
 		qCtx.SetResponse(r, handler.ContextStatusResponded)
 		return key, true
