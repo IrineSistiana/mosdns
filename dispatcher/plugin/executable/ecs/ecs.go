@@ -84,7 +84,7 @@ func newPlugin(bp *handler.BP, args *Args) (p handler.Plugin, err error) {
 		if ip4 := ip.To4(); ip4 == nil {
 			return nil, fmt.Errorf("%s is not a ipv4 address", args.IPv4)
 		} else {
-			ep.ipv4 = newEDNS0Subnet(ip4, args.Mask4, false)
+			ep.ipv4 = NewEDNS0Subnet(ip4, args.Mask4, false)
 		}
 	}
 
@@ -96,7 +96,7 @@ func newPlugin(bp *handler.BP, args *Args) (p handler.Plugin, err error) {
 		if ip6 := ip.To16(); ip6 == nil {
 			return nil, fmt.Errorf("%s is not a ipv6 address", args.IPv6)
 		} else {
-			ep.ipv6 = newEDNS0Subnet(ip6, args.Mask6, true)
+			ep.ipv6 = NewEDNS0Subnet(ip6, args.Mask6, true)
 		}
 	}
 
@@ -120,10 +120,10 @@ func (e ecsPlugin) Exec(_ context.Context, qCtx *handler.Context) (_ error) {
 			return nil
 		}
 		if ip4 := ip.To4(); ip4 != nil { // is ipv4
-			ecs = newEDNS0Subnet(ip4, e.args.Mask4, false)
+			ecs = NewEDNS0Subnet(ip4, e.args.Mask4, false)
 		} else {
 			if ip6 := ip.To16(); ip6 != nil { // is ipv6
-				ecs = newEDNS0Subnet(ip6, e.args.Mask6, true)
+				ecs = NewEDNS0Subnet(ip6, e.args.Mask6, true)
 			} else { // non
 				e.L().Warn("internal err: client ip address is not a valid ip address", qCtx.InfoField(), zap.Stringer("from", qCtx.From()))
 				return nil
@@ -139,7 +139,7 @@ func (e ecsPlugin) Exec(_ context.Context, qCtx *handler.Context) (_ error) {
 	}
 
 	if ecs != nil {
-		setECS(qCtx.Q(), ecs)
+		SetECS(qCtx.Q(), ecs)
 
 		// According to https://tools.ietf.org/html/rfc7871#section-7.2.2
 		// > Because a client that did not use an ECS option might not

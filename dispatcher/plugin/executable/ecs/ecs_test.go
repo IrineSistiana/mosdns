@@ -54,7 +54,7 @@ ipv6: '2001:dd8:1a::'
 	testFunc := func(presetECS bool) {
 		typ := []uint16{dns.TypeA, dns.TypeAAAA}
 		wantECS := []*dns.EDNS0_SUBNET{ecs.ipv4, ecs.ipv6}
-		otherECS := newEDNS0Subnet(net.IPv4(1, 2, 3, 4), 32, false)
+		otherECS := NewEDNS0Subnet(net.IPv4(1, 2, 3, 4), 32, false)
 
 		for i := 0; i < 2; i++ {
 			m := new(dns.Msg)
@@ -64,7 +64,7 @@ ipv6: '2001:dd8:1a::'
 			}
 
 			if presetECS {
-				setECS(m, otherECS)
+				SetECS(m, otherECS)
 				if getMsgECS(m) != otherECS {
 					t.FailNow()
 				}
@@ -109,9 +109,9 @@ func Test_ecs_auto(t *testing.T) {
 			utils.NewNetAddr("[2001:0db8::]:0", "test"),
 		}
 		wantECS := []*dns.EDNS0_SUBNET{
-			newEDNS0Subnet(net.ParseIP("192.168.0.1").To4(), 24, false),
-			newEDNS0Subnet(net.ParseIP("2001:0db8::").To16(), 32, true)}
-		otherECS := newEDNS0Subnet(net.IPv4(1, 2, 3, 4), 32, false)
+			NewEDNS0Subnet(net.ParseIP("192.168.0.1").To4(), 24, false),
+			NewEDNS0Subnet(net.ParseIP("2001:0db8::").To16(), 32, true)}
+		otherECS := NewEDNS0Subnet(net.IPv4(1, 2, 3, 4), 32, false)
 
 		for i := 0; i < 2; i++ {
 			m := new(dns.Msg)
@@ -121,7 +121,7 @@ func Test_ecs_auto(t *testing.T) {
 			}
 
 			if presetECS {
-				setECS(m, otherECS)
+				SetECS(m, otherECS)
 				if getMsgECS(m) != otherECS {
 					t.FailNow()
 				}
@@ -150,8 +150,8 @@ func Test_ecs_auto(t *testing.T) {
 func Test_remove_ecs(t *testing.T) {
 	m := new(dns.Msg)
 	m.SetQuestion("example.com.", dns.TypeA)
-	ecs := newEDNS0Subnet(net.IPv4(1, 2, 3, 4), 32, false)
-	setECS(m, ecs)
+	ecs := NewEDNS0Subnet(net.IPv4(1, 2, 3, 4), 32, false)
+	SetECS(m, ecs)
 
 	p := &noECS{}
 	err := p.Exec(context.Background(), handler.NewContext(m, nil))

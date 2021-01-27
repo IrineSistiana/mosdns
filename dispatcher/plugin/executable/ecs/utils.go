@@ -52,7 +52,7 @@ func removeECS(m *dns.Msg) (removedECS *dns.EDNS0_SUBNET) {
 	return nil
 }
 
-func setECS(m *dns.Msg, ecs *dns.EDNS0_SUBNET) *dns.Msg {
+func SetECS(m *dns.Msg, ecs *dns.EDNS0_SUBNET) *dns.Msg {
 	opt := m.IsEdns0()
 	if opt == nil { // no opt, we need a new opt
 		o := new(dns.OPT)
@@ -77,7 +77,7 @@ func setECS(m *dns.Msg, ecs *dns.EDNS0_SUBNET) *dns.Msg {
 	return m
 }
 
-func newEDNS0Subnet(ip net.IP, mask uint8, v6 bool) *dns.EDNS0_SUBNET {
+func NewEDNS0Subnet(ip net.IP, mask uint8, v6 bool) *dns.EDNS0_SUBNET {
 	edns0Subnet := new(dns.EDNS0_SUBNET)
 	// edns family: https://www.iana.org/assignments/address-family-numbers/address-family-numbers.xhtml
 	// ipv4 = 1
