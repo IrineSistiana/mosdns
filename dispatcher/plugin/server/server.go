@@ -66,9 +66,10 @@ type ServerConfig struct {
 	// Addr can not be empty.
 	Addr string `yaml:"addr"`
 
-	Cert    string `yaml:"cert"`     // certificate path, used by dot, doh
-	Key     string `yaml:"key"`      // certificate key path, used by dot, doh
-	URLPath string `yaml:"url_path"` // used by doh, url path. If it's emtpy, any path will be handled.
+	Cert                string `yaml:"cert"`                    // certificate path, used by dot, doh
+	Key                 string `yaml:"key"`                     // certificate key path, used by dot, doh
+	URLPath             string `yaml:"url_path"`                // used by doh, http. If it's emtpy, any path will be handled.
+	GetUserIPFromHeader string `yaml:"get_user_ip_from_header"` // used by doh, http.
 
 	Timeout     uint `yaml:"timeout"`      // (sec) used by all protocol as query timeout, default is defaultQueryTimeout.
 	IdleTimeout uint `yaml:"idle_timeout"` // (sec) used by tcp, dot, doh as connection idle timeout, default is defaultIdleTimeout.

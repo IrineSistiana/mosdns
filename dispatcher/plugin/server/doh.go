@@ -94,7 +94,14 @@ func (h *dohHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	qCtx := handler.NewContext(q, utils.NewNetAddr(req.RemoteAddr, req.URL.Scheme))
+	remoteAddr := req.RemoteAddr
+	if len(h.conf.GetUserIPFromHeader) != 0 {
+		if ip := req.Header.Get(h.conf.GetUserIPFromHeader); len(ip) != 0 {
+			remoteAddr = ip + ":0"
+		}
+	}
+
+	qCtx := handler.NewContext(q, utils.NewNetAddr(remoteAddr, req.URL.Scheme))
 	qCtx.SetTCPClient(true)
 	h.s.L().Debug("new query", qCtx.InfoField(), zap.String("from", req.RemoteAddr))
 
