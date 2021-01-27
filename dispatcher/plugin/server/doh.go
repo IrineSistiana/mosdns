@@ -18,6 +18,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -27,9 +28,9 @@ import (
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -118,17 +119,33 @@ func getMsgFromReq(req *http.Request) (*dns.Msg, error) {
 	case http.MethodGet:
 		s := req.URL.Query().Get("dns")
 		if len(s) == 0 {
-			return nil, fmt.Errorf("no dns parameter in url %s", req.RequestURI)
+			return nil, errors.New("no dns parameter")
 		}
-		b, err = base64.RawURLEncoding.DecodeString(s)
+		msgSize := base64.RawURLEncoding.DecodedLen(len(s))
+		if msgSize > dns.MaxMsgSize {
+			return nil, fmt.Errorf("query length %d is too big", msgSize)
+		}
+		msgBuf := utils.GetMsgBuf(msgSize)
+		defer utils.ReleaseMsgBuf(msgBuf)
+		strBuf := getReadBuf()
+		defer releaseReadBuf(strBuf)
+
+		strBuf.WriteString(s)
+		n, err := base64.RawURLEncoding.Decode(msgBuf, strBuf.Bytes())
 		if err != nil {
-			return nil, fmt.Errorf("failed to decode url %s: %w", req.RequestURI, err)
+			return nil, fmt.Errorf("failed to decode query: %w", err)
 		}
+		b = msgBuf[:n]
+
 	case http.MethodPost:
-		b, err = ioutil.ReadAll(io.LimitReader(req.Body, dns.MaxMsgSize))
+		buf := getReadBuf()
+		defer releaseReadBuf(buf)
+
+		_, err = buf.ReadFrom(io.LimitReader(req.Body, dns.MaxMsgSize))
 		if err != nil {
 			return nil, fmt.Errorf("failed to read request body: %w", err)
 		}
+		b = buf.Bytes()
 	default:
 		return nil, fmt.Errorf("unsupported method: %s", req.Method)
 	}
@@ -138,6 +155,21 @@ func getMsgFromReq(req *http.Request) (*dns.Msg, error) {
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
 	return q, nil
+}
+
+var readBufPool = sync.Pool{New: func() interface{} {
+	buf := new(bytes.Buffer)
+	buf.Grow(512)
+	return buf
+}}
+
+func getReadBuf() *bytes.Buffer {
+	return readBufPool.Get().(*bytes.Buffer)
+}
+
+func releaseReadBuf(buf *bytes.Buffer) {
+	buf.Reset()
+	readBufPool.Put(buf)
 }
 
 type httpDnsRespWriter struct {
