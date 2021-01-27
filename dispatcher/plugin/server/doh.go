@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/ecs"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
@@ -30,6 +31,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -103,6 +105,28 @@ func (h *dohHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	h.s.handler.ServeDNS(ctx, qCtx, responseWriter)
 }
 
+func getClientIP(req *http.Request) (ip net.IP, v6, ok bool) {
+	clientIP := req.Header.Get("X-Forwarded-For")
+	xs := strings.Split(clientIP, ",")
+	if xs == nil {
+		return ip, false, false
+	}
+	if xIp := strings.TrimSpace(xs[0]); xIp != "" {
+		ip = net.ParseIP(xIp)
+		if ip == nil {
+			return nil, false, false
+		}
+		if ip4 := ip.To4(); ip4 != nil {
+			ok = true
+		} else if ip6 := ip.To16(); ip6 != nil {
+			v6 = true
+			ok = true
+		}
+		return
+	}
+	return nil, false, false
+}
+
 func getMsgFromReq(req *http.Request) (*dns.Msg, error) {
 	var b []byte
 	var err error
@@ -129,6 +153,15 @@ func getMsgFromReq(req *http.Request) (*dns.Msg, error) {
 	if err := q.Unpack(b); err != nil {
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
+
+	if clientIP, v6, ok := getClientIP(req); ok {
+		mask := uint8(24)
+		if v6 {
+			mask = 48
+		}
+		ecs.SetECS(q, ecs.NewEDNS0Subnet(clientIP, mask, v6))
+	}
+
 	return q, nil
 }
 
