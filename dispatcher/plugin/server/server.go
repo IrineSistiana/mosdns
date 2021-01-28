@@ -35,7 +35,7 @@ func init() {
 
 type ServerGroup struct {
 	*handler.BP
-	configs []*ServerConfig
+	configs []*Server
 
 	handler utils.ServerHandler
 
@@ -47,13 +47,13 @@ type ServerGroup struct {
 }
 
 type Args struct {
-	Server               []*ServerConfig `yaml:"server"`
-	Entry                string          `yaml:"entry"`
-	MaxConcurrentQueries int             `yaml:"max_concurrent_queries"`
+	Server               []*Server     `yaml:"server"`
+	Entry                []interface{} `yaml:"entry"`
+	MaxConcurrentQueries int           `yaml:"max_concurrent_queries"`
 }
 
-// ServerConfig is not safe for concurrent use.
-type ServerConfig struct {
+// Server is not safe for concurrent use.
+type Server struct {
 	// Protocol: server protocol, can be:
 	// "", "udp" -> udp
 	// "tcp" -> tcp
@@ -95,9 +95,14 @@ func newServer(bp *handler.BP, args *Args) (*ServerGroup, error) {
 		return nil, errors.New("empty entry")
 	}
 
+	ecs, err := utils.ParseExecutableCmdSequence(args.Entry)
+	if err != nil {
+		return nil, err
+	}
+
 	sh := utils.NewDefaultServerHandler(&utils.DefaultServerHandlerConfig{
 		Logger:          bp.L(),
-		Entry:           args.Entry,
+		Entry:           ecs,
 		ConcurrentLimit: args.MaxConcurrentQueries,
 	})
 
@@ -114,7 +119,7 @@ func newServer(bp *handler.BP, args *Args) (*ServerGroup, error) {
 	return sg, nil
 }
 
-func NewServerGroup(bp *handler.BP, handler utils.ServerHandler, configs []*ServerConfig) *ServerGroup {
+func NewServerGroup(bp *handler.BP, handler utils.ServerHandler, configs []*Server) *ServerGroup {
 	s := &ServerGroup{
 		BP:      bp,
 		configs: configs,
@@ -177,7 +182,7 @@ func (sg *ServerGroup) WaitErr() error {
 	return nil
 }
 
-func (sg *ServerGroup) listenAndStart(c *ServerConfig) error {
+func (sg *ServerGroup) listenAndStart(c *Server) error {
 	if len(c.Addr) == 0 {
 		return errors.New("server addr is empty")
 	}

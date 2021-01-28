@@ -43,7 +43,7 @@ func (t *tcpResponseWriter) Write(m *dns.Msg) (n int, err error) {
 	return utils.WriteMsgToTCP(t.c, m)
 }
 
-func (sg *ServerGroup) startTCP(conf *ServerConfig, isDoT bool) error {
+func (sg *ServerGroup) startTCP(conf *Server, isDoT bool) error {
 	l, err := net.Listen("tcp", conf.Addr)
 	if err != nil {
 		return err

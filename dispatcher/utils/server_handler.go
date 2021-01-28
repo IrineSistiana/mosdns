@@ -46,7 +46,7 @@ type DefaultServerHandlerConfig struct {
 	// Logger is used for logging, it cannot be nil.
 	Logger *zap.Logger
 	// Entry is the entry ExecutablePlugin's tag. This shouldn't be empty.
-	Entry string
+	Entry *ExecutableCmdSequence
 	// ConcurrentLimit controls the max concurrent queries.
 	// If ConcurrentLimit <= 0, means no limit.
 	ConcurrentLimit int
@@ -78,7 +78,6 @@ func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *handler.Conte
 		}
 	}
 
-	h.config.Logger.Debug("exec entry", qCtx.InfoField(), zap.String("entry", h.config.Entry))
 	err := h.execEntry(ctx, qCtx)
 
 	if err != nil {
@@ -104,12 +103,7 @@ func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *handler.Conte
 }
 
 func (h *DefaultServerHandler) execEntry(ctx context.Context, qCtx *handler.Context) error {
-	p, err := handler.GetPlugin(h.config.Entry)
-	if err != nil {
-		return err
-	}
-
-	_, err = p.ExecES(ctx, qCtx)
+	err := WalkExecutableCmd(ctx, qCtx, h.config.Logger, h.config.Entry)
 	if err != nil {
 		return err
 	}

@@ -31,13 +31,13 @@ var testServerAddr = "127.0.0.123:41234"
 func TestUdpServer_ListenAndServe(t *testing.T) {
 	tests := []struct {
 		name   string
-		config *ServerConfig
+		config *Server
 	}{
-		{name: "udp1", config: &ServerConfig{Protocol: "udp", Addr: testServerAddr}},
-		{name: "tcp1", config: &ServerConfig{Protocol: "tcp", Addr: testServerAddr}},
-		{name: "dot1", config: &ServerConfig{Protocol: "dot", Addr: testServerAddr, Cert: "./test.cert", Key: "./test.key"}},
-		{name: "doh1 no path", config: &ServerConfig{Protocol: "doh", Addr: testServerAddr, Cert: "./test.cert", Key: "./test.key"}},
-		{name: "doh2 with path", config: &ServerConfig{Protocol: "doh", Addr: testServerAddr, URLPath: "/my-path", Cert: "./test.cert", Key: "./test.key"}},
+		{name: "udp1", config: &Server{Protocol: "udp", Addr: testServerAddr}},
+		{name: "tcp1", config: &Server{Protocol: "tcp", Addr: testServerAddr}},
+		{name: "dot1", config: &Server{Protocol: "dot", Addr: testServerAddr, Cert: "./test.cert", Key: "./test.key"}},
+		{name: "doh1 no path", config: &Server{Protocol: "doh", Addr: testServerAddr, Cert: "./test.cert", Key: "./test.key"}},
+		{name: "doh2 with path", config: &Server{Protocol: "doh", Addr: testServerAddr, URLPath: "/my-path", Cert: "./test.cert", Key: "./test.key"}},
 	}
 
 	for _, tt := range tests {
@@ -46,7 +46,7 @@ func TestUdpServer_ListenAndServe(t *testing.T) {
 			return
 		}
 		func() {
-			sg := NewServerGroup(handler.NewBP("test", PluginType), &utils.DummyServerHandler{T: t}, []*ServerConfig{tt.config})
+			sg := NewServerGroup(handler.NewBP("test", PluginType), &utils.DummyServerHandler{T: t}, []*Server{tt.config})
 			if err := sg.Activate(); err != nil {
 				t.Fatal(err)
 			}

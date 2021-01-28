@@ -47,7 +47,7 @@ func (u *udpResponseWriter) Write(m *dns.Msg) (n int, err error) {
 	return utils.WriteUDPMsgTo(m, u.c, u.to)
 }
 
-func (sg *ServerGroup) startUDP(conf *ServerConfig) error {
+func (sg *ServerGroup) startUDP(conf *Server) error {
 	c, err := net.ListenPacket("udp", conf.Addr)
 	if err != nil {
 		return err

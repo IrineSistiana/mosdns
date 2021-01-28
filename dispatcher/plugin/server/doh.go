@@ -34,7 +34,7 @@ import (
 	"time"
 )
 
-func (sg *ServerGroup) startDoH(conf *ServerConfig, noTLS bool) error {
+func (sg *ServerGroup) startDoH(conf *Server, noTLS bool) error {
 	if !noTLS && (len(conf.Cert) == 0 || len(conf.Key) == 0) { // no cert
 		return errors.New("doh server needs cert and key")
 	}
@@ -79,7 +79,7 @@ func (sg *ServerGroup) startDoH(conf *ServerConfig, noTLS bool) error {
 
 type dohHandler struct {
 	s    *ServerGroup
-	conf *ServerConfig
+	conf *Server
 }
 
 func (h *dohHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
