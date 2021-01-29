@@ -31,7 +31,7 @@ type memCache struct {
 	size            int
 	cleanerInterval time.Duration
 
-	sync.RWMutex
+	sync.Mutex
 	lru              *utils.LRU
 	cleanerIsRunning bool
 }
@@ -66,9 +66,9 @@ func newMemCache(size int, cleanerInterval time.Duration) *memCache {
 }
 
 func (c *memCache) get(_ context.Context, key string) (v []byte, ttl time.Duration, ok bool, err error) {
-	c.RLock()
+	c.Lock()
 	e, ok := c.lru.Get(key)
-	c.RUnlock()
+	defer c.Unlock()
 
 	if ok {
 		e := e.(*elem)
@@ -77,9 +77,7 @@ func (c *memCache) get(_ context.Context, key string) (v []byte, ttl time.Durati
 			copy(b, e.b)
 			return b, ttl, true, nil
 		} else {
-			c.Lock()
 			c.lru.Del(key) // expired
-			c.Unlock()
 		}
 	}
 	return nil, 0, false, nil
@@ -139,8 +137,8 @@ func (c *memCache) release(v []byte) {
 }
 
 func (c *memCache) len() int {
-	c.RLock()
-	defer c.RUnlock()
+	c.Lock()
+	defer c.Unlock()
 
 	return c.lru.Len()
 }
