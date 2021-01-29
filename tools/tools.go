@@ -35,7 +35,7 @@ import (
 
 func ProbServerTimeout(addr string) error {
 	isTLS := false
-	protocol, host := utils.ParseAddr(addr)
+	protocol, host := utils.SplitSchemeAndHost(addr)
 	if len(protocol) == 0 || len(host) == 0 {
 		return fmt.Errorf("invalid addr %s", addr)
 	}

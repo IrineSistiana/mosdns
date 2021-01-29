@@ -61,8 +61,8 @@ func GetIPFromAddr(addr net.Addr) (ip net.IP) {
 	}
 }
 
-// ParseAddr splits addr to protocol and host.
-func ParseAddr(addr string) (protocol, host string) {
+// SplitSchemeAndHost splits addr to protocol and host.
+func SplitSchemeAndHost(addr string) (protocol, host string) {
 	if s := strings.SplitN(addr, "://", 2); len(s) == 2 {
 		protocol = s[0]
 		host = s[1]
