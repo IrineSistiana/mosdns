@@ -153,8 +153,10 @@ func testUpstream(u *fastUpstream) error {
 	}
 
 	for _, noTruncation := range [...]bool{false, true} {
+		noTruncation := noTruncation
 		for i := 0; i < 10; i++ {
 			wg.Add(1)
+
 			go func() {
 				defer wg.Done()
 

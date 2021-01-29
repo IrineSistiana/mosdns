@@ -56,3 +56,18 @@ func Test_memCache(t *testing.T) {
 		t.Fatal("cleaner goroutine should be offline")
 	}
 }
+
+func Test_memCache_race(t *testing.T) {
+	c := newMemCache(32, time.Millisecond)
+	ctx := context.Background()
+	b := make([]byte, 1)
+
+	for i := 0; i < 5; i++ {
+		go func() {
+			for i := 0; i < 1024; i++ {
+				c.store(ctx, strconv.Itoa(i), b, time.Millisecond*5)
+				c.get(ctx, strconv.Itoa(i))
+			}
+		}()
+	}
+}

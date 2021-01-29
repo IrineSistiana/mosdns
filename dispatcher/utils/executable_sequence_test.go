@@ -167,10 +167,6 @@ func Test_ParallelECS(t *testing.T) {
 
 	r1 := new(dns.Msg)
 	r2 := new(dns.Msg)
-	p1 := &handler.DummyExecutablePlugin{BP: handler.NewBP("p1", "")}
-	p2 := &handler.DummyExecutablePlugin{BP: handler.NewBP("p2", "")}
-	handler.MustRegPlugin(p1, true)
-	handler.MustRegPlugin(p2, true)
 
 	er := errors.New("")
 	tests := []struct {
@@ -200,10 +196,20 @@ func Test_ParallelECS(t *testing.T) {
 	ctx := context.Background()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p1.WantR = tt.r1
-			p1.WantErr = tt.e1
-			p2.WantR = tt.r2
-			p2.WantErr = tt.e2
+			p1 := &handler.DummyExecutablePlugin{
+				BP:      handler.NewBP("p1", ""),
+				Sleep:   0,
+				WantR:   tt.r1,
+				WantErr: tt.e1,
+			}
+			p2 := &handler.DummyExecutablePlugin{
+				BP:      handler.NewBP("p2", ""),
+				Sleep:   0,
+				WantR:   tt.r2,
+				WantErr: tt.e2,
+			}
+			handler.MustRegPlugin(p1, false)
+			handler.MustRegPlugin(p2, false)
 
 			qCtx := handler.NewContext(new(dns.Msg), nil)
 			err := parallelECS.execCmd(ctx, qCtx, zap.NewNop())
@@ -224,10 +230,6 @@ func Test_FallbackECS_fallback(t *testing.T) {
 
 	r1 := new(dns.Msg)
 	r2 := new(dns.Msg)
-	p1 := &handler.DummyExecutablePlugin{BP: handler.NewBP("p1", "")}
-	p2 := &handler.DummyExecutablePlugin{BP: handler.NewBP("p2", "")}
-	handler.MustRegPlugin(p1, true)
-	handler.MustRegPlugin(p2, true)
 	er := errors.New("")
 
 	tests := []struct {
@@ -265,11 +267,21 @@ func Test_FallbackECS_fallback(t *testing.T) {
 	ctx := context.Background()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p1.WantR = tt.r1
-			p1.WantErr = tt.e1
-			p2.WantR = tt.r2
-			p2.WantErr = tt.e2
+			p1 := &handler.DummyExecutablePlugin{
+				BP:      handler.NewBP("p1", ""),
+				Sleep:   0,
+				WantR:   tt.r1,
+				WantErr: tt.e1,
+			}
+			p2 := &handler.DummyExecutablePlugin{
+				BP:      handler.NewBP("p2", ""),
+				Sleep:   0,
+				WantR:   tt.r2,
+				WantErr: tt.e2,
+			}
 
+			handler.MustRegPlugin(p1, false)
+			handler.MustRegPlugin(p2, false)
 			qCtx := handler.NewContext(new(dns.Msg), nil)
 			err := fallbackECS.execCmd(ctx, qCtx, zap.NewNop())
 			if tt.wantErr != (err != nil) {
@@ -291,10 +303,7 @@ func Test_FallbackECS_fast_fallback(t *testing.T) {
 
 	r1 := new(dns.Msg)
 	r2 := new(dns.Msg)
-	p1 := &handler.DummyExecutablePlugin{BP: handler.NewBP("p1", "")}
-	p2 := &handler.DummyExecutablePlugin{BP: handler.NewBP("p2", "")}
-	handler.MustRegPlugin(p1, true)
-	handler.MustRegPlugin(p2, true)
+
 	er := errors.New("")
 
 	tests := []struct {
@@ -337,13 +346,20 @@ func Test_FallbackECS_fast_fallback(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-
-			p1.WantR = tt.r1
-			p1.WantErr = tt.e1
-			p1.Sleep = time.Duration(tt.l1) * time.Millisecond
-			p2.WantR = tt.r2
-			p2.WantErr = tt.e2
-			p2.Sleep = time.Duration(tt.l2) * time.Millisecond
+			p1 := &handler.DummyExecutablePlugin{
+				BP:      handler.NewBP("p1", ""),
+				Sleep:   time.Duration(tt.l1) * time.Millisecond,
+				WantR:   tt.r1,
+				WantErr: tt.e1,
+			}
+			p2 := &handler.DummyExecutablePlugin{
+				BP:      handler.NewBP("p2", ""),
+				Sleep:   time.Duration(tt.l2) * time.Millisecond,
+				WantR:   tt.r2,
+				WantErr: tt.e2,
+			}
+			handler.MustRegPlugin(p1, false)
+			handler.MustRegPlugin(p2, false)
 
 			ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 			defer cancel()
