@@ -210,6 +210,17 @@ func (ctx *Context) InfoField() zap.Field {
 // Note that Copy won't copy registered deferred Executable.
 // To copy them, use CopyDeferFrom after Copy.
 func (ctx *Context) Copy() *Context {
+	newCtx := ctx.CopyNoR()
+	if ctx.r != nil {
+		newCtx.r = ctx.r.Copy()
+	}
+
+	return newCtx
+}
+
+// CopyNoR deep copies this Context. Except deferred Executable
+// and response.
+func (ctx *Context) CopyNoR() *Context {
 	newCtx := new(Context)
 
 	newCtx.q = ctx.q.Copy()
@@ -218,11 +229,7 @@ func (ctx *Context) Copy() *Context {
 	newCtx.id = ctx.id
 	newCtx.startTime = ctx.startTime
 	newCtx.tcpClient = ctx.tcpClient
-
 	newCtx.status = ctx.status
-	if ctx.r != nil {
-		newCtx.r = ctx.r.Copy()
-	}
 
 	return newCtx
 }

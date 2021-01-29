@@ -270,7 +270,7 @@ func ExchangeParallel(ctx context.Context, qCtx *handler.Context, upstreams []Up
 	}
 
 	c := make(chan *parallelResult, t) // use buf chan to avoid block.
-	qCopy := qCtx.Copy()               // qCtx is not safe for concurrent use.
+	qCopy := qCtx.CopyNoR()            // qCtx is not safe for concurrent use.
 	for _, u := range upstreams {
 		u := u
 		go func() {
