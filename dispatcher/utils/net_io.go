@@ -18,13 +18,11 @@
 package utils
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"github.com/miekg/dns"
 	"io"
 	"net"
-	"sync"
 )
 
 const (
@@ -101,9 +99,7 @@ func WriteUDPMsgTo(m *dns.Msg, c net.PacketConn, to net.Addr) (n int, err error)
 // ReadMsgFromTCP reads msg from a tcp connection.
 // n represents how many bytes are read from c.
 func ReadMsgFromTCP(c io.Reader) (m *dns.Msg, n int, err error) {
-	lengthRaw := getTCPHeaderBuf()
-	defer releaseTCPHeaderBuf(lengthRaw)
-
+	lengthRaw := make([]byte, 2)
 	n1, err := io.ReadFull(c, lengthRaw)
 	n = n + n1
 	if err != nil {
@@ -152,8 +148,8 @@ func WriteRawMsgToTCP(c io.Writer, b []byte) (n int, err error) {
 		return 0, fmt.Errorf("payload length %d is greater than dns max msg size", len(b))
 	}
 
-	wb := getTCPWriteBuf()
-	defer releaseTCPWriteBuf(wb)
+	wb := tcpWriteBufPool.Get()
+	defer tcpWriteBufPool.Release(wb)
 	wb.WriteByte(byte(len(b) >> 8))
 	wb.WriteByte(byte(len(b)))
 	wb.Write(b)
@@ -161,38 +157,8 @@ func WriteRawMsgToTCP(c io.Writer, b []byte) (n int, err error) {
 }
 
 var (
-	tcpHeaderBufPool = sync.Pool{
-		New: func() interface{} {
-			return make([]byte, 2)
-		},
-	}
-
-	tcpWriteBufPool = sync.Pool{
-		New: func() interface{} {
-			b := new(bytes.Buffer)
-			b.Grow(dns.MinMsgSize)
-			return b
-		},
-	}
+	tcpWriteBufPool = NewBytesBufPool(512 + 2)
 )
-
-func getTCPHeaderBuf() []byte {
-	return tcpHeaderBufPool.Get().([]byte)
-}
-
-func releaseTCPHeaderBuf(buf []byte) {
-	tcpHeaderBufPool.Put(buf)
-}
-
-// getTCPWriteBuf returns a byte.Buffer
-func getTCPWriteBuf() *bytes.Buffer {
-	return tcpWriteBufPool.Get().(*bytes.Buffer)
-}
-
-func releaseTCPWriteBuf(buf *bytes.Buffer) {
-	buf.Reset()
-	tcpWriteBufPool.Put(buf)
-}
 
 func packMsgWithBuffer(m *dns.Msg) (mRaw, buf []byte, err error) {
 	buf, err = GetMsgBufFor(m)

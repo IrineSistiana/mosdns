@@ -18,7 +18,6 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -30,7 +29,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"sync"
 	"time"
 )
 
@@ -127,8 +125,8 @@ func getMsgFromReq(req *http.Request) (*dns.Msg, error) {
 		}
 		msgBuf := utils.GetMsgBuf(msgSize)
 		defer utils.ReleaseMsgBuf(msgBuf)
-		strBuf := getReadBuf()
-		defer releaseReadBuf(strBuf)
+		strBuf := readBufPool.Get()
+		defer readBufPool.Release(strBuf)
 
 		strBuf.WriteString(s)
 		n, err := base64.RawURLEncoding.Decode(msgBuf, strBuf.Bytes())
@@ -138,8 +136,8 @@ func getMsgFromReq(req *http.Request) (*dns.Msg, error) {
 		b = msgBuf[:n]
 
 	case http.MethodPost:
-		buf := getReadBuf()
-		defer releaseReadBuf(buf)
+		buf := readBufPool.Get()
+		defer readBufPool.Release(buf)
 
 		_, err = buf.ReadFrom(io.LimitReader(req.Body, dns.MaxMsgSize))
 		if err != nil {
@@ -157,20 +155,7 @@ func getMsgFromReq(req *http.Request) (*dns.Msg, error) {
 	return q, nil
 }
 
-var readBufPool = sync.Pool{New: func() interface{} {
-	buf := new(bytes.Buffer)
-	buf.Grow(512)
-	return buf
-}}
-
-func getReadBuf() *bytes.Buffer {
-	return readBufPool.Get().(*bytes.Buffer)
-}
-
-func releaseReadBuf(buf *bytes.Buffer) {
-	buf.Reset()
-	readBufPool.Put(buf)
-}
+var readBufPool = utils.NewBytesBufPool(512)
 
 type httpDnsRespWriter struct {
 	httpRespWriter http.ResponseWriter

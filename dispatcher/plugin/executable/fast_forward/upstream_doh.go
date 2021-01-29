@@ -18,7 +18,6 @@
 package fastforward
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -26,7 +25,10 @@ import (
 	"github.com/miekg/dns"
 	"io"
 	"net/http"
-	"sync"
+)
+
+var (
+	bufPool512 = utils.NewBytesBufPool(512)
 )
 
 func (u *fastUpstream) exchangeDoH(q *dns.Msg) (r *dns.Msg, err error) {
@@ -50,8 +52,8 @@ func (u *fastUpstream) exchangeDoH(q *dns.Msg) (r *dns.Msg, err error) {
 	rRaw[0] = 0
 	rRaw[1] = 0
 
-	urlBuilder := acquireURLBuilder()
-	defer releaseURLBuilder(urlBuilder)
+	urlBuilder := bufPool512.Get()
+	defer bufPool512.Release(urlBuilder)
 
 	// Padding characters for base64url MUST NOT be included.
 	// See: https://tools.ietf.org/html/rfc8484#section-6.
@@ -97,8 +99,8 @@ func (u *fastUpstream) doHTTP(ctx context.Context, url string) (*dns.Msg, error)
 		return nil, fmt.Errorf("bad http status codes %d", resp.StatusCode)
 	}
 
-	bb := acquireReadBuf()
-	defer releaseReadBuf(bb)
+	bb := bufPool512.Get()
+	defer bufPool512.Release(bb)
 	_, err = bb.ReadFrom(io.LimitReader(resp.Body, dns.MaxMsgSize))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read http body: %w", err)
@@ -109,36 +111,4 @@ func (u *fastUpstream) doHTTP(ctx context.Context, url string) (*dns.Msg, error)
 		return nil, fmt.Errorf("invalid reply: %w", err)
 	}
 	return r, nil
-}
-
-var (
-	bytesBufPool = sync.Pool{
-		New: func() interface{} {
-			return new(bytes.Buffer)
-		},
-	}
-
-	stringBuilderPool = sync.Pool{
-		New: func() interface{} {
-			return new(bytes.Buffer)
-		},
-	}
-)
-
-func acquireReadBuf() *bytes.Buffer {
-	return bytesBufPool.Get().(*bytes.Buffer)
-}
-
-func releaseReadBuf(buf *bytes.Buffer) {
-	buf.Reset()
-	bytesBufPool.Put(buf)
-}
-
-func acquireURLBuilder() *bytes.Buffer {
-	return stringBuilderPool.Get().(*bytes.Buffer)
-}
-
-func releaseURLBuilder(builder *bytes.Buffer) {
-	builder.Reset()
-	stringBuilderPool.Put(builder)
 }

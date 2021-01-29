@@ -18,6 +18,7 @@
 package utils
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -379,4 +380,31 @@ func applyTTL(m *dns.Msg, ttl uint32, maximum bool) {
 			}
 		}
 	}
+}
+
+type BytesBufPool struct {
+	p sync.Pool
+}
+
+func NewBytesBufPool(initSize int) *BytesBufPool {
+	if initSize < 0 {
+		panic(fmt.Sprintf("utils.NewBytesBufPool: negative init size %d", initSize))
+	}
+
+	return &BytesBufPool{
+		p: sync.Pool{New: func() interface{} {
+			b := new(bytes.Buffer)
+			b.Grow(initSize)
+			return b
+		}},
+	}
+}
+
+func (p *BytesBufPool) Get() *bytes.Buffer {
+	return p.p.Get().(*bytes.Buffer)
+}
+
+func (p *BytesBufPool) Release(b *bytes.Buffer) {
+	b.Reset()
+	p.p.Put(b)
 }
