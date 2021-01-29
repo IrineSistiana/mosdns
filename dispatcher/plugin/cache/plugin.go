@@ -55,7 +55,12 @@ type cachePlugin struct {
 }
 
 type cache interface {
+	// get retrieves v from cache. The returned v is a copy from the cache.
 	get(ctx context.Context, key string) (v []byte, ttl time.Duration, ok bool, err error)
+	// release can reuse the slice that returned from get.
+	release(v []byte)
+	// store stores the v into cache. It will copy the given v. So, it's save to modify
+	// v after store is returned.
 	store(ctx context.Context, key string, v []byte, ttl time.Duration) (err error)
 }
 
@@ -90,7 +95,7 @@ func (c *cachePlugin) ExecES(ctx context.Context, qCtx *handler.Context) (earlyS
 	}
 
 	if len(key) != 0 {
-		de := newDeferExecutable(key, c)
+		de := newDeferStore(key, c)
 		qCtx.DeferExec(de)
 	}
 
@@ -115,6 +120,7 @@ func (c *cachePlugin) searchAndReply(ctx context.Context, qCtx *handler.Context)
 		c.L().Warn("unable to get msg key, skip it", qCtx.InfoField(), zap.Error(err))
 		return "", false
 	}
+
 	v, ttl, _, err := c.c.get(ctx, key)
 	if err != nil {
 		c.L().Warn("unable to access cache, skip it", qCtx.InfoField(), zap.Error(err))
@@ -122,6 +128,7 @@ func (c *cachePlugin) searchAndReply(ctx context.Context, qCtx *handler.Context)
 	}
 
 	if len(v) != 0 { // if cache hit
+		defer c.c.release(v)
 		r := new(dns.Msg)
 		if err := r.Unpack(v); err != nil {
 			c.L().Warn("failed to unpack cached data", qCtx.InfoField(), zap.Error(err))
@@ -137,32 +144,37 @@ func (c *cachePlugin) searchAndReply(ctx context.Context, qCtx *handler.Context)
 	return key, false
 }
 
-type deferExecutable struct {
+type deferCacheStore struct {
 	key string
 	p   *cachePlugin
 }
 
-func newDeferExecutable(key string, p *cachePlugin) *deferExecutable {
-	return &deferExecutable{key: key, p: p}
+func newDeferStore(key string, p *cachePlugin) *deferCacheStore {
+	return &deferCacheStore{key: key, p: p}
 }
 
 // Exec caches the response.
 // It never returns an err. Because a cache fault should not terminate the query process.
-func (d *deferExecutable) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
+func (d *deferCacheStore) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
 	if err := d.exec(ctx, qCtx); err != nil {
 		d.p.L().Warn("failed to cache the data", qCtx.InfoField(), zap.Error(err))
 	}
 	return nil
 }
 
-func (d *deferExecutable) exec(ctx context.Context, qCtx *handler.Context) (err error) {
+func (d *deferCacheStore) exec(ctx context.Context, qCtx *handler.Context) (err error) {
 	r := qCtx.R()
 	if r != nil && r.Rcode == dns.RcodeSuccess && len(r.Answer) != 0 {
 		ttl := utils.GetMinimalTTL(r)
 		if ttl > maxTTL {
 			ttl = maxTTL
 		}
-		buf := make([]byte, r.Len())
+		buf, err := utils.GetMsgBufFor(r)
+		if err != nil {
+			return err
+		}
+		defer utils.ReleaseMsgBuf(buf)
+
 		v, err := r.PackBuffer(buf)
 		if err != nil {
 			return err
@@ -184,7 +196,7 @@ func (c *cachePlugin) Connect(ctx context.Context, qCtx *handler.Context, pipeCt
 	}
 
 	if len(key) != 0 {
-		_ = newDeferExecutable(key, c).Exec(ctx, qCtx)
+		_ = newDeferStore(key, c).Exec(ctx, qCtx)
 	}
 
 	return nil

@@ -27,6 +27,16 @@ type redisCache struct {
 	client *redis.Client
 }
 
+func newRedisCache(url string) (*redisCache, error) {
+	opt, err := redis.ParseURL(url)
+	if err != nil {
+		return nil, err
+	}
+
+	c := redis.NewClient(opt)
+	return &redisCache{client: c}, nil
+}
+
 func (r *redisCache) get(ctx context.Context, key string) (v []byte, ttl time.Duration, ok bool, err error) {
 	b, err := r.client.Get(ctx, key).Bytes()
 	if err != nil {
@@ -49,12 +59,5 @@ func (r *redisCache) store(ctx context.Context, key string, v []byte, ttl time.D
 	return r.client.Set(ctx, key, v, ttl).Err()
 }
 
-func newRedisCache(url string) (*redisCache, error) {
-	opt, err := redis.ParseURL(url)
-	if err != nil {
-		return nil, err
-	}
-
-	c := redis.NewClient(opt)
-	return &redisCache{client: c}, nil
-}
+// nothing to reuse
+func (r *redisCache) release(v []byte) {}

@@ -19,7 +19,9 @@ package cache
 
 import (
 	"context"
+	"errors"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
+	"github.com/miekg/dns"
 	"sync"
 	"time"
 )
@@ -35,7 +37,7 @@ type memCache struct {
 }
 
 type elem struct {
-	v              []byte
+	b              []byte
 	expirationTime time.Time
 }
 
@@ -52,10 +54,14 @@ func newMemCache(size int, cleanerInterval time.Duration) *memCache {
 		cleanerInterval = time.Minute * 2
 	}
 
+	onEvict := func(key string, v interface{}) {
+		e := v.(*elem)
+		utils.ReleaseMsgBuf(e.b)
+	}
 	return &memCache{
 		size:            size,
 		cleanerInterval: cleanerInterval,
-		lru:             utils.NewLRU(size, nil),
+		lru:             utils.NewLRU(size, onEvict),
 	}
 }
 
@@ -66,17 +72,23 @@ func (c *memCache) get(_ context.Context, key string) (v []byte, ttl time.Durati
 	if v, ok := c.lru.Get(key); ok {
 		e := v.(*elem)
 		if ttl = time.Until(e.expirationTime); ttl > 0 {
-			v := make([]byte, len(e.v))
-			copy(v, e.v)
-			return v, ttl, true, nil
+			b := utils.GetMsgBuf(len(e.b))
+			copy(b, e.b)
+			return b, ttl, true, nil
+		} else {
+			c.lru.Del(key) // expired
 		}
 	}
 	return nil, 0, false, nil
 }
 
 func (c *memCache) store(_ context.Context, key string, v []byte, ttl time.Duration) (err error) {
-	if ttl == 0 {
+	if ttl <= 0 {
 		return
+	}
+
+	if len(v) > dns.MaxMsgSize {
+		return errors.New("v is too big")
 	}
 
 	c.Lock()
@@ -105,8 +117,10 @@ func (c *memCache) store(_ context.Context, key string, v []byte, ttl time.Durat
 		}()
 	}
 
+	b := utils.GetMsgBuf(len(v))
+	copy(b, v)
 	e := &elem{
-		v:              v,
+		b:              b,
 		expirationTime: time.Now().Add(ttl),
 	}
 	c.lru.Add(key, e)
@@ -115,6 +129,10 @@ func (c *memCache) store(_ context.Context, key string, v []byte, ttl time.Durat
 
 func cleanFunc(_ string, v interface{}) bool {
 	return v.(*elem).expirationTime.Before(time.Now())
+}
+
+func (c *memCache) release(v []byte) {
+	utils.ReleaseMsgBuf(v)
 }
 
 func (c *memCache) len() int {
