@@ -152,7 +152,18 @@ func (ctx *Context) DeferExec(e Executable) {
 	if i := atomic.LoadUint32(&ctx.deferAtomic); i == 1 {
 		panic("handler Context: concurrent ExecDefer or DeferExec")
 	}
-	ctx.deferrable = append(ctx.deferrable, e)
+	ctx.deferrable = append(ctx.deferrable, &deferExecutable{e: e})
+}
+
+type deferExecutable struct {
+	e Executable
+}
+
+func (d *deferExecutable) Exec(ctx context.Context, qCtx *Context) (err error) {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return d.e.Exec(ctx, qCtx)
 }
 
 // ExecDefer executes all deferred Executable registered by DeferExec.
