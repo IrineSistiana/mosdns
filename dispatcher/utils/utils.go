@@ -38,6 +38,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unsafe"
 )
@@ -52,12 +53,10 @@ func GetIPFromAddr(addr net.Addr) (ip net.IP) {
 		return v.IP
 	case *net.IPNet:
 		return v.IP
+	case *NetAddr:
+		return v.IP()
 	default:
-		ipStr, _, err := net.SplitHostPort(addr.String())
-		if err != nil {
-			return nil
-		}
-		return net.ParseIP(ipStr)
+		return parseIPFromAddr(addr.String())
 	}
 }
 
@@ -83,26 +82,38 @@ func TryAddPort(host string, port uint16) string {
 
 // NetAddr implements net.Addr interface.
 type NetAddr struct {
-	str     string
+	addr    string
 	network string
+
+	parseIPOnce sync.Once
+	ip          net.IP // will be non-nil if addr is an ip addr.
 }
 
-func NewNetAddr(str string, network string) *NetAddr {
-	return &NetAddr{str: str, network: network}
+func NewNetAddr(addr string, network string) *NetAddr {
+	return &NetAddr{addr: addr, network: network}
 }
 
 func (n *NetAddr) Network() string {
-	if len(n.network) == 0 {
-		return "<nil>"
-	}
 	return n.network
 }
 
 func (n *NetAddr) String() string {
-	if len(n.str) == 0 {
-		return "<nil>"
+	return n.addr
+}
+
+func (n *NetAddr) IP() net.IP {
+	n.parseIPOnce.Do(func() {
+		n.ip = parseIPFromAddr(n.addr)
+	})
+	return n.ip
+}
+
+func parseIPFromAddr(s string) net.IP {
+	ipStr, _, err := net.SplitHostPort(s)
+	if err != nil {
+		return nil
 	}
-	return n.str
+	return net.ParseIP(ipStr)
 }
 
 // GetMsgKey unpacks m and set its id to salt.
