@@ -67,16 +67,19 @@ func newMemCache(size int, cleanerInterval time.Duration) *memCache {
 
 func (c *memCache) get(_ context.Context, key string) (v []byte, ttl time.Duration, ok bool, err error) {
 	c.RLock()
-	defer c.RUnlock()
+	e, ok := c.lru.Get(key)
+	c.RUnlock()
 
-	if v, ok := c.lru.Get(key); ok {
-		e := v.(*elem)
+	if ok {
+		e := e.(*elem)
 		if ttl = time.Until(e.expirationTime); ttl > 0 {
 			b := utils.GetMsgBuf(len(e.b))
 			copy(b, e.b)
 			return b, ttl, true, nil
 		} else {
+			c.Lock()
 			c.lru.Del(key) // expired
+			c.Unlock()
 		}
 	}
 	return nil, 0, false, nil
@@ -91,40 +94,40 @@ func (c *memCache) store(_ context.Context, key string, v []byte, ttl time.Durat
 		return errors.New("v is too big")
 	}
 
-	c.Lock()
-	defer c.Unlock()
-
-	// try to start cleaner
-	if c.cleanerInterval > 0 && c.cleanerIsRunning == false {
-		c.cleanerIsRunning = true
-
-		go func() {
-			ticker := time.NewTicker(c.cleanerInterval)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ticker.C:
-					c.Lock()
-					c.lru.Clean(cleanFunc)
-					if c.lru.Len() == 0 {
-						c.cleanerIsRunning = false
-						c.Unlock()
-						return
-					}
-					c.Unlock()
-				}
-			}
-		}()
-	}
-
 	b := utils.GetMsgBuf(len(v))
 	copy(b, v)
 	e := &elem{
 		b:              b,
 		expirationTime: time.Now().Add(ttl),
 	}
+
+	c.Lock()
+	// try to start cleaner
+	if c.cleanerInterval > 0 && c.cleanerIsRunning == false {
+		c.cleanerIsRunning = true
+		go c.startCleaner()
+	}
 	c.lru.Add(key, e)
+	c.Unlock()
 	return
+}
+
+func (c *memCache) startCleaner() {
+	ticker := time.NewTicker(c.cleanerInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			c.Lock()
+			c.lru.Clean(cleanFunc)
+			if c.lru.Len() == 0 {
+				c.cleanerIsRunning = false
+				c.Unlock()
+				return
+			}
+			c.Unlock()
+		}
+	}
 }
 
 func cleanFunc(_ string, v interface{}) bool {
