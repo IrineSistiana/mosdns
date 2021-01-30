@@ -396,26 +396,24 @@ func (f *FallbackECS) doFastFallback(ctx context.Context, qCtx *handler.Context,
 	timer := GetTimer(f.fastFallbackDuration)
 	defer ReleaseTimer(timer)
 
-	c := make(chan *parallelECSResult, 2) // this chan only has nil-err result.
-	primFailed := make(chan struct{})     // will be closed if primary returns an err.
+	c := make(chan *parallelECSResult, 2)
+	primFailed := make(chan struct{}) // will be closed if primary returns an err.
 
 	qCtxCopyP := qCtx.Copy()
 	go func() {
 		err := f.doPrimary(fCtx, qCtxCopyP, logger)
-		if err != nil {
-			logger.Warn("primary sequence failed", qCtx.InfoField(), zap.Error(err))
+		if err != nil || qCtxCopyP.R() == nil {
 			close(primFailed)
-			return // do not send this err
 		}
 		c <- &parallelECSResult{
 			r:      qCtxCopyP.R(),
 			status: qCtxCopyP.Status(),
-			err:    nil,
+			err:    err,
 			from:   1,
 		}
 	}()
 
-	qCtxCopyS := qCtx.Copy() // TODO: this copy sometime is unnecessary, try to avoid it?
+	qCtxCopyS := qCtx.Copy()
 	go func() {
 		if !f.alwaysStandby { // not always standby, wait here.
 			select {
@@ -427,14 +425,10 @@ func (f *FallbackECS) doFastFallback(ctx context.Context, qCtx *handler.Context,
 		}
 
 		err := f.doSecondary(fCtx, qCtxCopyS, logger)
-		if err != nil {
-			logger.Warn("secondary sequence failed", qCtx.InfoField(), zap.Error(err))
-			return
-		}
 		res := &parallelECSResult{
 			r:      qCtxCopyS.R(),
 			status: qCtxCopyS.Status(),
-			err:    nil,
+			err:    err,
 			from:   2,
 		}
 
