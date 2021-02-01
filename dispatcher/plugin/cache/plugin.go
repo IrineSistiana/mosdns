@@ -102,20 +102,9 @@ func (c *cachePlugin) ExecES(ctx context.Context, qCtx *handler.Context) (earlyS
 	return false, nil
 }
 
-const (
-	saltUDP uint16 = iota
-	saltTCP
-)
-
 func (c *cachePlugin) searchAndReply(ctx context.Context, qCtx *handler.Context) (key string, cacheHit bool) {
 	q := qCtx.Q()
-	var salt uint16
-	if qCtx.IsTCPClient() {
-		salt = saltTCP
-	} else {
-		salt = saltUDP
-	}
-	key, err := utils.GetMsgKey(q, salt)
+	key, err := utils.GetMsgKey(q, 0)
 	if err != nil {
 		c.L().Warn("unable to get msg key, skip it", qCtx.InfoField(), zap.Error(err))
 		return "", false
