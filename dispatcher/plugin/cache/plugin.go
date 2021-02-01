@@ -153,7 +153,7 @@ func (d *deferCacheStore) Exec(ctx context.Context, qCtx *handler.Context) (err 
 
 func (d *deferCacheStore) exec(ctx context.Context, qCtx *handler.Context) (err error) {
 	r := qCtx.R()
-	if r != nil && r.Rcode == dns.RcodeSuccess && len(r.Answer) != 0 {
+	if r != nil && r.Rcode == dns.RcodeSuccess && r.Truncated == false && len(r.Answer) != 0 {
 		ttl := utils.GetMinimalTTL(r)
 		if ttl > maxTTL {
 			ttl = maxTTL
