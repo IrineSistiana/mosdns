@@ -7,38 +7,45 @@ on:
 
 jobs:
 
-  build:
+  release:
     runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: '0'
+
     steps:
-    - uses: actions/checkout@v2
-      with:
-        repository: IrineSistiana/mosdns
-        
-    - uses: actions/cache@v2
-      with:
-        path: |
-          ~/go/pkg/mod
-          ~/.cache/go-build
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-
-    - name: Set up Go
-      uses: actions/setup-go@v2
-      with:
-        go-version: 1.15
+      - uses: actions/checkout@v2
+        with:
+          repository: IrineSistiana/mosdns
 
-    - name: Set up Python
-      uses: actions/setup-python@v2
-      with:
-        python-version: '3.8'
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.15
 
-    - name: Build
-      run: python ./release.py
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
 
-    - name: Publish
-      uses: softprops/action-gh-release@v1
-      with:
-        files: './release/mosdns*.zip'
-        prerelease: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Test
+        run: go test -race -v ./...
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.8'
+
+      - name: Build
+        run: python ./release.py
+
+      - name: Publish
+        uses: softprops/action-gh-release@v1
+        with:
+          files: './release/mosdns*.zip'
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
