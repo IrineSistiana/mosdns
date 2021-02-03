@@ -23,7 +23,9 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/miekg/dns"
 	"reflect"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestBoolLogic(t *testing.T) {
@@ -169,5 +171,53 @@ func TestSplitString2(t *testing.T) {
 				t.Errorf("SplitString2() gotOk = %v, want %v", gotOk, tt.wantOk)
 			}
 		})
+	}
+}
+
+func Test_NewConcurrentLimiter(t *testing.T) {
+	type args struct {
+		max int
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantLen int
+	}{
+		{"1", args{max: 1}, 1},
+		{"2", args{max: 50}, 50},
+		{"3", args{max: 1000}, 1000},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := NewConcurrentLimiter(tt.args.max); got.Available() != tt.wantLen {
+				t.Errorf("NewConcurrentLimiter() = %v, want %v", got.Available(), tt.wantLen)
+			}
+		})
+	}
+}
+
+func Test_ConcurrentLimiter_acquire_release(t *testing.T) {
+	l := NewConcurrentLimiter(500)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+	defer cancel()
+
+	wg := new(sync.WaitGroup)
+	wg.Add(1000)
+	for i := 0; i < 1000; i++ {
+		go func() {
+			defer wg.Done()
+			select {
+			case <-l.Wait():
+				time.Sleep(time.Millisecond * 200)
+				l.Done()
+			case <-ctx.Done():
+				t.Fail()
+			}
+		}()
+	}
+
+	wg.Wait()
+	if l.Available() != 500 {
+		t.Fatal("token leaked")
 	}
 }

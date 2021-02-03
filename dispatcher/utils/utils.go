@@ -431,3 +431,38 @@ func (p *BytesBufPool) Release(b *bytes.Buffer) {
 	b.Reset()
 	p.p.Put(b)
 }
+
+// ConcurrentLimiter
+type ConcurrentLimiter struct {
+	bucket chan struct{}
+}
+
+// NewConcurrentLimiter returns a ConcurrentLimiter, max must > 0.
+func NewConcurrentLimiter(max int) *ConcurrentLimiter {
+	if max <= 0 {
+		panic(fmt.Sprintf("ConcurrentLimiter: invalid max arg: %d", max))
+	}
+
+	bucket := make(chan struct{}, max)
+	for i := 0; i < max; i++ {
+		bucket <- struct{}{}
+	}
+
+	return &ConcurrentLimiter{bucket: bucket}
+}
+
+func (l *ConcurrentLimiter) Wait() <-chan struct{} {
+	return l.bucket
+}
+
+func (l *ConcurrentLimiter) Done() {
+	select {
+	case l.bucket <- struct{}{}:
+	default:
+		panic("ConcurrentLimiter: bucket overflow")
+	}
+}
+
+func (l *ConcurrentLimiter) Available() int {
+	return len(l.bucket)
+}

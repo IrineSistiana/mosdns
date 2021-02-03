@@ -19,7 +19,6 @@ package utils
 
 import (
 	"context"
-	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
@@ -39,7 +38,7 @@ type ResponseWriter interface {
 type DefaultServerHandler struct {
 	config *DefaultServerHandlerConfig
 
-	limiter *concurrentLimiter // if it's nil, means no limit.
+	limiter *ConcurrentLimiter // if it's nil, means no limit.
 }
 
 type DefaultServerHandlerConfig struct {
@@ -59,7 +58,7 @@ func NewDefaultServerHandler(config *DefaultServerHandlerConfig) *DefaultServerH
 	h := &DefaultServerHandler{config: config}
 
 	if config.ConcurrentLimit > 0 {
-		h.limiter = newConcurrentLimiter(config.ConcurrentLimit)
+		h.limiter = NewConcurrentLimiter(config.ConcurrentLimit)
 	}
 	return h
 }
@@ -70,8 +69,8 @@ func NewDefaultServerHandler(config *DefaultServerHandlerConfig) *DefaultServerH
 func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *handler.Context, w ResponseWriter) {
 	if h.limiter != nil {
 		select {
-		case <-h.limiter.acquire():
-			defer h.limiter.release()
+		case <-h.limiter.Wait():
+			defer h.limiter.Done()
 		case <-ctx.Done():
 			// silently drop this query
 			return
@@ -109,46 +108,6 @@ func (h *DefaultServerHandler) execEntry(ctx context.Context, qCtx *handler.Cont
 	}
 
 	return qCtx.ExecDefer(ctx)
-}
-
-// concurrentLimiter
-type concurrentLimiter struct {
-	bucket chan struct{}
-}
-
-// newConcurrentLimiter returns a concurrentLimiter, max must > 0.
-func newConcurrentLimiter(max int) *concurrentLimiter {
-	if max <= 0 {
-		panic(fmt.Sprintf("concurrentLimiter: invalid max arg: %d", max))
-	}
-
-	bucket := make(chan struct{}, max)
-For:
-	for {
-		select {
-		case bucket <- struct{}{}:
-		default:
-			break For
-		}
-	}
-
-	return &concurrentLimiter{bucket: bucket}
-}
-
-func (l *concurrentLimiter) acquire() <-chan struct{} {
-	return l.bucket
-}
-
-func (l *concurrentLimiter) release() {
-	select {
-	case l.bucket <- struct{}{}:
-	default:
-		panic("concurrentLimiter: bucket overflow")
-	}
-}
-
-func (l *concurrentLimiter) available() int {
-	return len(l.bucket)
 }
 
 type DummyServerHandler struct {
