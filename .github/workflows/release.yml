@@ -9,8 +9,6 @@ jobs:
 
   release:
     runs-on: ubuntu-latest
-    env:
-      CGO_ENABLED: '0'
 
     steps:
       - uses: actions/checkout@v2
@@ -41,6 +39,8 @@ jobs:
 
       - name: Build
         run: python ./release.py
+        env:
+          CGO_ENABLED: '0'
 
       - name: Publish
         uses: softprops/action-gh-release@v1
