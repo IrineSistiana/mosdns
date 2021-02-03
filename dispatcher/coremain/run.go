@@ -18,7 +18,6 @@
 package coremain
 
 import (
-	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
@@ -36,10 +35,7 @@ import (
 
 // Run starts mosdns, it blocks.
 func Run(c string) {
-	err := loadConfig(c, 0)
-	if err != nil {
-		mlog.L().Fatal("loading config", zap.Error(err))
-	}
+	loadConfig(c, 0)
 
 	mlog.L().Info("all plugins are successfully loaded")
 	//wait for signals
@@ -55,30 +51,30 @@ const (
 )
 
 // Init loads plugins from config
-func loadConfig(f string, depth int) error {
+func loadConfig(f string, depth int) {
 	if depth >= maxIncludeDepth {
-		return errors.New("max include depth reached")
+		mlog.S().Fatal("max include depth reached")
 	}
 	depth++
 
 	mlog.L().Info("loading config", zap.String("file", f))
 	c, err := parseConfig(f)
 	if err != nil {
-		return fmt.Errorf("failed to parse config from file %s: %w", f, err)
+		mlog.S().Fatalf("failed to parse config from file %s: %v", f, err)
 	}
 
 	if depth == 1 {
 		// init logger
 		level, err := parseLogLevel(c.Log.Level)
 		if err != nil {
-			return err
+			mlog.S().Fatal(err)
 		}
 		mlog.Level().SetLevel(level)
 		if len(c.Log.File) != 0 {
 			mlog.L().Info("opening log file", zap.String("file", c.Log.File))
 			f, err := os.OpenFile(c.Log.File, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0755)
 			if err != nil {
-				return fmt.Errorf("can not open log file %s: %w", c.Log.File, err)
+				mlog.S().Fatalf("can not open log file %s: %v", c.Log.File, err)
 			}
 			mlog.L().Info("redirecting log to file, end of console log", zap.String("file", c.Log.File))
 			mlog.Writer().Replace(f)
@@ -88,12 +84,16 @@ func loadConfig(f string, depth int) error {
 			mlog.L().Info("loading library", zap.String("library", lib))
 			_, err := plugin.Open(lib)
 			if err != nil {
-				return fmt.Errorf("failed to open library %s: %w", lib, err)
+				mlog.S().Fatalf("failed to open library %s: %v", lib, err)
 			}
 		}
 	}
 
-	pool := utils.NewConcurrentLimiter(runtime.NumCPU() / 2)
+	n := runtime.NumCPU() / 2
+	if n < 1 {
+		n = 1
+	}
+	pool := utils.NewConcurrentLimiter(n)
 	wg := new(sync.WaitGroup)
 	for i, pluginConfig := range c.Plugin {
 		if len(pluginConfig.Tag) == 0 || len(pluginConfig.Type) == 0 {
@@ -121,12 +121,8 @@ func loadConfig(f string, depth int) error {
 		if len(include) == 0 {
 			continue
 		}
-		err := loadConfig(include, depth)
-		if err != nil {
-			return err
-		}
+		loadConfig(include, depth)
 	}
-	return nil
 }
 
 func parseLogLevel(s string) (zapcore.Level, error) {
