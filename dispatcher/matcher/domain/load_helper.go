@@ -140,14 +140,22 @@ func LoadFromTextReader(m Matcher, r io.Reader, processAttr ProcessAttrFunc) err
 
 func LoadFromText(m Matcher, s string, processAttr ProcessAttrFunc) error {
 	s = utils.RemoveComment(s, "#")
+	s = strings.TrimSpace(s)
+	if len(s) == 0 {
+		return nil
+	}
 
 	if processAttr != nil {
-		e := utils.SplitLine(s)
-		if len(e) == 0 {
-			return nil
+		var pattern string
+		var attr []string
+		if strings.ContainsRune(s, ' ') {
+			e := utils.SplitLine(s)
+			pattern = e[0]
+			attr = e[1:]
+		} else {
+			pattern = s
 		}
-		pattern := e[0]
-		attr := e[1:]
+
 		v, accept, err := processAttr(attr)
 		if err != nil {
 			return err
@@ -158,10 +166,7 @@ func LoadFromText(m Matcher, s string, processAttr ProcessAttrFunc) error {
 		return m.Add(pattern, v)
 	}
 
-	pattern, _, ok := utils.SplitString2(s, " ")
-	if !ok {
-		pattern = s
-	}
+	pattern := utils.RemoveComment(s, " ")
 	return m.Add(pattern, nil)
 }
 

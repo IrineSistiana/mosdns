@@ -88,15 +88,17 @@ func NewListFromReader(reader io.Reader) (*List, error) {
 
 	for scanner.Scan() {
 		lineCounter++
+		s := strings.TrimSpace(utils.BytesToStringUnsafe(scanner.Bytes()))
+		s = utils.RemoveComment(s, "#")
+		s = utils.RemoveComment(s, " ") // remove other strings, e.g. 192.168.1.1 str1 str2
 
-		s := utils.SplitLine(utils.RemoveComment(scanner.Text(), "#"))
 		if len(s) == 0 {
 			continue
 		}
-		ipStr := s[0]
-		ipNet, err := ParseCIDR(ipStr)
+
+		ipNet, err := ParseCIDR(s)
 		if err != nil {
-			return nil, fmt.Errorf("invalid CIDR format %s in line %d", ipStr, lineCounter)
+			return nil, fmt.Errorf("invalid CIDR format %s in line %d", s, lineCounter)
 		}
 
 		ipNetList.Append(ipNet)

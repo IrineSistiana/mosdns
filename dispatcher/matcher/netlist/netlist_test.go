@@ -20,7 +20,6 @@ package netlist
 import (
 	"bytes"
 	"net"
-	"os"
 	"reflect"
 	"testing"
 )
@@ -117,56 +116,5 @@ func Test_cidrMask(t *testing.T) {
 				t.Errorf("cidrMask() = %v, want %v", gotM, tt.wantM)
 			}
 		})
-	}
-}
-
-func BenchmarkListContains(b *testing.B) {
-	f, err := os.Open("./chn.list")
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer f.Close()
-
-	iplist, err := NewListFromReader(f)
-	if err != nil {
-		b.Fatal(err)
-	}
-	ip := net.IP{222, 222, 222, 222}
-	b.Logf("is in list: %v", iplist.Match(ip))
-	// tmp := &f.next.next.value
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		iplist.Contains(ip)
-	}
-}
-
-func BenchmarkNetContains(b *testing.B) {
-	ip := net.IP{222, 222, 222, 222}
-	ipv6 := Conv(ip.To16())
-	ipv6Net := NewNet(ipv6, 112)
-	b.Logf("is in ipv6Net: %v", ipv6Net.Contains(ipv6))
-	// tmp := &f.next.next.value
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		ipv6Net.Contains(ipv6)
-	}
-}
-
-func BenchmarkConvIP(b *testing.B) {
-
-	ip := net.IP{222, 222, 222, 222}.To16()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		Conv(ip)
-	}
-}
-
-func BenchmarkLoadList(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		_, err := NewListFromReader(bytes.NewBufferString(rawList))
-		if err != nil {
-			b.Error(err)
-			return
-		}
 	}
 }
