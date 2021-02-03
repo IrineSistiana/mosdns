@@ -23,11 +23,14 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin"
+	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"os"
 	"os/signal"
 	"plugin"
+	"runtime"
+	"sync"
 	"syscall"
 )
 
@@ -90,15 +93,29 @@ func loadConfig(f string, depth int) error {
 		}
 	}
 
+	pool := utils.NewConcurrentLimiter(runtime.NumCPU() / 2)
+	wg := new(sync.WaitGroup)
 	for i, pluginConfig := range c.Plugin {
 		if len(pluginConfig.Tag) == 0 || len(pluginConfig.Type) == 0 {
 			continue
 		}
-		mlog.L().Info("loading plugin", zap.String("tag", pluginConfig.Tag))
-		if err := handler.InitAndRegPlugin(pluginConfig, true); err != nil {
-			return fmt.Errorf("failed to register plugin #%d %s: %w", i, pluginConfig.Tag, err)
+		i := i
+		pluginConfig := pluginConfig
+
+		select {
+		case <-pool.Wait():
+			wg.Add(1)
+			go func() {
+				defer pool.Done()
+				defer wg.Done()
+				mlog.L().Info("loading plugin", zap.String("tag", pluginConfig.Tag))
+				if err := handler.InitAndRegPlugin(pluginConfig, true); err != nil {
+					mlog.S().Fatalf("failed to register plugin #%d %s: %v", i, pluginConfig.Tag, err)
+				}
+			}()
 		}
 	}
+	wg.Wait()
 
 	for _, include := range c.Include {
 		if len(include) == 0 {
