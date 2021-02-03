@@ -20,9 +20,9 @@ package netlist
 import (
 	"encoding/binary"
 	"fmt"
+	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"net"
 	"strconv"
-	"strings"
 )
 
 const (
@@ -82,10 +82,8 @@ func Conv(ip net.IP) (ipv6 IPv6) {
 //As defined in RFC 4632 and RFC 4291.
 func ParseCIDR(s string) (Net, error) {
 
-	sub := strings.SplitN(s, "/", 2)
-	if len(sub) == 2 { //has "/"
-		addrStr, maskStr := sub[0], sub[1]
-
+	addrStr, maskStr, ok := utils.SplitString2(s, "/")
+	if ok { //has "/"
 		//ip
 		ip := net.ParseIP(addrStr).To16()
 		if ip == nil {

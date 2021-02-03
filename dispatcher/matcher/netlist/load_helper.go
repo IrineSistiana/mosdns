@@ -143,6 +143,7 @@ func NewListFromDAT(file, tag string) (*List, error) {
 // The returned *List is already been sorted.
 func NewListFromV2CIDR(cidr []*v2data.CIDR) (*List, error) {
 	l := NewList()
+	l.Grow(len(cidr))
 
 	for i, e := range cidr {
 		ip6 := net.IP(e.Ip).To16()

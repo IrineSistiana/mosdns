@@ -22,6 +22,7 @@ import (
 	"errors"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/miekg/dns"
+	"reflect"
 	"testing"
 )
 
@@ -110,6 +111,62 @@ func TestBoolLogic(t *testing.T) {
 			}
 			if gotMatched != tt.wantMatched {
 				t.Errorf("BoolLogic() gotMatched = %v, want %v", gotMatched, tt.wantMatched)
+			}
+		})
+	}
+}
+
+func TestSplitLine(t *testing.T) {
+
+	tests := []struct {
+		name string
+		s    string
+		want []string
+	}{
+		{"blank", "", []string{}},
+		{"space", "   ", []string{}},
+		{"space", "   a   ", []string{"a"}},
+		{"space", "   a", []string{"a"}},
+		{"split", " 1 22 333 4444  ", []string{"1", "22", "333", "4444"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := SplitLine(tt.s); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("SplitLine() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSplitString2(t *testing.T) {
+	type args struct {
+		s      string
+		symbol string
+	}
+	tests := []struct {
+		name   string
+		args   args
+		wantS1 string
+		wantS2 string
+		wantOk bool
+	}{
+		{"blank", args{"", ""}, "", "", true},
+		{"blank", args{"///", ""}, "", "///", true},
+		{"split", args{"///", "/"}, "", "//", true},
+		{"split", args{"--/", "/"}, "--", "", true},
+		{"split", args{"--/", "*"}, "", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotS1, gotS2, gotOk := SplitString2(tt.args.s, tt.args.symbol)
+			if gotS1 != tt.wantS1 {
+				t.Errorf("SplitString2() gotS1 = %v, want %v", gotS1, tt.wantS1)
+			}
+			if gotS2 != tt.wantS2 {
+				t.Errorf("SplitString2() gotS2 = %v, want %v", gotS2, tt.wantS2)
+			}
+			if gotOk != tt.wantOk {
+				t.Errorf("SplitString2() gotOk = %v, want %v", gotOk, tt.wantOk)
 			}
 		})
 	}

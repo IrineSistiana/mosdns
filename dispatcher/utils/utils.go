@@ -63,14 +63,11 @@ func GetIPFromAddr(addr net.Addr) (ip net.IP) {
 
 // SplitSchemeAndHost splits addr to protocol and host.
 func SplitSchemeAndHost(addr string) (protocol, host string) {
-	if s := strings.SplitN(addr, "://", 2); len(s) == 2 {
-		protocol = s[0]
-		host = s[1]
+	if protocol, host, ok := SplitString2(addr, "://"); ok {
+		return protocol, host
 	} else {
-		host = addr
+		return "", addr
 	}
-
-	return
 }
 
 // TryAddPort add port to host if host does not has an port suffix.
@@ -193,14 +190,40 @@ func GenerateCertificate(dnsName string) (cert tls.Certificate, err error) {
 
 var charBlockExpr = regexp.MustCompile("\\S+")
 
-// SplitLine extracts words from s.
-func SplitLine(s string) []string {
+// SplitLineReg extracts words from s by using regexp "\S+".
+func SplitLineReg(s string) []string {
 	return charBlockExpr.FindAllString(s, -1)
+}
+
+// SplitLine removes all spaces " " and extracts words from s.
+func SplitLine(s string) []string {
+	t := strings.Split(s, " ")
+	t2 := t[:0]
+	for _, sub := range t {
+		if sub != "" {
+			t2 = append(t2, sub)
+		}
+	}
+	return t2
 }
 
 // RemoveComment removes comment after "symbol".
 func RemoveComment(s, symbol string) string {
-	return strings.SplitN(s, symbol, 2)[0]
+	if i := strings.Index(s, symbol); i >= 0 {
+		return s[:i]
+	}
+	return s
+}
+
+//SplitString2 split s to two parts by given symbol
+func SplitString2(s, symbol string) (s1 string, s2 string, ok bool) {
+	if len(symbol) == 0 {
+		return "", s, true
+	}
+	if i := strings.Index(s, symbol); i >= 0 {
+		return s[:i], s[i+1:], true
+	}
+	return "", "", false
 }
 
 type ExchangeSingleFlightGroup struct {

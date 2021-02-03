@@ -130,7 +130,7 @@ func LoadFromTextReader(m Matcher, r io.Reader, processAttr ProcessAttrFunc) err
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		lineCounter++
-		err := LoadFromText(m, scanner.Text(), processAttr)
+		err := LoadFromText(m, utils.BytesToStringUnsafe(scanner.Bytes()), processAttr)
 		if err != nil {
 			return fmt.Errorf("line %d: %v", lineCounter, err)
 		}
@@ -139,16 +139,15 @@ func LoadFromTextReader(m Matcher, r io.Reader, processAttr ProcessAttrFunc) err
 }
 
 func LoadFromText(m Matcher, s string, processAttr ProcessAttrFunc) error {
-	t := utils.RemoveComment(s, "#")
-	e := utils.SplitLine(t)
+	s = utils.RemoveComment(s, "#")
 
-	if len(e) == 0 {
-		return nil
-	}
-
-	pattern := e[0]
-	attr := e[1:]
 	if processAttr != nil {
+		e := utils.SplitLine(s)
+		if len(e) == 0 {
+			return nil
+		}
+		pattern := e[0]
+		attr := e[1:]
 		v, accept, err := processAttr(attr)
 		if err != nil {
 			return err
@@ -157,6 +156,11 @@ func LoadFromText(m Matcher, s string, processAttr ProcessAttrFunc) error {
 			return nil
 		}
 		return m.Add(pattern, v)
+	}
+
+	pattern, _, ok := utils.SplitString2(s, " ")
+	if !ok {
+		pattern = s
 	}
 	return m.Add(pattern, nil)
 }

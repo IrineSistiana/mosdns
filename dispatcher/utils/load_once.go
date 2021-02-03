@@ -36,6 +36,10 @@ func NewCache() *LoadOnceCache {
 }
 
 func (c *LoadOnceCache) Put(key string, data interface{}, ttl time.Duration) {
+	if ttl <= 0 {
+		return
+	}
+
 	c.l.Lock()
 	defer c.l.Unlock()
 

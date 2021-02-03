@@ -35,6 +35,14 @@ func NewList() *List {
 	}
 }
 
+func (list *List) Grow(n int) {
+	if cap(list.e) < n {
+		e2 := make([]Net, len(list.e), n)
+		copy(e2, list.e)
+		list.e = e2
+	}
+}
+
 //Append appends new Nets to the list.
 //This modified list, call Sort() before call next Contains()
 func (list *List) Append(newNet ...Net) {

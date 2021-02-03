@@ -19,6 +19,7 @@ package domain
 
 import (
 	"fmt"
+	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
 	"regexp"
 	"strings"
@@ -354,14 +355,9 @@ func (m *MixMatcher) splitTypeAndPattern(pattern string) (MixMatcherPatternType,
 		typMap = defaultStrToPatternType
 	}
 
-	kv := strings.SplitN(pattern, ":", 2)
-	var typStr string
-	var str string
-	if len(kv) == 1 {
-		str = kv[0]
-	} else {
-		typStr = kv[0]
-		str = kv[1]
+	typStr, str, ok := utils.SplitString2(pattern, ":")
+	if !ok {
+		str = pattern
 	}
 
 	typ, ok := typMap[typStr]
