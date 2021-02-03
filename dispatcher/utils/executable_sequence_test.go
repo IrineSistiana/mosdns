@@ -336,8 +336,8 @@ func Test_FallbackECS_fast_fallback(t *testing.T) {
 			conf := &FallbackConfig{
 				Primary:       []interface{}{"p1"},
 				Secondary:     []interface{}{"p2"},
-				StatLength:    99999, // never trigger the fallback mode
-				Threshold:     99999,
+				StatLength:    0, // never trigger the normal fallback mode
+				Threshold:     0,
 				FastFallback:  100,
 				AlwaysStandby: tt.alwaysStandby,
 			}

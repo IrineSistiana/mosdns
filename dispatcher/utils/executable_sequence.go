@@ -259,10 +259,10 @@ type FallbackConfig struct {
 	// Secondary exec sequence, must have at least one element.
 	Secondary []interface{} `yaml:"secondary"`
 
-	StatLength int `yaml:"stat_length"` // default is 10
-	Threshold  int `yaml:"threshold"`   // default is 5
+	StatLength int `yaml:"stat_length"` // An Zero value disables the (normal) fallback.
+	Threshold  int `yaml:"threshold"`
 
-	// FastFallback threshold in milliseconds. Zero means disable fast fallback.
+	// FastFallback threshold in milliseconds. Zero means fast fallback is disabled.
 	FastFallback int `yaml:"fast_fallback"`
 
 	// AlwaysStandby: secondary should always standby in fast fallback.
@@ -275,7 +275,7 @@ type FallbackECS struct {
 	fastFallbackDuration time.Duration
 	alwaysStandby        bool
 
-	primaryST *statusTracker
+	primaryST *statusTracker // nil if normal fallback is disabled
 }
 
 type statusTracker struct {
@@ -334,23 +334,21 @@ func ParseFallbackECS(c *FallbackConfig) (*FallbackECS, error) {
 		return nil, fmt.Errorf("invalid secondary sequence: %w", err)
 	}
 
-	if c.Threshold > c.StatLength {
-		c.Threshold = c.StatLength
-	}
-	if c.StatLength <= 0 {
-		c.StatLength = 10
-	}
-	if c.Threshold <= 0 {
-		c.Threshold = 5
-	}
-
-	return &FallbackECS{
+	fallbackECS := &FallbackECS{
 		primary:              primaryECS,
 		secondary:            secondaryECS,
 		fastFallbackDuration: time.Duration(c.FastFallback) * time.Millisecond,
 		alwaysStandby:        c.AlwaysStandby,
-		primaryST:            newStatusTracker(c.Threshold, c.Threshold),
-	}, nil
+	}
+
+	if c.StatLength > 0 {
+		if c.Threshold > c.StatLength {
+			c.Threshold = c.StatLength
+		}
+		fallbackECS.primaryST = newStatusTracker(c.Threshold, c.StatLength)
+	}
+
+	return fallbackECS, nil
 }
 
 func (f *FallbackECS) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (goTwo string, earlyStop bool, err error) {
@@ -358,7 +356,7 @@ func (f *FallbackECS) ExecCmd(ctx context.Context, qCtx *handler.Context, logger
 }
 
 func (f *FallbackECS) execCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
-	if f.primaryST.good() {
+	if f.primaryST == nil || f.primaryST.good() {
 		if f.fastFallbackDuration > 0 {
 			return f.doFastFallback(ctx, qCtx, logger)
 		} else {
@@ -381,11 +379,14 @@ func (f *FallbackECS) doPrimary(ctx context.Context, qCtx *handler.Context, logg
 	if err == nil {
 		err = qCtx.ExecDefer(ctx)
 	}
-	if err != nil || qCtx.R() == nil {
-		f.primaryST.update(1)
-	} else {
-		f.primaryST.update(0)
+	if f.primaryST != nil {
+		if err != nil || qCtx.R() == nil {
+			f.primaryST.update(1)
+		} else {
+			f.primaryST.update(0)
+		}
 	}
+
 	return err
 }
 
