@@ -38,7 +38,7 @@ func Test_lru(t *testing.T) {
 
 	mustPop := func(keys ...string) {
 		for _, key := range keys {
-			gotKey, gotV, ok := q.PopFirst()
+			gotKey, gotV, ok := q.PopOldest()
 			if !ok {
 				t.Fatal()
 			}
@@ -49,7 +49,7 @@ func Test_lru(t *testing.T) {
 	}
 
 	emptyPop := func() {
-		gotKey, gotV, ok := q.PopFirst()
+		gotKey, gotV, ok := q.PopOldest()
 		if ok {
 			t.Fatal()
 		}
@@ -59,14 +59,17 @@ func Test_lru(t *testing.T) {
 	}
 
 	checkLen := func(want int) {
+		if q.l.Len() != len(q.m) {
+			t.Fatalf("possible mem leak: q.l.Len() %v != len(q.m){ %v", q.l.Len(), len(q.m))
+		}
 		if want != q.Len() {
 			t.Fatalf("want %v, got %v", want, q.Len())
 		}
 	}
 
 	// test add
-	reset(8)
-	add("1", "2", "3")
+	reset(4)
+	add("1", "1", "1", "1", "1", "2", "3")
 	checkLen(3)
 	mustGet("1", "2", "3")
 

@@ -22,6 +22,14 @@ import (
 	"fmt"
 )
 
+type LRULike interface {
+	Add(key string, v interface{})
+	Del(key string)
+	Clean(f func(key string, v interface{}) (remove bool)) (removed int)
+	Get(key string) (v interface{}, ok bool)
+	Len() int
+}
+
 type LRU struct {
 	maxSize int
 	onEvict func(key string, v interface{})
@@ -49,20 +57,26 @@ func NewLRU(maxSize int, onEvict func(key string, v interface{})) *LRU {
 }
 
 func (q *LRU) Add(key string, v interface{}) {
+	e, ok := q.m[key]
+	if ok { // update existed key
+		e.Value.(*listValue).v = v
+		q.l.MoveToBack(e)
+		return
+	}
+
 	o := q.Len() - q.maxSize + 1
 	for o > 0 {
-		key, v, _ := q.PopFirst()
+		key, v, _ := q.PopOldest()
 		if q.onEvict != nil {
 			q.onEvict(key, v)
 		}
 		o--
 	}
 
-	e := q.l.PushBack(&listValue{
+	q.m[key] = q.l.PushBack(&listValue{
 		key: key,
 		v:   v,
 	})
-	q.m[key] = e
 }
 
 func (q *LRU) Del(key string) {
@@ -80,7 +94,7 @@ func (q *LRU) mustDel(key string, e *list.Element) {
 	}
 }
 
-func (q *LRU) PopFirst() (key string, v interface{}, ok bool) {
+func (q *LRU) PopOldest() (key string, v interface{}, ok bool) {
 	e := q.l.Front()
 	if e != nil {
 		lv := q.l.Remove(e).(*listValue)
