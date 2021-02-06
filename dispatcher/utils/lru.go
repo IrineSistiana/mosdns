@@ -107,8 +107,12 @@ func (q *LRU) PopOldest() (key string, v interface{}, ok bool) {
 }
 
 func (q *LRU) Clean(f func(key string, v interface{}) (remove bool)) (removed int) {
-	for key, e := range q.m {
-		v := e.Value.(*listValue).v
+	next := q.l.Front()
+	for next != nil {
+		e := next
+		next = e.Next()
+		lv := e.Value.(*listValue)
+		key, v := lv.key, lv.v
 		if remove := f(key, v); remove {
 			q.mustDel(key, e)
 			removed++
