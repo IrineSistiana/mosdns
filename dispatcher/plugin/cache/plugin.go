@@ -84,6 +84,10 @@ func newCachePlugin(bp *handler.BP, args *Args) (*cachePlugin, error) {
 			maxSizePerShard = 1
 		}
 
+		if args.CleanerInterval == 0 {
+			args.CleanerInterval = 120
+		}
+
 		c = newMemCache(64, maxSizePerShard, time.Duration(args.CleanerInterval)*time.Second)
 	}
 	return &cachePlugin{
