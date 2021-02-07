@@ -19,7 +19,6 @@ package cache
 
 import (
 	"context"
-	"errors"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/miekg/dns"
 	"sync"
@@ -28,54 +27,50 @@ import (
 
 // memCache is a simple cache that stores msgs in memory.
 type memCache struct {
-	size            int
 	cleanerInterval time.Duration
 
-	sync.Mutex
-	lru              *utils.LRU
-	cleanerIsRunning bool
+	closeOnce sync.Once
+	closeChan chan struct{}
+	lru       *utils.ConcurrentLRU
 }
 
 type elem struct {
-	b              []byte
+	m              *dns.Msg
 	expirationTime time.Time
 }
 
 // newMemCache returns a memCache.
-// If cleanerInterval < 0, memCache cleaner is disabled.
-// if size <= 0, a default value is used.
-// Default size is 1024. Default cleaner interval is 2 minutes.
-func newMemCache(size int, cleanerInterval time.Duration) *memCache {
-	if size <= 0 {
-		size = 1024
-	}
-
-	if cleanerInterval == 0 {
-		cleanerInterval = time.Minute * 2
-	}
-
-	onEvict := func(key string, v interface{}) {
-		e := v.(*elem)
-		utils.ReleaseMsgBuf(e.b)
-	}
-	return &memCache{
-		size:            size,
+// If cleanerInterval <= 0, memCache cleaner is disabled.
+// If shardNum or maxSizePerShard <=0, newMemCache will panic.
+func newMemCache(shardNum, maxSizePerShard int, cleanerInterval time.Duration) *memCache {
+	c := &memCache{
 		cleanerInterval: cleanerInterval,
-		lru:             utils.NewLRU(size, onEvict),
+		lru:             utils.NewConcurrentLRU(shardNum, maxSizePerShard, nil, nil),
 	}
+
+	if c.cleanerInterval > 0 {
+		c.closeChan = make(chan struct{})
+		go c.startCleaner()
+	}
+	return c
 }
 
-func (c *memCache) get(_ context.Context, key string) (v []byte, ttl time.Duration, ok bool, err error) {
-	c.Lock()
+func (c *memCache) Close() error {
+	c.closeOnce.Do(func() {
+		if c.closeChan != nil {
+			close(c.closeChan)
+		}
+	})
+	return nil
+}
+
+func (c *memCache) get(_ context.Context, key string) (v *dns.Msg, ttl time.Duration, ok bool, err error) {
 	e, ok := c.lru.Get(key)
-	defer c.Unlock()
 
 	if ok {
 		e := e.(*elem)
 		if ttl = time.Until(e.expirationTime); ttl > 0 {
-			b := utils.GetMsgBuf(len(e.b))
-			copy(b, e.b)
-			return b, ttl, true, nil
+			return e.m.Copy(), ttl, true, nil
 		} else {
 			c.lru.Del(key) // expired
 		}
@@ -83,30 +78,15 @@ func (c *memCache) get(_ context.Context, key string) (v []byte, ttl time.Durati
 	return nil, 0, false, nil
 }
 
-func (c *memCache) store(_ context.Context, key string, v []byte, ttl time.Duration) (err error) {
+func (c *memCache) store(_ context.Context, key string, v *dns.Msg, ttl time.Duration) (err error) {
 	if ttl <= 0 {
 		return
 	}
-
-	if len(v) > dns.MaxMsgSize {
-		return errors.New("v is too big")
-	}
-
-	b := utils.GetMsgBuf(len(v))
-	copy(b, v)
 	e := &elem{
-		b:              b,
+		m:              v.Copy(),
 		expirationTime: time.Now().Add(ttl),
 	}
-
-	c.Lock()
-	// try to start cleaner
-	if c.cleanerInterval > 0 && c.cleanerIsRunning == false {
-		c.cleanerIsRunning = true
-		go c.startCleaner()
-	}
 	c.lru.Add(key, e)
-	c.Unlock()
 	return
 }
 
@@ -115,15 +95,10 @@ func (c *memCache) startCleaner() {
 	defer ticker.Stop()
 	for {
 		select {
+		case <-c.closeChan:
+			return
 		case <-ticker.C:
-			c.Lock()
 			c.lru.Clean(cleanFunc)
-			if c.lru.Len() == 0 {
-				c.cleanerIsRunning = false
-				c.Unlock()
-				return
-			}
-			c.Unlock()
 		}
 	}
 }
@@ -132,13 +107,6 @@ func cleanFunc(_ string, v interface{}) bool {
 	return v.(*elem).expirationTime.Before(time.Now())
 }
 
-func (c *memCache) release(v []byte) {
-	utils.ReleaseMsgBuf(v)
-}
-
 func (c *memCache) len() int {
-	c.Lock()
-	defer c.Unlock()
-
 	return c.lru.Len()
 }

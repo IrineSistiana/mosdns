@@ -51,17 +51,15 @@ type cachePlugin struct {
 	*handler.BP
 	args *Args
 
-	c cache
+	c dnsCache
 }
 
-type cache interface {
-	// get retrieves v from cache. The returned v is a copy from the cache.
-	get(ctx context.Context, key string) (v []byte, ttl time.Duration, ok bool, err error)
-	// release can reuse the slice that returned from get.
-	release(v []byte)
-	// store stores the v into cache. It will copy the given v. So, it's save to modify
-	// v after store is returned.
-	store(ctx context.Context, key string, v []byte, ttl time.Duration) (err error)
+type dnsCache interface {
+	// get retrieves v from cache. The returned v is a copy of the original msg
+	// that stored in the cache.
+	get(ctx context.Context, key string) (v *dns.Msg, ttl time.Duration, ok bool, err error)
+	// store stores the v into cache. It stores a copy of v.
+	store(ctx context.Context, key string, v *dns.Msg, ttl time.Duration) (err error)
 }
 
 func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
@@ -69,7 +67,7 @@ func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
 }
 
 func newCachePlugin(bp *handler.BP, args *Args) (*cachePlugin, error) {
-	var c cache
+	var c dnsCache
 	var err error
 	if len(args.Redis) != 0 {
 		c, err = newRedisCache(args.Redis)
@@ -77,7 +75,16 @@ func newCachePlugin(bp *handler.BP, args *Args) (*cachePlugin, error) {
 			return nil, err
 		}
 	} else {
-		c = newMemCache(args.Size, time.Duration(args.CleanerInterval)*time.Second)
+		if args.Size <= 0 {
+			args.Size = 1024
+		}
+
+		maxSizePerShard := args.Size / 64
+		if maxSizePerShard == 0 {
+			maxSizePerShard = 1
+		}
+
+		c = newMemCache(64, maxSizePerShard, time.Duration(args.CleanerInterval)*time.Second)
 	}
 	return &cachePlugin{
 		BP:   bp,
@@ -110,20 +117,13 @@ func (c *cachePlugin) searchAndReply(ctx context.Context, qCtx *handler.Context)
 		return "", false
 	}
 
-	v, ttl, _, err := c.c.get(ctx, key)
+	r, ttl, _, err := c.c.get(ctx, key)
 	if err != nil {
 		c.L().Warn("unable to access cache, skip it", qCtx.InfoField(), zap.Error(err))
 		return key, false
 	}
 
-	if len(v) != 0 { // if cache hit
-		defer c.c.release(v)
-		r := new(dns.Msg)
-		if err := r.Unpack(v); err != nil {
-			c.L().Warn("failed to unpack cached data", qCtx.InfoField(), zap.Error(err))
-			return key, false
-		}
-
+	if r != nil { // if cache hit
 		c.L().Debug("cache hit", qCtx.InfoField())
 		r.Id = q.Id
 		utils.SetTTL(r, uint32(ttl/time.Second))
@@ -158,17 +158,7 @@ func (d *deferCacheStore) exec(ctx context.Context, qCtx *handler.Context) (err 
 		if ttl > maxTTL {
 			ttl = maxTTL
 		}
-		buf, err := utils.GetMsgBufFor(r)
-		if err != nil {
-			return err
-		}
-		defer utils.ReleaseMsgBuf(buf)
-
-		v, err := r.PackBuffer(buf)
-		if err != nil {
-			return err
-		}
-		return d.p.c.store(ctx, d.key, v, time.Duration(ttl)*time.Second)
+		return d.p.c.store(ctx, d.key, r, time.Duration(ttl)*time.Second)
 	}
 	return nil
 }

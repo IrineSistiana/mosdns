@@ -1,9 +1,11 @@
 package cache
 
 import (
-	"bytes"
 	"context"
+	"github.com/miekg/dns"
+	"runtime"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 )
@@ -11,63 +13,84 @@ import (
 func Test_memCache(t *testing.T) {
 	ctx := context.Background()
 
-	c := newMemCache(8, time.Millisecond*50)
-	for i := 0; i < 8; i++ {
-		if err := c.store(ctx, strconv.Itoa(i), []byte{byte(i)}, time.Millisecond*200); err != nil {
+	c := newMemCache(8, 16, -1)
+	for i := 0; i < 1024; i++ {
+		key := strconv.Itoa(i)
+		m := new(dns.Msg)
+		m.Id = uint16(i)
+		if err := c.store(ctx, key, m, time.Millisecond*200); err != nil {
 			t.Fatal(err)
 		}
-	}
 
-	if c.cleanerIsRunning != true {
-		t.Fatal("cleaner goroutine should be online")
-	}
-
-	for i := 0; i < 8; i++ {
-		v, _, ok, err := c.get(ctx, strconv.Itoa(i))
+		v, _, ok, err := c.get(ctx, key)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if !ok {
 			t.Fatal()
 		}
-		if !bytes.Equal([]byte{byte(i)}, v) {
+		if v.Id != uint16(i) {
 			t.Fatal("cache kv mismatched")
 		}
 	}
-	if c.len() != 8 {
-		t.Fatal()
-	}
 
-	for i := 8; i < 16; i++ {
-		if err := c.store(ctx, strconv.Itoa(i), []byte{byte(i)}, time.Millisecond*200); err != nil {
+	if c.len() > 8*16 {
+		t.Fatal("cache overflow")
+	}
+}
+
+func Test_memCache_cleaner(t *testing.T) {
+	c := newMemCache(2, 8, time.Millisecond*10)
+	defer c.Close()
+	ctx := context.Background()
+	for i := 0; i < 64; i++ {
+		key := strconv.Itoa(i)
+		m := new(dns.Msg)
+		m.Id = uint16(i)
+		if err := c.store(ctx, key, m, time.Millisecond*10); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if c.len() != 8 {
-		t.Fatal("cache overflow")
-	}
 
-	time.Sleep(time.Millisecond * 500)
+	time.Sleep(time.Millisecond * 100)
 	if c.len() != 0 {
 		t.Fatal()
-	}
-
-	if c.cleanerIsRunning != false {
-		t.Fatal("cleaner goroutine should be offline")
 	}
 }
 
 func Test_memCache_race(t *testing.T) {
-	c := newMemCache(32, time.Millisecond)
+	c := newMemCache(32, 128, -1)
+	defer c.Close()
 	ctx := context.Background()
-	b := make([]byte, 1)
 
-	for i := 0; i < 5; i++ {
+	m := &dns.Msg{}
+
+	wg := sync.WaitGroup{}
+	for i := 0; i < 32; i++ {
+		wg.Add(1)
 		go func() {
-			for i := 0; i < 1024; i++ {
-				c.store(ctx, strconv.Itoa(i), b, time.Millisecond*5)
-				c.get(ctx, strconv.Itoa(i))
+			defer wg.Done()
+			for i := 0; i < 256; i++ {
+				err := c.store(ctx, strconv.Itoa(i), m, time.Minute)
+				if err != nil {
+					t.Log(err)
+					t.Fail()
+				}
+				v, _, ok, err := c.get(ctx, strconv.Itoa(i))
+				if err != nil {
+					t.Log(err)
+					t.Fail()
+					runtime.Goexit()
+				}
+				if !ok {
+					t.Log("failed to get stored value")
+					t.Fail()
+					runtime.Goexit()
+				}
+				v.Id = uint16(i)
+				c.lru.Clean(cleanFunc)
 			}
 		}()
 	}
+	wg.Wait()
 }

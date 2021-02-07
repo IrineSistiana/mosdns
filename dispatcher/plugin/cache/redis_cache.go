@@ -19,7 +19,9 @@ package cache
 
 import (
 	"context"
+	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"github.com/go-redis/redis/v8"
+	"github.com/miekg/dns"
 	"time"
 )
 
@@ -37,7 +39,7 @@ func newRedisCache(url string) (*redisCache, error) {
 	return &redisCache{client: c}, nil
 }
 
-func (r *redisCache) get(ctx context.Context, key string) (v []byte, ttl time.Duration, ok bool, err error) {
+func (r *redisCache) get(ctx context.Context, key string) (v *dns.Msg, ttl time.Duration, ok bool, err error) {
 	b, err := r.client.Get(ctx, key).Bytes()
 	if err != nil {
 		if err == redis.Nil {
@@ -52,12 +54,25 @@ func (r *redisCache) get(ctx context.Context, key string) (v []byte, ttl time.Du
 		}
 		return nil, 0, false, err
 	}
-	return b, ttl, true, nil
+
+	v = new(dns.Msg)
+	if err := v.Unpack(b); err != nil {
+		return nil, 0, false, err
+	}
+	return v, ttl, true, nil
 }
 
-func (r *redisCache) store(ctx context.Context, key string, v []byte, ttl time.Duration) (err error) {
-	return r.client.Set(ctx, key, v, ttl).Err()
-}
+func (r *redisCache) store(ctx context.Context, key string, v *dns.Msg, ttl time.Duration) (err error) {
+	buf, err := utils.GetMsgBufFor(v)
+	if err != nil {
+		return err
+	}
+	defer utils.ReleaseMsgBuf(buf)
 
-// nothing to reuse
-func (r *redisCache) release(v []byte) {}
+	wireMsg, err := v.PackBuffer(buf)
+	if err != nil {
+		return err
+	}
+
+	return r.client.Set(ctx, key, wireMsg, ttl).Err()
+}
