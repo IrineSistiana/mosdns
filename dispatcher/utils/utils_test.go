@@ -221,3 +221,29 @@ func Test_ConcurrentLimiter_acquire_release(t *testing.T) {
 		t.Fatal("token leaked")
 	}
 }
+
+func TestRemoveComment(t *testing.T) {
+	type args struct {
+		s      string
+		symbol string
+	}
+	tests := []struct {
+		name string
+		args args
+		want string
+	}{
+		{name: "empty", args: args{s: "", symbol: ""}, want: ""},
+		{name: "empty symbol", args: args{s: "12345", symbol: ""}, want: ""},
+		{name: "empty string", args: args{s: "", symbol: "#"}, want: ""},
+		{name: "remove 1", args: args{s: "123/456", symbol: "/"}, want: "123"},
+		{name: "remove 2", args: args{s: "123//456", symbol: "//"}, want: "123"},
+		{name: "remove 3", args: args{s: "123/*/456", symbol: "//"}, want: "123/*/456"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := RemoveComment(tt.args.s, tt.args.symbol); got != tt.want {
+				t.Errorf("RemoveComment() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
