@@ -148,11 +148,10 @@ func NewListFromV2CIDR(cidr []*v2data.CIDR) (*List, error) {
 	l.Grow(len(cidr))
 
 	for i, e := range cidr {
-		ip6 := net.IP(e.Ip).To16()
-		if ip6 == nil {
-			return nil, fmt.Errorf("invalid cidr ip at #%d", i)
+		ipv6, err := Conv(e.Ip)
+		if err != nil {
+			return nil, fmt.Errorf("invalid data ip at index #%d, %w", i, err)
 		}
-		ipv6 := Conv(ip6)
 		switch len(e.Ip) {
 		case 4:
 			l.Append(NewNet(ipv6, uint(e.Prefix+96)))

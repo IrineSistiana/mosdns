@@ -21,20 +21,21 @@ import (
 	"sort"
 )
 
-//List is a list of Nets. All Nets will be in ipv6 format, even it's
-//ipv4 addr. Cause we use bin search.
+//List is a list of Nets. All Nets will be in ipv6 format, even it's an
+//ipv4 addr. Because we use bin search.
 type List struct {
 	e      []Net
 	sorted bool
 }
 
-//NewList returns a *List, list can not be nil.
+//NewList returns a *List.
 func NewList() *List {
 	return &List{
 		e: make([]Net, 0),
 	}
 }
 
+//Grow increases list's cap to n.
 func (list *List) Grow(n int) {
 	if cap(list.e) < n {
 		e2 := make([]Net, len(list.e), n)
@@ -44,20 +45,21 @@ func (list *List) Grow(n int) {
 }
 
 //Append appends new Nets to the list.
-//This modified list, call Sort() before call next Contains()
+//This modified list. Caller must call List.Sort() before calling List.Contains()
 func (list *List) Append(newNet ...Net) {
 	list.e = append(list.e, newNet...)
 	list.sorted = false
 }
 
 // Merge merges srcList with list
-// This modified list, call Sort() before call next Contains()
+//This modified list. Caller must call List.Sort() before calling List.Contains()
 func (list *List) Merge(srcList *List) {
 	list.e = append(list.e, srcList.e...)
+	list.sorted = false
 }
 
-//Sort sorts the list, this must be called everytime after
-//list was modified.
+//Sort sorts the list, this must be called after
+//list was modified and before call List.Contains().
 func (list *List) Sort() {
 	if list.sorted {
 		return
@@ -103,13 +105,13 @@ func (list *List) Match(ip net.IP) bool {
 //Contains reports whether the list includes given ip.
 //list must be sorted, or Contains will panic.
 func (list *List) Contains(ip net.IP) bool {
-	if ip = ip.To16(); ip == nil {
-		return false
-	}
-	ipv6 := Conv(ip)
-
 	if !list.sorted {
 		panic("list is not sorted")
+	}
+
+	ipv6, err := Conv(ip)
+	if err != nil {
+		return false
 	}
 
 	i, j := 0, len(list.e)

@@ -19,6 +19,7 @@ package netlist
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"net"
@@ -27,6 +28,10 @@ import (
 
 const (
 	maxUint64 = ^uint64(0)
+)
+
+var (
+	ErrInvalidIP = errors.New("invalid ip")
 )
 
 //IPv6 represents a ipv6 addr
@@ -64,33 +69,61 @@ func (net Net) Contains(ip IPv6) bool {
 }
 
 //Conv converts ip to type IPv6.
-//ip must be a valid 16-byte ipv6 address or Conv() will panic
-func Conv(ip net.IP) (ipv6 IPv6) {
-	if len(ip) != 16 {
-		panic("ip is not a 16-byte ipv6")
+//ip should be an ipv4/6 address (with length 4 or 16)
+//Conv will return ErrInvalidIP if ip has an invalid length.
+func Conv(ip net.IP) (IPv6, error) {
+	switch len(ip) {
+	case 16:
+		ipv6 := IPv6{}
+		for i := 0; i < 2; i++ {
+			s := i * 8
+			ipv6[i] = binary.BigEndian.Uint64(ip[s : s+8])
+		}
+		return ipv6, nil
+	case 4:
+		return IPv6{0, uint64(binary.BigEndian.Uint32(ip))}, nil
+	default:
+		return IPv6{}, ErrInvalidIP
+	}
+}
+
+type IPVersion uint8
+
+const (
+	Version4 IPVersion = iota
+	Version6
+)
+
+func ParseIP(s string) (IPv6, IPVersion, error) {
+	ip := net.ParseIP(s)
+	if ip == nil {
+		return IPv6{}, 0, ErrInvalidIP
 	}
 
-	for i := 0; i < 2; i++ { //0 to 1
-		s := i * 8
-		ipv6[i] = binary.BigEndian.Uint64(ip[s : s+8])
+	ipv6, err := Conv(ip)
+	if err != nil {
+		return IPv6{}, 0, err
 	}
 
-	return
+	var v IPVersion
+	if ip.To4() != nil {
+		v = Version4
+	} else {
+		v = Version6
+	}
+	return ipv6, v, nil
 }
 
 //ParseCIDR parses s as a CIDR notation IP address and prefix length.
 //As defined in RFC 4632 and RFC 4291.
 func ParseCIDR(s string) (Net, error) {
-
-	addrStr, maskStr, ok := utils.SplitString2(s, "/")
+	ipStr, maskStr, ok := utils.SplitString2(s, "/")
 	if ok { //has "/"
 		//ip
-		ip := net.ParseIP(addrStr).To16()
-		if ip == nil {
-			return Net{}, fmt.Errorf("invalid cidr ip string %s", s)
+		ipv6, version, err := ParseIP(ipStr)
+		if err != nil {
+			return Net{}, err
 		}
-		ipv6 := Conv(ip)
-
 		//mask
 		maskLen, err := strconv.ParseUint(maskStr, 10, 0)
 		if err != nil {
@@ -98,7 +131,7 @@ func ParseCIDR(s string) (Net, error) {
 		}
 
 		//if string is a ipv4 addr, add 96
-		if ip.To4() != nil {
+		if version != Version6 {
 			maskLen = maskLen + 96
 		}
 
@@ -109,11 +142,10 @@ func ParseCIDR(s string) (Net, error) {
 		return NewNet(ipv6, uint(maskLen)), nil
 	}
 
-	ip := net.ParseIP(s).To16()
-	if ip == nil {
-		return Net{}, fmt.Errorf("invalid cidr ip string %s", s)
+	ipv6, _, err := ParseIP(s)
+	if err != nil {
+		return Net{}, err
 	}
-	ipv6 := Conv(ip)
 	return NewNet(ipv6, 128), nil
 }
 
