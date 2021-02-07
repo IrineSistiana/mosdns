@@ -47,9 +47,10 @@ type ServerGroup struct {
 }
 
 type Args struct {
-	Server               []*Server     `yaml:"server"`
-	Entry                []interface{} `yaml:"entry"`
-	MaxConcurrentQueries int           `yaml:"max_concurrent_queries"`
+	Server                        []*Server     `yaml:"server"`
+	Entry                         []interface{} `yaml:"entry"`
+	MaxConcurrentQueries          int           `yaml:"max_concurrent_queries"`
+	MaxConcurrentQueriesPreClient int           `yaml:"max_concurrent_queries_pre_client"`
 }
 
 // Server is not safe for concurrent use.
@@ -101,9 +102,10 @@ func newServer(bp *handler.BP, args *Args) (*ServerGroup, error) {
 	}
 
 	sh := utils.NewDefaultServerHandler(&utils.DefaultServerHandlerConfig{
-		Logger:          bp.L(),
-		Entry:           ecs,
-		ConcurrentLimit: args.MaxConcurrentQueries,
+		Logger:                   bp.L(),
+		Entry:                    ecs,
+		ConcurrentLimit:          args.MaxConcurrentQueries,
+		ConcurrentLimitPreClient: args.MaxConcurrentQueriesPreClient,
 	})
 
 	sg := NewServerGroup(bp, sh, args.Server)

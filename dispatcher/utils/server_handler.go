@@ -38,7 +38,8 @@ type ResponseWriter interface {
 type DefaultServerHandler struct {
 	config *DefaultServerHandlerConfig
 
-	limiter *ConcurrentLimiter // if it's nil, means no limit.
+	limiter       *ConcurrentLimiter  // if it's nil, means no limit.
+	clientLimiter *ClientQueryLimiter // if it's nil, means no limit.
 }
 
 type DefaultServerHandlerConfig struct {
@@ -46,19 +47,32 @@ type DefaultServerHandlerConfig struct {
 	Logger *zap.Logger
 	// Entry is the entry ExecutablePlugin's tag. This shouldn't be empty.
 	Entry *ExecutableCmdSequence
-	// ConcurrentLimit controls the max concurrent queries.
+	// ConcurrentLimit controls the max concurrent queries for the DefaultServerHandler.
 	// If ConcurrentLimit <= 0, means no limit.
+	// When calling DefaultServerHandler.ServeDNS(), if a query exceeds the limit, it will wait on a FIFO queue until
+	// - its ctx is done -> The query will be dropped silently.
+	// - it can be proceed -> Normal procedure.
 	ConcurrentLimit int
+
+	// ConcurrentLimitPreClient controls the max concurrent queries for the pre client.
+	// If ConcurrentLimitPreClient <= 0, means no limit.
+	// It uses qCtx.From() as the identification of clients.
+	// When calling DefaultServerHandler.ServeDNS(), if a client query exceeds the limit,
+	// an REFUSED response will be returned to client.
+	ConcurrentLimitPreClient int
 }
 
 // NewDefaultServerHandler:
-// concurrentLimit <= 0 means no concurrent limit.
 // Also see DefaultServerHandler.ServeDNS.
 func NewDefaultServerHandler(config *DefaultServerHandlerConfig) *DefaultServerHandler {
 	h := &DefaultServerHandler{config: config}
 
 	if config.ConcurrentLimit > 0 {
 		h.limiter = NewConcurrentLimiter(config.ConcurrentLimit)
+	}
+
+	if config.ConcurrentLimitPreClient > 0 {
+		h.clientLimiter = NewClientQueryLimiter(config.ConcurrentLimitPreClient)
 	}
 	return h
 }
@@ -67,6 +81,27 @@ func NewDefaultServerHandler(config *DefaultServerHandlerConfig) *DefaultServerH
 // If entry returns an err, a SERVFAIL response will be sent back to client.
 // If concurrentLimit is reached, the query will block and wait available token until ctx is done.
 func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *handler.Context, w ResponseWriter) {
+	write := func(r *dns.Msg) {
+		if _, err := w.Write(r); err != nil {
+			h.config.Logger.Warn("write response", qCtx.InfoField(), zap.Error(err))
+		}
+	}
+
+	if h.clientLimiter != nil {
+		addr := qCtx.From()
+		if addr != nil {
+			key := addr.String()
+			if h.clientLimiter.Acquire(key) != true {
+				r := new(dns.Msg)
+				r.SetReply(qCtx.Q())
+				r.Rcode = dns.RcodeRefused
+				write(r)
+				return
+			}
+			defer h.clientLimiter.Done(key)
+		}
+	}
+
 	if h.limiter != nil {
 		select {
 		case <-h.limiter.Wait():
@@ -95,9 +130,7 @@ func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *handler.Conte
 	}
 
 	if r != nil {
-		if _, err := w.Write(r); err != nil {
-			h.config.Logger.Warn("write response", qCtx.InfoField(), zap.Error(err))
-		}
+		write(r)
 	}
 }
 
@@ -130,4 +163,51 @@ func (d *DummyServerHandler) ServeDNS(_ context.Context, qCtx *handler.Context, 
 	if err != nil {
 		d.T.Errorf("DummyServerHandler: %v", err)
 	}
+}
+
+type ClientQueryLimiter struct {
+	maxQueries int
+	m          *ConcurrentMap
+}
+
+func NewClientQueryLimiter(maxQueries int) *ClientQueryLimiter {
+	return &ClientQueryLimiter{
+		maxQueries: maxQueries,
+		m:          NewConcurrentMap(64),
+	}
+}
+
+func (l *ClientQueryLimiter) Acquire(key string) bool {
+	return l.m.TestAndSet(key, l.acquireTestAndSet)
+}
+
+func (l *ClientQueryLimiter) acquireTestAndSet(v interface{}, ok bool) (newV interface{}, wantUpdate, passed bool) {
+	n := 0
+	if ok {
+		n = v.(int)
+	}
+	if n >= l.maxQueries {
+		return nil, false, false
+	}
+	n++
+	return n, true, true
+}
+
+func (l *ClientQueryLimiter) doneTestAndSet(v interface{}, ok bool) (newV interface{}, wantUpdate, passed bool) {
+	if !ok {
+		panic("ClientQueryLimiter doneTestAndSet: value is not exist")
+	}
+	n := v.(int)
+	n--
+	if n < 0 {
+		panic("ClientQueryLimiter doneTestAndSet: value becomes negative")
+	}
+	if n == 0 {
+		return nil, true, true
+	}
+	return n, true, true
+}
+
+func (l *ClientQueryLimiter) Done(key string) {
+	l.m.TestAndSet(key, l.doneTestAndSet)
 }
