@@ -21,23 +21,23 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/dispatcher/utils"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/pool"
 	"github.com/miekg/dns"
 	"io"
 	"net/http"
 )
 
 var (
-	bufPool512 = utils.NewBytesBufPool(512)
+	bufPool512 = pool.NewBytesBufPool(512)
 )
 
 func (u *fastUpstream) exchangeDoH(q *dns.Msg) (r *dns.Msg, err error) {
 
-	rRaw, buf, err := utils.PackBuffer(q)
+	rRaw, buf, err := pool.PackBuffer(q)
 	if err != nil {
 		return nil, err
 	}
-	defer utils.ReleaseMsgBuf(buf)
+	defer pool.ReleaseMsgBuf(buf)
 
 	// In order to maximize HTTP cache friendliness, DoH clients using media
 	// formats that include the ID field from the DNS message header, such

@@ -19,7 +19,7 @@ package cache
 
 import (
 	"context"
-	"github.com/IrineSistiana/mosdns/dispatcher/utils"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/concurrent_lru"
 	"github.com/miekg/dns"
 	"sync"
 	"time"
@@ -31,7 +31,7 @@ type memCache struct {
 
 	closeOnce sync.Once
 	closeChan chan struct{}
-	lru       *utils.ConcurrentLRU
+	lru       *concurrent_lru.ConcurrentLRU
 }
 
 type elem struct {
@@ -45,7 +45,7 @@ type elem struct {
 func newMemCache(shardNum, maxSizePerShard int, cleanerInterval time.Duration) *memCache {
 	c := &memCache{
 		cleanerInterval: cleanerInterval,
-		lru:             utils.NewConcurrentLRU(shardNum, maxSizePerShard, nil, nil),
+		lru:             concurrent_lru.NewConcurrentLRU(shardNum, maxSizePerShard, nil, nil),
 	}
 
 	if c.cleanerInterval > 0 {

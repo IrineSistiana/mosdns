@@ -20,7 +20,7 @@ package sleep
 import (
 	"context"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/utils"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/pool"
 	"time"
 )
 
@@ -51,8 +51,8 @@ func (s *sleep) sleep(ctx context.Context) (err error) {
 		return
 	}
 
-	timer := utils.GetTimer(s.d)
-	defer utils.ReleaseTimer(timer)
+	timer := pool.GetTimer(s.d)
+	defer pool.ReleaseTimer(timer)
 	select {
 	case <-timer.C:
 	case <-ctx.Done():

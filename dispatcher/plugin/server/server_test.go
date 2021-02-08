@@ -20,7 +20,7 @@ package server
 import (
 	"github.com/AdguardTeam/dnsproxy/upstream"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/utils"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/server_handler"
 	"github.com/miekg/dns"
 	"testing"
 	"time"
@@ -46,7 +46,7 @@ func TestUdpServer_ListenAndServe(t *testing.T) {
 			return
 		}
 		func() {
-			sg := NewServerGroup(handler.NewBP("test", PluginType), &utils.DummyServerHandler{T: t}, []*Server{tt.config})
+			sg := NewServerGroup(handler.NewBP("test", PluginType), &server_handler.DummyServerHandler{T: t}, []*Server{tt.config})
 			if err := sg.Activate(); err != nil {
 				t.Fatal(err)
 			}

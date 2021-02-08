@@ -23,7 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/utils"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/dnsutils"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"net"
@@ -40,7 +40,7 @@ type tcpResponseWriter struct {
 
 func (t *tcpResponseWriter) Write(m *dns.Msg) (n int, err error) {
 	t.c.SetWriteDeadline(time.Now().Add(serverTCPWriteTimeout))
-	return utils.WriteMsgToTCP(t.c, m)
+	return dnsutils.WriteMsgToTCP(t.c, m)
 }
 
 // remainder: startTCP should be called only after ServerGroup is locked.
@@ -93,7 +93,7 @@ func (sg *ServerGroup) startTCP(conf *Server, isDoT bool) error {
 
 				for {
 					c.SetReadDeadline(time.Now().Add(conf.idleTimeout))
-					q, _, err := utils.ReadMsgFromTCP(c)
+					q, _, err := dnsutils.ReadMsgFromTCP(c)
 					if err != nil {
 						return // read err, close the conn
 					}

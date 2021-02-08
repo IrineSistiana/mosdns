@@ -20,11 +20,11 @@ package tools
 import (
 	"crypto/tls"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/dispatcher/matcher/domain"
-	"github.com/IrineSistiana/mosdns/dispatcher/matcher/netlist"
-	"github.com/IrineSistiana/mosdns/dispatcher/matcher/v2data"
 	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
-	"github.com/IrineSistiana/mosdns/dispatcher/utils"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/domain"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/netlist"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/v2data"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
 	"io"
 	"net"
@@ -113,10 +113,12 @@ func ProbServerTimeout(addr string) error {
 }
 
 func BenchIPMatcher(f string) error {
-	list, err := netlist.NewListFromFile(f)
+	list := netlist.NewList()
+	err := netlist.LoadFromFile(list, f)
 	if err != nil {
 		return err
 	}
+	list.Sort()
 
 	ip := net.IPv4(8, 8, 8, 8).To4()
 
@@ -135,7 +137,7 @@ func BenchIPMatcher(f string) error {
 
 func BenchDomainMatcher(f string) error {
 	matcher := domain.NewMixMatcher()
-	err := domain.LoadFromFileAsV2Matcher(matcher, f)
+	err := domain.LoadFromFile(matcher, f, nil)
 	if err != nil {
 		return err
 	}

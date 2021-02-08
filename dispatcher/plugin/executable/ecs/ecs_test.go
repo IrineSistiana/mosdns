@@ -20,7 +20,7 @@ package ecs
 import (
 	"context"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/utils"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
 	"gopkg.in/yaml.v3"
 	"net"

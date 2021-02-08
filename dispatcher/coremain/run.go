@@ -21,8 +21,8 @@ import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/concurrent_limiter"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin"
-	"github.com/IrineSistiana/mosdns/dispatcher/utils"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"os"
@@ -93,7 +93,7 @@ func loadConfig(f string, depth int) {
 	if n < 1 {
 		n = 1
 	}
-	pool := utils.NewConcurrentLimiter(n)
+	pool := concurrent_limiter.NewConcurrentLimiter(n)
 	wg := new(sync.WaitGroup)
 	for i, pluginConfig := range c.Plugin {
 		if len(pluginConfig.Tag) == 0 || len(pluginConfig.Type) == 0 {

@@ -24,7 +24,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/utils"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"golang.org/x/net/http2"
@@ -139,9 +140,9 @@ func newFastUpstream(config *UpstreamConfig, logger *zap.Logger, certPool *x509.
 			func() (net.Conn, error) {
 				return u.dialTimeout("udp", dialTimeout)
 			},
-			utils.WriteMsgToUDP,
+			dnsutils.WriteMsgToUDP,
 			func(c io.Reader) (m *dns.Msg, n int, err error) {
-				return utils.ReadMsgFromUDP(c, utils.IPv4UdpMaxPayload)
+				return dnsutils.ReadMsgFromUDP(c, dnsutils.IPv4UdpMaxPayload)
 			},
 			maxConn,
 			time.Second*30,
@@ -182,8 +183,8 @@ func newFastUpstream(config *UpstreamConfig, logger *zap.Logger, certPool *x509.
 		u.tcpTransport = newTransport(
 			logger,
 			dialFunc,
-			utils.WriteMsgToTCP,
-			utils.ReadMsgFromTCP,
+			dnsutils.WriteMsgToTCP,
+			dnsutils.ReadMsgFromTCP,
 			maxConn,
 			idleTimeout,
 			timeout,

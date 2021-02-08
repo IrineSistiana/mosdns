@@ -21,7 +21,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/utils"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/executable_seq"
 )
 
 const PluginType = "sequence"
@@ -37,7 +37,7 @@ var _ handler.ExecutablePlugin = (*sequenceRouter)(nil)
 type sequenceRouter struct {
 	*handler.BP
 
-	ecs *utils.ExecutableCmdSequence
+	ecs *executable_seq.ExecutableCmdSequence
 }
 
 type Args struct {
@@ -49,7 +49,7 @@ func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
 }
 
 func newSequencePlugin(bp *handler.BP, args *Args) (*sequenceRouter, error) {
-	ecs, err := utils.ParseExecutableCmdSequence(args.Exec)
+	ecs, err := executable_seq.ParseExecutableCmdSequence(args.Exec)
 	if err != nil {
 		return nil, fmt.Errorf("invalid exec squence: %w", err)
 	}
@@ -61,7 +61,7 @@ func newSequencePlugin(bp *handler.BP, args *Args) (*sequenceRouter, error) {
 }
 
 func (s *sequenceRouter) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
-	return utils.WalkExecutableCmd(ctx, qCtx, s.L(), s.ecs)
+	return executable_seq.WalkExecutableCmd(ctx, qCtx, s.L(), s.ecs)
 }
 
 var _ handler.ExecutablePlugin = (*noop)(nil)

@@ -21,10 +21,10 @@ import (
 	"context"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/matcher/domain"
-	"github.com/IrineSistiana/mosdns/dispatcher/matcher/elem"
-	"github.com/IrineSistiana/mosdns/dispatcher/matcher/netlist"
-	"github.com/IrineSistiana/mosdns/dispatcher/utils"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/domain"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/elem"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/netlist"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
 )
 
@@ -73,15 +73,17 @@ func newQueryMatcher(bp *handler.BP, args *Args) (m *queryMatcher, err error) {
 	m.args = args
 
 	if len(args.ClientIP) > 0 {
-		ipMatcher, err := netlist.BatchLoad(args.ClientIP)
+		ipMatcher := netlist.NewList()
+		err := netlist.BatchLoad(ipMatcher, args.ClientIP)
 		if err != nil {
 			return nil, err
 		}
+		ipMatcher.Sort()
 		m.matcherGroup = append(m.matcherGroup, newClientIPMatcher(ipMatcher))
 	}
 	if len(args.Domain) > 0 {
 		mixMatcher := domain.NewMixMatcher()
-		err := domain.BatchLoadMixMatcherV2Matcher(mixMatcher, args.Domain)
+		err := domain.BatchLoadMatcher(mixMatcher, args.Domain, nil)
 		if err != nil {
 			return nil, err
 		}

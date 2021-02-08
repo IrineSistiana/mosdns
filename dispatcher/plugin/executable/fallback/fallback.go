@@ -20,7 +20,7 @@ package fallback
 import (
 	"context"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/utils"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/executable_seq"
 )
 
 const PluginType = "fallback"
@@ -34,17 +34,17 @@ var _ handler.ExecutablePlugin = (*fallback)(nil)
 type fallback struct {
 	*handler.BP
 
-	fallbackECS *utils.FallbackECS
+	fallbackECS *executable_seq.FallbackECS
 }
 
-type Args = utils.FallbackConfig
+type Args = executable_seq.FallbackConfig
 
 func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
 	return newFallback(bp, args.(*Args))
 }
 
 func newFallback(bp *handler.BP, args *Args) (*fallback, error) {
-	fallbackECS, err := utils.ParseFallbackECS(args)
+	fallbackECS, err := executable_seq.ParseFallbackECS(args)
 	if err != nil {
 		return nil, err
 	}
@@ -55,5 +55,5 @@ func newFallback(bp *handler.BP, args *Args) (*fallback, error) {
 }
 
 func (f *fallback) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
-	return utils.WalkExecutableCmd(ctx, qCtx, f.L(), f.fallbackECS)
+	return executable_seq.WalkExecutableCmd(ctx, qCtx, f.L(), f.fallbackECS)
 }

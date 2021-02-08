@@ -20,7 +20,8 @@ import (
 	"context"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/utils"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"time"
@@ -130,7 +131,7 @@ func (c *cachePlugin) searchAndReply(ctx context.Context, qCtx *handler.Context)
 	if r != nil { // if cache hit
 		c.L().Debug("cache hit", qCtx.InfoField())
 		r.Id = q.Id
-		utils.SetTTL(r, uint32(ttl/time.Second))
+		dnsutils.SetTTL(r, uint32(ttl/time.Second))
 		qCtx.SetResponse(r, handler.ContextStatusResponded)
 		return key, true
 	}
@@ -158,7 +159,7 @@ func (d *deferCacheStore) Exec(ctx context.Context, qCtx *handler.Context) (err 
 func (d *deferCacheStore) exec(ctx context.Context, qCtx *handler.Context) (err error) {
 	r := qCtx.R()
 	if r != nil && r.Rcode == dns.RcodeSuccess && r.Truncated == false && len(r.Answer) != 0 {
-		ttl := utils.GetMinimalTTL(r)
+		ttl := dnsutils.GetMinimalTTL(r)
 		if ttl > maxTTL {
 			ttl = maxTTL
 		}

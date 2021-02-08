@@ -23,7 +23,9 @@ import (
 	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/utils"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/pool"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"io"
@@ -123,8 +125,8 @@ func getMsgFromReq(req *http.Request) (*dns.Msg, error) {
 		if msgSize > dns.MaxMsgSize {
 			return nil, fmt.Errorf("query length %d is too big", msgSize)
 		}
-		msgBuf := utils.GetMsgBuf(msgSize)
-		defer utils.ReleaseMsgBuf(msgBuf)
+		msgBuf := pool.GetMsgBuf(msgSize)
+		defer pool.ReleaseMsgBuf(msgBuf)
 		strBuf := readBufPool.Get()
 		defer readBufPool.Release(strBuf)
 
@@ -155,12 +157,12 @@ func getMsgFromReq(req *http.Request) (*dns.Msg, error) {
 	return q, nil
 }
 
-var readBufPool = utils.NewBytesBufPool(512)
+var readBufPool = pool.NewBytesBufPool(512)
 
 type httpDnsRespWriter struct {
 	httpRespWriter http.ResponseWriter
 }
 
 func (h *httpDnsRespWriter) Write(m *dns.Msg) (n int, err error) {
-	return utils.WriteMsgToUDP(h.httpRespWriter, m)
+	return dnsutils.WriteMsgToUDP(h.httpRespWriter, m)
 }

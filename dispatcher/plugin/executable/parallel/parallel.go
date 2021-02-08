@@ -20,7 +20,7 @@ package parallel
 import (
 	"context"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/utils"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/executable_seq"
 )
 
 const PluginType = "parallel"
@@ -34,17 +34,17 @@ var _ handler.ExecutablePlugin = (*parallel)(nil)
 type parallel struct {
 	*handler.BP
 
-	ps *utils.ParallelECS
+	ps *executable_seq.ParallelECS
 }
 
-type Args = utils.ParallelECSConfig
+type Args = executable_seq.ParallelECSConfig
 
 func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
 	return newParallel(bp, args.(*Args))
 }
 
 func newParallel(bp *handler.BP, args *Args) (*parallel, error) {
-	ps, err := utils.ParseParallelECS(args)
+	ps, err := executable_seq.ParseParallelECS(args)
 	if err != nil {
 		return nil, err
 	}
@@ -56,5 +56,5 @@ func newParallel(bp *handler.BP, args *Args) (*parallel, error) {
 }
 
 func (p *parallel) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
-	return utils.WalkExecutableCmd(ctx, qCtx, p.L(), p.ps)
+	return executable_seq.WalkExecutableCmd(ctx, qCtx, p.L(), p.ps)
 }

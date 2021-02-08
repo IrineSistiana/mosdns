@@ -19,7 +19,7 @@ package cache
 
 import (
 	"context"
-	"github.com/IrineSistiana/mosdns/dispatcher/utils"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/pool"
 	"github.com/go-redis/redis/v8"
 	"github.com/miekg/dns"
 	"time"
@@ -63,10 +63,10 @@ func (r *redisCache) get(ctx context.Context, key string) (v *dns.Msg, ttl time.
 }
 
 func (r *redisCache) store(ctx context.Context, key string, v *dns.Msg, ttl time.Duration) (err error) {
-	wireMsg, buf, err := utils.PackBuffer(v)
+	wireMsg, buf, err := pool.PackBuffer(v)
 	if err != nil {
 		return err
 	}
-	defer utils.ReleaseMsgBuf(buf)
+	defer pool.ReleaseMsgBuf(buf)
 	return r.client.Set(ctx, key, wireMsg, ttl).Err()
 }

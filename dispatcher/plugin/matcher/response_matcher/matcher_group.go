@@ -20,9 +20,9 @@ package responsematcher
 import (
 	"context"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/matcher/domain"
-	"github.com/IrineSistiana/mosdns/dispatcher/matcher/elem"
-	"github.com/IrineSistiana/mosdns/dispatcher/matcher/netlist"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/domain"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/elem"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/netlist"
 	"github.com/miekg/dns"
 	"net"
 )

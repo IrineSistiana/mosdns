@@ -19,10 +19,9 @@ package hosts
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/matcher/domain"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/domain"
 	"github.com/miekg/dns"
 	"net"
 )
@@ -59,10 +58,6 @@ var patternTypeMap = map[string]domain.MixMatcherPatternType{
 }
 
 func newHostsContainer(bp *handler.BP, args *Args) (*hostsContainer, error) {
-	if len(args.Hosts) == 0 {
-		return nil, errors.New("no hosts file is configured")
-	}
-
 	mixMatcher := domain.NewMixMatcher()
 	mixMatcher.SetPattenTypeMap(patternTypeMap)
 	err := domain.BatchLoadMatcher(mixMatcher, args.Hosts, parseIP)
@@ -90,8 +85,14 @@ func (h *hostsContainer) matchAndSet(qCtx *handler.Context) (matched bool) {
 	if len(qCtx.Q().Question) != 1 {
 		return false
 	}
-
+	if qCtx.Q().Question[0].Qclass != dns.ClassINET {
+		return false
+	}
 	typ := qCtx.Q().Question[0].Qtype
+	if typ != dns.TypeA && typ != dns.TypeAAAA {
+		return false
+	}
+
 	fqdn := qCtx.Q().Question[0].Name
 	v, ok := h.matcher.Match(fqdn)
 	if !ok {
@@ -99,50 +100,46 @@ func (h *hostsContainer) matchAndSet(qCtx *handler.Context) (matched bool) {
 	}
 	record := v.(*ipRecord)
 
-	switch typ {
-	case dns.TypeA:
-		if len(record.ipv4) != 0 {
-			r := new(dns.Msg)
-			r.SetReply(qCtx.Q())
-			for _, ip := range record.ipv4 {
-				ipCopy := make(net.IP, len(ip))
-				copy(ipCopy, ip)
-				rr := &dns.A{
-					Hdr: dns.RR_Header{
-						Name:   fqdn,
-						Rrtype: dns.TypeA,
-						Class:  dns.ClassINET,
-						Ttl:    3600,
-					},
-					A: ipCopy,
-				}
-				r.Answer = append(r.Answer, rr)
+	switch {
+	case typ == dns.TypeA && len(record.ipv4) > 0:
+		r := new(dns.Msg)
+		r.SetReply(qCtx.Q())
+		for _, ip := range record.ipv4 {
+			ipCopy := make(net.IP, len(ip))
+			copy(ipCopy, ip)
+			rr := &dns.A{
+				Hdr: dns.RR_Header{
+					Name:   fqdn,
+					Rrtype: dns.TypeA,
+					Class:  dns.ClassINET,
+					Ttl:    3600,
+				},
+				A: ipCopy,
 			}
-			qCtx.SetResponse(r, handler.ContextStatusResponded)
-			return true
+			r.Answer = append(r.Answer, rr)
 		}
+		qCtx.SetResponse(r, handler.ContextStatusResponded)
+		return true
 
-	case dns.TypeAAAA:
-		if len(record.ipv6) != 0 {
-			r := new(dns.Msg)
-			r.SetReply(qCtx.Q())
-			for _, ip := range record.ipv6 {
-				ipCopy := make(net.IP, len(ip))
-				copy(ipCopy, ip)
-				rr := &dns.AAAA{
-					Hdr: dns.RR_Header{
-						Name:   fqdn,
-						Rrtype: dns.TypeAAAA,
-						Class:  dns.ClassINET,
-						Ttl:    3600,
-					},
-					AAAA: ipCopy,
-				}
-				r.Answer = append(r.Answer, rr)
+	case typ == dns.TypeAAAA && len(record.ipv6) > 0:
+		r := new(dns.Msg)
+		r.SetReply(qCtx.Q())
+		for _, ip := range record.ipv6 {
+			ipCopy := make(net.IP, len(ip))
+			copy(ipCopy, ip)
+			rr := &dns.AAAA{
+				Hdr: dns.RR_Header{
+					Name:   fqdn,
+					Rrtype: dns.TypeAAAA,
+					Class:  dns.ClassINET,
+					Ttl:    3600,
+				},
+				AAAA: ipCopy,
 			}
-			qCtx.SetResponse(r, handler.ContextStatusResponded)
-			return true
+			r.Answer = append(r.Answer, rr)
 		}
+		qCtx.SetResponse(r, handler.ContextStatusResponded)
+		return true
 	}
 	return false
 }

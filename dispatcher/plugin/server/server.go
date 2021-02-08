@@ -21,7 +21,9 @@ import (
 	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/utils"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/executable_seq"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/server_handler"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 	"io"
 	"sync"
 	"time"
@@ -37,7 +39,7 @@ type ServerGroup struct {
 	*handler.BP
 	configs []*Server
 
-	handler utils.ServerHandler
+	handler server_handler.ServerHandler
 
 	m         sync.Mutex
 	activated bool
@@ -98,12 +100,12 @@ func newServerPlugin(bp *handler.BP, args *Args) (*ServerGroup, error) {
 		return nil, errors.New("empty entry")
 	}
 
-	ecs, err := utils.ParseExecutableCmdSequence(args.Entry)
+	ecs, err := executable_seq.ParseExecutableCmdSequence(args.Entry)
 	if err != nil {
 		return nil, err
 	}
 
-	sh := utils.NewDefaultServerHandler(&utils.DefaultServerHandlerConfig{
+	sh := server_handler.NewDefaultServerHandler(&server_handler.DefaultServerHandlerConfig{
 		Logger:                   bp.L(),
 		Entry:                    ecs,
 		ConcurrentLimit:          args.MaxConcurrentQueries,
@@ -123,7 +125,7 @@ func newServerPlugin(bp *handler.BP, args *Args) (*ServerGroup, error) {
 	return sg, nil
 }
 
-func NewServerGroup(bp *handler.BP, handler utils.ServerHandler, configs []*Server) *ServerGroup {
+func NewServerGroup(bp *handler.BP, handler server_handler.ServerHandler, configs []*Server) *ServerGroup {
 	s := &ServerGroup{
 		BP:      bp,
 		configs: configs,

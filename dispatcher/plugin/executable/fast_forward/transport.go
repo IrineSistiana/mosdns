@@ -20,7 +20,7 @@ package fastforward
 import (
 	"errors"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/dispatcher/utils"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/pool"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"io"
@@ -143,8 +143,8 @@ func (t *transport) getConn() (conn *dnsConn, reusedConn bool, err error) {
 		panic("Transport getConn: dCall is nil")
 	}
 
-	timer := utils.GetTimer(t.readTimeout)
-	defer utils.ReleaseTimer(timer)
+	timer := pool.GetTimer(t.readTimeout)
+	defer pool.ReleaseTimer(timer)
 	select {
 	case <-timer.C:
 		return nil, false, errDialTimeout
@@ -234,8 +234,8 @@ func (c *dnsConn) exchange(m *dns.Msg) (r *dns.Msg, err error) {
 		return nil, err
 	}
 
-	timer := utils.GetTimer(c.t.readTimeout)
-	defer utils.ReleaseTimer(timer)
+	timer := pool.GetTimer(c.t.readTimeout)
+	defer pool.ReleaseTimer(timer)
 
 	select {
 	case <-timer.C:

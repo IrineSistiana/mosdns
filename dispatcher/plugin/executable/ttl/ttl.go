@@ -20,7 +20,7 @@ package ttl
 import (
 	"context"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/utils"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/dnsutils"
 	"github.com/miekg/dns"
 )
 
@@ -64,9 +64,9 @@ func (t ttl) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
 
 func (t ttl) exec(r *dns.Msg) {
 	if t.args.MaximumTTL > 0 {
-		utils.ApplyMaximumTTL(r, t.args.MaximumTTL)
+		dnsutils.ApplyMaximumTTL(r, t.args.MaximumTTL)
 	}
 	if t.args.MinimalTTL > 0 {
-		utils.ApplyMinimalTTL(r, t.args.MinimalTTL)
+		dnsutils.ApplyMinimalTTL(r, t.args.MinimalTTL)
 	}
 }

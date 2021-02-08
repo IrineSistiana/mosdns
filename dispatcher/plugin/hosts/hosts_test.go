@@ -20,7 +20,7 @@ package hosts
 import (
 	"bytes"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/matcher/domain"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/domain"
 	"github.com/miekg/dns"
 	"net"
 	"testing"

@@ -21,7 +21,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/utils"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/dnsutils"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"net"
@@ -44,7 +44,7 @@ func getMaxSizeFromQuery(m *dns.Msg) int {
 
 func (u *udpResponseWriter) Write(m *dns.Msg) (n int, err error) {
 	m.Truncate(u.maxSize)
-	return utils.WriteUDPMsgTo(m, u.c, u.to)
+	return dnsutils.WriteUDPMsgTo(m, u.c, u.to)
 }
 
 // remainder: startUDP should be called only after ServerGroup is locked.
@@ -63,9 +63,9 @@ func (sg *ServerGroup) startUDP(conf *Server) error {
 		defer cancel()
 
 		for {
-			q, from, _, err := utils.ReadUDPMsgFrom(c, utils.IPv4UdpMaxPayload)
+			q, from, _, err := dnsutils.ReadUDPMsgFrom(c, dnsutils.IPv4UdpMaxPayload)
 			if err != nil {
-				if ioErr := utils.IsIOErr(err); ioErr != nil {
+				if ioErr := dnsutils.IsIOErr(err); ioErr != nil {
 					if netErr, ok := ioErr.(net.Error); ok && netErr.Temporary() { // is a temporary net err
 						sg.L().Warn("listener temporary err", zap.Stringer("addr", c.LocalAddr()), zap.Error(err))
 						time.Sleep(time.Second * 5)
