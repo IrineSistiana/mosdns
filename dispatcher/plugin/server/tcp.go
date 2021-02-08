@@ -43,13 +43,13 @@ func (t *tcpResponseWriter) Write(m *dns.Msg) (n int, err error) {
 	return utils.WriteMsgToTCP(t.c, m)
 }
 
+// remainder: startTCP should be called only after ServerGroup is locked.
 func (sg *ServerGroup) startTCP(conf *Server, isDoT bool) error {
 	l, err := net.Listen("tcp", conf.Addr)
 	if err != nil {
 		return err
 	}
 	sg.listener[l] = struct{}{}
-	sg.L().Info("tcp server started", zap.Stringer("addr", l.Addr()))
 
 	if isDoT {
 		if len(conf.Cert) == 0 || len(conf.Key) == 0 {
@@ -66,16 +66,15 @@ func (sg *ServerGroup) startTCP(conf *Server, isDoT bool) error {
 	}
 
 	go func() {
+		sg.L().Info("tcp server started", zap.Bool("isDoT", isDoT), zap.Stringer("addr", l.Addr()))
+		defer sg.L().Info("tcp server exited", zap.Bool("isDoT", isDoT), zap.Stringer("addr", l.Addr()))
+
 		listenerCtx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
 		for {
 			c, err := l.Accept()
 			if err != nil {
-				if sg.isClosed() {
-					return
-				}
-
 				netErr, ok := err.(net.Error)
 				if ok && netErr.Temporary() {
 					sg.L().Warn("listener temporary err", zap.Stringer("addr", l.Addr()), zap.Error(err))

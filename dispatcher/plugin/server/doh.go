@@ -32,6 +32,7 @@ import (
 	"time"
 )
 
+// remainder: startDoH should be called only after ServerGroup is locked.
 func (sg *ServerGroup) startDoH(conf *Server, noTLS bool) error {
 	if !noTLS && (len(conf.Cert) == 0 || len(conf.Key) == 0) { // no cert
 		return errors.New("doh server needs cert and key")
@@ -42,7 +43,6 @@ func (sg *ServerGroup) startDoH(conf *Server, noTLS bool) error {
 		return err
 	}
 
-	sg.L().Info("doh server started", zap.Stringer("addr", l.Addr()))
 	sg.listener[l] = struct{}{}
 
 	httpServer := &http.Server{
@@ -57,6 +57,9 @@ func (sg *ServerGroup) startDoH(conf *Server, noTLS bool) error {
 	}
 
 	go func() {
+		sg.L().Info("doh server started", zap.Stringer("addr", l.Addr()))
+		defer sg.L().Info("doh server exited", zap.Stringer("addr", l.Addr()))
+
 		var err error
 		if noTLS {
 			err = httpServer.Serve(l)
@@ -64,9 +67,6 @@ func (sg *ServerGroup) startDoH(conf *Server, noTLS bool) error {
 			err = httpServer.ServeTLS(l, conf.Cert, conf.Key)
 		}
 		if err != nil {
-			if sg.isClosed() {
-				return
-			}
 			sg.errChan <- err
 		}
 	}()

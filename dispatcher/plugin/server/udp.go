@@ -47,33 +47,34 @@ func (u *udpResponseWriter) Write(m *dns.Msg) (n int, err error) {
 	return utils.WriteUDPMsgTo(m, u.c, u.to)
 }
 
+// remainder: startUDP should be called only after ServerGroup is locked.
 func (sg *ServerGroup) startUDP(conf *Server) error {
 	c, err := net.ListenPacket("udp", conf.Addr)
 	if err != nil {
 		return err
 	}
 	sg.listener[c] = struct{}{}
-	sg.L().Info("udp server started", zap.Stringer("addr", c.LocalAddr()))
+
 	go func() {
+		sg.L().Info("udp server started", zap.Stringer("addr", c.LocalAddr()))
+		defer sg.L().Info("udp server exited", zap.Stringer("addr", c.LocalAddr()))
+
 		listenerCtx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
 		for {
 			q, from, _, err := utils.ReadUDPMsgFrom(c, utils.IPv4UdpMaxPayload)
 			if err != nil {
-				if sg.isClosed() {
-					return
-				}
-				netErr, ok := err.(net.Error)
-				if ok { // is a net err
-					if netErr.Temporary() {
+				if ioErr := utils.IsIOErr(err); ioErr != nil {
+					if netErr, ok := ioErr.(net.Error); ok && netErr.Temporary() { // is a temporary net err
 						sg.L().Warn("listener temporary err", zap.Stringer("addr", c.LocalAddr()), zap.Error(err))
 						time.Sleep(time.Second * 5)
 						continue
-					} else {
+					} else { // unexpected io err
 						sg.errChan <- fmt.Errorf("unexpected listener err: %w", err)
 						return
 					}
-				} else { // invalid msg
+				} else { // not an io err, maybe because we received an invalid msg
 					continue
 				}
 			}

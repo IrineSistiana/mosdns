@@ -33,16 +33,11 @@ var (
 
 func (u *fastUpstream) exchangeDoH(q *dns.Msg) (r *dns.Msg, err error) {
 
-	buf, err := utils.GetMsgBufFor(q)
+	rRaw, buf, err := utils.PackBuffer(q)
 	if err != nil {
 		return nil, err
 	}
 	defer utils.ReleaseMsgBuf(buf)
-
-	rRaw, err := q.PackBuffer(buf)
-	if err != nil {
-		return nil, fmt.Errorf("invalid msg: %w", err)
-	}
 
 	// In order to maximize HTTP cache friendliness, DoH clients using media
 	// formats that include the ID field from the DNS message header, such

@@ -41,9 +41,11 @@ type ServerGroup struct {
 
 	m         sync.Mutex
 	activated bool
-	closed    bool
-	errChan   chan error
 	listener  map[io.Closer]struct{}
+
+	shutdownOnce sync.Once
+	shutdownChan chan struct{}
+	errChan      chan error
 }
 
 type Args struct {
@@ -85,10 +87,10 @@ const (
 )
 
 func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
-	return newServer(bp, args.(*Args))
+	return newServerPlugin(bp, args.(*Args))
 }
 
-func newServer(bp *handler.BP, args *Args) (*ServerGroup, error) {
+func newServerPlugin(bp *handler.BP, args *Args) (*ServerGroup, error) {
 	if len(args.Server) == 0 {
 		return nil, errors.New("no server")
 	}
@@ -127,31 +129,36 @@ func NewServerGroup(bp *handler.BP, handler utils.ServerHandler, configs []*Serv
 		configs: configs,
 		handler: handler,
 
-		errChan:  make(chan error, len(configs)), // must be a buf chan to avoid block.
-		listener: map[io.Closer]struct{}{},
+		shutdownChan: make(chan struct{}),
+		errChan:      make(chan error, len(configs)), // must be a buf chan to avoid blocking.
+		listener:     map[io.Closer]struct{}{},
 	}
 	return s
 }
 
 func (sg *ServerGroup) isClosed() bool {
-	sg.m.Lock()
-	defer sg.m.Unlock()
-	return sg.closed
+	select {
+	case _, alive := <-sg.shutdownChan:
+		return !alive
+	default:
+		return false
+	}
 }
 
 func (sg *ServerGroup) Shutdown() error {
 	sg.m.Lock()
 	defer sg.m.Unlock()
-
 	return sg.shutdownNoLock()
 }
 
 func (sg *ServerGroup) shutdownNoLock() error {
-	sg.closed = true
-	for l := range sg.listener {
-		l.Close()
-		delete(sg.listener, l)
-	}
+	sg.shutdownOnce.Do(func() {
+		for l := range sg.listener {
+			l.Close()
+			delete(sg.listener, l)
+		}
+		close(sg.shutdownChan)
+	})
 	return nil
 }
 
@@ -175,15 +182,15 @@ func (sg *ServerGroup) Activate() error {
 }
 
 func (sg *ServerGroup) WaitErr() error {
-	for i := 0; i < len(sg.configs); i++ {
-		err := <-sg.errChan
-		if err != nil {
-			return err
-		}
+	select {
+	case err := <-sg.errChan:
+		return err
+	case <-sg.shutdownChan:
+		return nil
 	}
-	return nil
 }
 
+// remainder: listenAndStart should be called only after ServerGroup is locked.
 func (sg *ServerGroup) listenAndStart(c *Server) error {
 	if len(c.Addr) == 0 {
 		return errors.New("server addr is empty")

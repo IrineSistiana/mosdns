@@ -63,16 +63,10 @@ func (r *redisCache) get(ctx context.Context, key string) (v *dns.Msg, ttl time.
 }
 
 func (r *redisCache) store(ctx context.Context, key string, v *dns.Msg, ttl time.Duration) (err error) {
-	buf, err := utils.GetMsgBufFor(v)
+	wireMsg, buf, err := utils.PackBuffer(v)
 	if err != nil {
 		return err
 	}
 	defer utils.ReleaseMsgBuf(buf)
-
-	wireMsg, err := v.PackBuffer(buf)
-	if err != nil {
-		return err
-	}
-
 	return r.client.Set(ctx, key, wireMsg, ttl).Err()
 }

@@ -278,6 +278,7 @@ func BoolLogic(ctx context.Context, qCtx *handler.Context, fs []handler.Matcher,
 }
 
 type Upstream interface {
+	// Exchange should not keep nor modify qCtx.
 	Exchange(qCtx *handler.Context) (*dns.Msg, error)
 	Address() string
 	Trusted() bool

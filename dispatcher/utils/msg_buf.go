@@ -23,6 +23,7 @@ package utils
 import (
 	"fmt"
 	"github.com/miekg/dns"
+	"math/bits"
 	"sync"
 )
 
@@ -53,12 +54,19 @@ func GetMsgBuf(size int) []byte {
 	return defaultAllocator.Get(size)
 }
 
-func GetMsgBufFor(m *dns.Msg) ([]byte, error) {
+func PackBuffer(m *dns.Msg) (wire, buf []byte, err error) {
 	l := m.Len()
 	if l > dns.MaxMsgSize || l <= 0 {
-		return nil, fmt.Errorf("msg length %d is invalid", l)
+		return nil, nil, fmt.Errorf("msg length %d is invalid", l)
 	}
-	return defaultAllocator.Get(l), nil
+	buf = GetMsgBuf(l)
+
+	wire, err = m.PackBuffer(buf)
+	if err != nil {
+		ReleaseMsgBuf(buf)
+		return nil, nil, err
+	}
+	return wire, buf, nil
 }
 
 func ReleaseMsgBuf(buf []byte) {
@@ -90,12 +98,9 @@ func (alloc *Allocator) Put(buf []byte) {
 }
 
 // msb return the pos of most significant bit
-func msb(size int) uint16 {
-	var pos uint16
-	size >>= 1
-	for size > 0 {
-		size >>= 1
-		pos++
+func msb(size int) int {
+	if size == 0 {
+		return 0
 	}
-	return pos
+	return bits.Len32(uint32(size)) - 1
 }
