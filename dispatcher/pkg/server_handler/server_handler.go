@@ -53,15 +53,8 @@ type DefaultServerHandlerConfig struct {
 	// If ConcurrentLimit <= 0, means no limit.
 	// When calling DefaultServerHandler.ServeDNS(), if a query exceeds the limit, it will wait on a FIFO queue until
 	// - its ctx is done -> The query will be dropped silently.
-	// - it can be proceed -> Normal procedure.
+	// - it can be proceeded -> Normal procedure.
 	ConcurrentLimit int
-
-	// ConcurrentLimitPreClient controls the max concurrent queries for the pre client.
-	// If ConcurrentLimitPreClient <= 0, means no limit.
-	// It uses qCtx.From() as the identification of clients.
-	// When calling DefaultServerHandler.ServeDNS(), if a client query exceeds the limit,
-	// an REFUSED response will be returned to client.
-	ConcurrentLimitPreClient int
 }
 
 // NewDefaultServerHandler
@@ -73,9 +66,6 @@ func NewDefaultServerHandler(config *DefaultServerHandlerConfig) *DefaultServerH
 		h.limiter = concurrent_limiter.NewConcurrentLimiter(config.ConcurrentLimit)
 	}
 
-	if config.ConcurrentLimitPreClient > 0 {
-		h.clientLimiter = concurrent_limiter.NewClientQueryLimiter(config.ConcurrentLimitPreClient)
-	}
 	return h
 }
 
@@ -86,21 +76,6 @@ func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *handler.Conte
 	write := func(r *dns.Msg) {
 		if _, err := w.Write(r); err != nil {
 			h.config.Logger.Warn("write response", qCtx.InfoField(), zap.Error(err))
-		}
-	}
-
-	if h.clientLimiter != nil {
-		addr := qCtx.From()
-		if addr != nil {
-			key := addr.String()
-			if h.clientLimiter.Acquire(key) != true {
-				r := new(dns.Msg)
-				r.SetReply(qCtx.Q())
-				r.Rcode = dns.RcodeRefused
-				write(r)
-				return
-			}
-			defer h.clientLimiter.Done(key)
 		}
 	}
 
