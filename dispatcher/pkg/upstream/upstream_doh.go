@@ -15,7 +15,7 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package fastforward
+package upstream
 
 import (
 	"context"
@@ -31,7 +31,7 @@ var (
 	bufPool512 = pool.NewBytesBufPool(512)
 )
 
-func (u *fastUpstream) exchangeDoH(q *dns.Msg) (r *dns.Msg, err error) {
+func (u *FastUpstream) exchangeDoH(q *dns.Msg) (r *dns.Msg, err error) {
 
 	rRaw, buf, err := pool.PackBuffer(q)
 	if err != nil {
@@ -53,8 +53,8 @@ func (u *fastUpstream) exchangeDoH(q *dns.Msg) (r *dns.Msg, err error) {
 	// Padding characters for base64url MUST NOT be included.
 	// See: https://tools.ietf.org/html/rfc8484#section-6.
 	// That's why we use base64.RawURLEncoding.
-	urlBuilder.Grow(len(u.config.URL) + base64.RawURLEncoding.EncodedLen(len(rRaw)))
-	urlBuilder.WriteString(u.config.URL)
+	urlBuilder.Grow(len(u.url) + base64.RawURLEncoding.EncodedLen(len(rRaw)))
+	urlBuilder.WriteString(u.url)
 	urlBuilder.WriteString("?dns=")
 	encoder := base64.NewEncoder(base64.RawURLEncoding, urlBuilder)
 	encoder.Write(rRaw)
@@ -76,7 +76,7 @@ func (u *fastUpstream) exchangeDoH(q *dns.Msg) (r *dns.Msg, err error) {
 	return r, nil
 }
 
-func (u *fastUpstream) doHTTP(ctx context.Context, url string) (*dns.Msg, error) {
+func (u *FastUpstream) doHTTP(ctx context.Context, url string) (*dns.Msg, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("interal err: NewRequestWithContext: %w", err)

@@ -15,7 +15,7 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package fastforward
+package upstream
 
 import (
 	"crypto/tls"
@@ -25,15 +25,19 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
-	"go.uber.org/zap"
+	"math/rand"
 	"net"
 	"sync"
 	"testing"
 	"time"
 )
 
+func randLocalAddr() string {
+	return fmt.Sprintf("127.%d.%d.%d:0", rand.Intn(255), rand.Intn(255), rand.Intn(255))
+}
+
 func newUDPTCPTestServer(t testing.TB, handler dns.Handler) (addr string, shutdownFunc func()) {
-	udpConn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	udpConn, err := net.ListenPacket("udp", randLocalAddr())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +66,7 @@ func newUDPTCPTestServer(t testing.TB, handler dns.Handler) (addr string, shutdo
 }
 
 func newTCPTestServer(t testing.TB, handler dns.Handler) (addr string, shutdownFunc func()) {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	l, err := net.Listen("tcp", randLocalAddr())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +87,7 @@ func newDoTTestServer(t testing.TB, handler dns.Handler) (addr string, shutdownF
 	cert, err := utils.GenerateCertificate(serverName)
 	tlsConfig := new(tls.Config)
 	tlsConfig.Certificates = []tls.Certificate{cert}
-	tlsListener, err := tls.Listen("tcp", "127.0.0.1:0", tlsConfig)
+	tlsListener, err := tls.Listen("tcp", randLocalAddr(), tlsConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,12 +107,13 @@ func newDoTTestServer(t testing.TB, handler dns.Handler) (addr string, shutdownF
 
 type newTestServerFunc func(t testing.TB, handler dns.Handler) (addr string, shutdownFunc func())
 
+var m = map[Protocol]newTestServerFunc{
+	ProtocolUDP: newUDPTCPTestServer,
+	ProtocolTCP: newTCPTestServer,
+	ProtocolDoT: newDoTTestServer,
+}
+
 func Test_fastUpstream(t *testing.T) {
-	m := map[string]newTestServerFunc{
-		"udp": newUDPTCPTestServer,
-		"tcp": newTCPTestServer,
-		"dot": newDoTTestServer,
-	}
 
 	// TODO: add test for doh
 	// TODO: add test for socks5
@@ -119,11 +124,11 @@ func Test_fastUpstream(t *testing.T) {
 			for _, latency := range [...]time.Duration{0, time.Millisecond * 10} {
 
 				// client specific
-				for _, idleTimeout := range [...]uint{0, 1} {
+				for _, idleTimeout := range [...]time.Duration{0, time.Second} {
 					for _, isTCPClient := range [...]bool{false, true} {
 
 						testName := fmt.Sprintf(
-							"test: protocol: %s, bigMsg: %v, latency: %s, idleTimeout: %d, isTCPClient: %v",
+							"test: protocol: %d, bigMsg: %v, latency: %s, idleTimeout: %d, isTCPClient: %v",
 							protocol,
 							bigMsg,
 							latency,
@@ -138,16 +143,17 @@ func Test_fastUpstream(t *testing.T) {
 							})
 							defer shutdownServer()
 
-							c := &UpstreamConfig{
-								Protocol:           protocol,
+							opt := &Option{
 								Addr:               addr,
+								Protocol:           protocol,
 								ServerName:         "test",
 								IdleTimeout:        idleTimeout,
+								MaxConns:           5,
 								InsecureSkipVerify: true,
-								Timeout:            1,
+								URL:                "https://" + addr + "/",
 							}
 
-							u, err := newFastUpstream(c, zap.NewNop(), nil)
+							u, err := NewUpstream(opt)
 							if err != nil {
 								t.Fatal(err)
 							}
@@ -163,7 +169,7 @@ func Test_fastUpstream(t *testing.T) {
 	}
 }
 
-func testUpstream(u *fastUpstream, isTCPClient bool) error {
+func testUpstream(u *FastUpstream, isTCPClient bool) error {
 	wg := sync.WaitGroup{}
 	errs := make([]error, 0)
 	errsLock := sync.Mutex{}
@@ -230,33 +236,34 @@ func (s *vServer) ServeDNS(w dns.ResponseWriter, q *dns.Msg) {
 }
 
 func Benchmark_transport(b *testing.B) {
-	m := map[string]newTestServerFunc{
-		"tcp": newTCPTestServer,
-		"tls": newDoTTestServer,
-	}
-
 	for protocol, f := range m {
-		for _, idleTimout := range [...]uint{0, 1} {
-			name := fmt.Sprintf("protocol: %s, CR: %v", protocol, idleTimout != 0)
+		for _, idleTimeout := range [...]time.Duration{0, time.Second} {
+			name := fmt.Sprintf("protocol: %d, CR: %v", protocol, idleTimeout != 0)
 			b.Run(name+" fast_forward", func(b *testing.B) {
 				addr, shutdownFunc := f(b, &vServer{})
 				defer shutdownFunc()
-				c := &UpstreamConfig{
-					Protocol:           protocol,
+
+				opt := &Option{
 					Addr:               addr,
-					IdleTimeout:        idleTimout,
+					Protocol:           protocol,
 					ServerName:         "test",
-					InsecureSkipVerify: true,
-					Timeout:            1,
+					IdleTimeout:        idleTimeout,
 					MaxConns:           5,
+					InsecureSkipVerify: true,
 				}
 
-				u, err := newFastUpstream(c, zap.NewNop(), nil)
+				u, err := NewUpstream(opt)
 				if err != nil {
 					b.Fatal(err)
 				}
+
 				benchmarkTransport(b, u)
-				//b.Logf("%d conn(s) opened", u.tcpTransport.connOpened)
+				if u.udpTransport != nil {
+					b.Logf("%d udp conn(s) opened", u.udpTransport.connOpened)
+				}
+				if u.tcpTransport != nil {
+					b.Logf("%d tcp conn(s) opened", u.tcpTransport.connOpened)
+				}
 			})
 		}
 	}
@@ -264,6 +271,7 @@ func Benchmark_transport(b *testing.B) {
 
 func Benchmark_dnsproxy(b *testing.B) {
 	m := map[string]newTestServerFunc{
+		"udp": newUDPTCPTestServer,
 		"tcp": newTCPTestServer,
 		"tls": newDoTTestServer,
 	}
@@ -280,29 +288,24 @@ func Benchmark_dnsproxy(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			benchmarkTransport(b, &trustedUpstream{dnsproxyUpstream: u})
+			benchmarkTransport(b, &testUpstreamWrapper{dnsproxyUpstream: u})
 		})
 	}
 }
 
-type trustedUpstream struct {
+type benchUpstream interface {
+	Exchange(qCtx *handler.Context) (*dns.Msg, error)
+}
+
+type testUpstreamWrapper struct {
 	dnsproxyUpstream upstream.Upstream
-	trusted          bool
 }
 
-func (u *trustedUpstream) Address() string {
-	return u.dnsproxyUpstream.Address()
-}
-
-func (u *trustedUpstream) Exchange(qCtx *handler.Context) (*dns.Msg, error) {
+func (u *testUpstreamWrapper) Exchange(qCtx *handler.Context) (*dns.Msg, error) {
 	return u.dnsproxyUpstream.Exchange(qCtx.Q())
 }
 
-func (u *trustedUpstream) Trusted() bool {
-	return u.trusted
-}
-
-func benchmarkTransport(b *testing.B, u utils.Upstream) {
+func benchmarkTransport(b *testing.B, u benchUpstream) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	q := new(dns.Msg)

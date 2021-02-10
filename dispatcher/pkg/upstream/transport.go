@@ -15,7 +15,7 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package fastforward
+package upstream
 
 import (
 	"errors"
@@ -206,17 +206,12 @@ func newDnsConn(t *transport, c net.Conn) *dnsConn {
 	}
 }
 
-func (c *dnsConn) preprocess() (id uint16, resChan <-chan *dns.Msg) {
-	id = uint16(atomic.AddUint32(&c.nextId, 1))
-	rc := make(chan *dns.Msg, 1)
-	c.qm.Lock()
-	c.queue[id] = rc
-	c.qm.Unlock()
-	return id, rc
-}
-
 func (c *dnsConn) exchange(m *dns.Msg) (r *dns.Msg, err error) {
-	queryId, resChan := c.preprocess()
+	queryId := uint16(atomic.AddUint32(&c.nextId, 1))
+	resChan := make(chan *dns.Msg, 1)
+	c.qm.Lock()
+	c.queue[queryId] = resChan
+	c.qm.Unlock()
 	defer func() {
 		c.qm.Lock()
 		delete(c.queue, queryId)

@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/upstream"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
 	"time"
@@ -33,13 +34,6 @@ const PluginType = "fast_forward"
 func init() {
 	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 }
-
-const (
-	dialTimeout         = time.Second * 5
-	generalWriteTimeout = time.Second * 1
-	generalReadTimeout  = time.Second * 5
-	tlsHandshakeTimeout = time.Second * 5
-)
 
 var _ handler.ExecutablePlugin = (*fastForward)(nil)
 
@@ -67,25 +61,17 @@ type UpstreamConfig struct {
 	// "doh", "https" -> dns over https (rfc 8844) upstream
 	Protocol string `yaml:"protocol"`
 
-	// Addr: upstream network "host:port" addr, "port" can be omitted.
-	// Addr can not be empty.
 	Addr       string `yaml:"addr"`
-	Trusted    bool   `yaml:"trusted"`     // If an upstream is "trusted", it's err rcode response will be accepted.
-	Socks5     string `yaml:"socks5"`      // used by "tcp", "dot", "doh" as Socks5 server addr.
-	ServerName string `yaml:"server_name"` // used by "dot" as server certificate name. It can not be empty.
-	URL        string `yaml:"url"`         // used by "doh" as server endpoint url. It can not be empty.
+	Trusted    bool   `yaml:"trusted"` // If an upstream is "trusted", it's err rcode response will be accepted.
+	Socks5     string `yaml:"socks5"`
+	ServerName string `yaml:"server_name"`
+	URL        string `yaml:"url"`
 
-	// Timeout: used by all protocols.
-	// In "udp", "tcp", "dot", it's read timeout.
-	// In "doh", it's a time limit for the query, including dial connection.
-	// Default is generalReadTimeout.
-	Timeout uint `yaml:"timeout"`
+	Timeout int `yaml:"timeout"`
 
-	// IdleTimeout used by all protocols to control connection idle timeout.
-	// Default: "tcp" & "dot": 0 (disable connection reuse), "doh": 30.
-	IdleTimeout        uint `yaml:"idle_timeout"`
-	MaxConns           uint `yaml:"max_conns"`            // used by "doh", max connections. Default: 1.
-	InsecureSkipVerify bool `yaml:"insecure_skip_verify"` // used by "dot", "doh". Skip tls verification.
+	IdleTimeout        int  `yaml:"idle_timeout"`
+	MaxConns           int  `yaml:"max_conns"`
+	InsecureSkipVerify bool `yaml:"insecure_skip_verify"`
 }
 
 func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
@@ -103,25 +89,82 @@ func newFastForward(bp *handler.BP, args *Args) (*fastForward, error) {
 		upstream: make([]utils.Upstream, 0),
 	}
 
-	// certPool
-	var certPool *x509.CertPool
+	// rootCA
+	var rootCA *x509.CertPool
 	if len(args.CA) != 0 {
 		var err error
-		certPool, err = utils.LoadCertPool(args.CA)
+		rootCA, err = utils.LoadCertPool(args.CA)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load ca: %w", err)
 		}
 	}
 
 	for _, config := range args.Upstream {
-		u, err := newFastUpstream(config, bp.L(), certPool)
+		opt, err := config2Opt(config)
 		if err != nil {
 			return nil, err
 		}
-		f.upstream = append(f.upstream, u)
+		opt.RootCA = rootCA
+
+		u, err := upstream.NewUpstream(opt)
+		if err != nil {
+			return nil, err
+		}
+
+		wu := &upstreamWrapper{
+			trusted: config.Trusted,
+			address: config.Addr,
+			u:       u,
+		}
+
+		f.upstream = append(f.upstream, wu)
 	}
 
 	return f, nil
+}
+
+func config2Opt(config *UpstreamConfig) (*upstream.Option, error) {
+	opt := new(upstream.Option)
+	opt.Addr = config.Addr
+	switch config.Protocol {
+	case "", "udp":
+		opt.Protocol = upstream.ProtocolUDP
+	case "tcp":
+		opt.Protocol = upstream.ProtocolTCP
+	case "dot", "tls":
+		opt.Protocol = upstream.ProtocolDoT
+	case "doh", "https":
+		opt.Protocol = upstream.ProtocolDoH
+	default:
+		return nil, fmt.Errorf("invalid protocol %s", config.Protocol)
+	}
+	opt.Socks5 = config.Socks5
+	opt.ServerName = config.ServerName
+	opt.URL = config.URL
+	opt.ReadTimeout = time.Duration(config.Timeout) * time.Second
+	opt.IdleTimeout = time.Duration(config.IdleTimeout) * time.Second
+	opt.MaxConns = config.MaxConns
+	opt.InsecureSkipVerify = config.InsecureSkipVerify
+
+	return opt, nil
+}
+
+type upstreamWrapper struct {
+	trusted bool
+	address string
+	u       *upstream.FastUpstream
+}
+
+func (u *upstreamWrapper) Exchange(qCtx *handler.Context) (*dns.Msg, error) {
+	return u.u.Exchange(qCtx)
+}
+
+func (u *upstreamWrapper) Address() string {
+	return u.address
+}
+
+func (u *upstreamWrapper) Trusted() bool {
+	return u.trusted
 }
 
 // Exec forwards qCtx.Q() to upstreams, and sets qCtx.R().
