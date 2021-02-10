@@ -39,7 +39,7 @@ type ServerGroup struct {
 	*handler.BP
 	configs []*Server
 
-	handler server_handler.ServerHandler
+	handler server_handler.DNSServerHandler
 
 	m         sync.Mutex
 	activated bool
@@ -67,7 +67,7 @@ type Server struct {
 	Protocol string `yaml:"protocol"`
 
 	// Addr: server "host:port" addr, "port" can be omitted.
-	// Addr can not be empty.
+	// Addr cannot be empty.
 	Addr string `yaml:"addr"`
 
 	Cert                string `yaml:"cert"`                    // certificate path, used by dot, doh
@@ -123,7 +123,7 @@ func newServerPlugin(bp *handler.BP, args *Args) (*ServerGroup, error) {
 	return sg, nil
 }
 
-func NewServerGroup(bp *handler.BP, handler server_handler.ServerHandler, configs []*Server) *ServerGroup {
+func NewServerGroup(bp *handler.BP, handler server_handler.DNSServerHandler, configs []*Server) *ServerGroup {
 	s := &ServerGroup{
 		BP:      bp,
 		configs: configs,

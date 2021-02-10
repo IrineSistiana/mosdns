@@ -18,17 +18,9 @@
 package server
 
 import (
-	"context"
-	"encoding/base64"
 	"errors"
-	"fmt"
-	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/dnsutils"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/pool"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
-	"github.com/miekg/dns"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/server_handler"
 	"go.uber.org/zap"
-	"io"
 	"net"
 	"net/http"
 	"time"
@@ -48,9 +40,12 @@ func (sg *ServerGroup) startDoH(conf *Server, noTLS bool) error {
 	sg.listener[l] = struct{}{}
 
 	httpServer := &http.Server{
-		Handler: &dohHandler{
-			s:    sg,
-			conf: conf,
+		Handler: &server_handler.DoHHandler{
+			Logger:              sg.L(),
+			URLPath:             conf.URLPath,
+			GetUserIPFromHeader: conf.GetUserIPFromHeader,
+			QueryTimeout:        conf.queryTimeout,
+			DNSHandler:          sg.handler,
 		},
 		ReadTimeout:    time.Second * 5,
 		WriteTimeout:   time.Second * 5,
@@ -74,95 +69,4 @@ func (sg *ServerGroup) startDoH(conf *Server, noTLS bool) error {
 	}()
 
 	return nil
-
-}
-
-type dohHandler struct {
-	s    *ServerGroup
-	conf *Server
-}
-
-func (h *dohHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	if len(h.conf.URLPath) != 0 && req.URL.Path != h.conf.URLPath {
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-
-	q, err := getMsgFromReq(req)
-	if err != nil {
-		h.s.L().Warn("invalid request", zap.String("from", req.RemoteAddr), zap.String("url", req.RequestURI), zap.String("method", req.Method), zap.Error(err))
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	remoteAddr := req.RemoteAddr
-	if len(h.conf.GetUserIPFromHeader) != 0 {
-		if ip := req.Header.Get(h.conf.GetUserIPFromHeader); len(ip) != 0 {
-			remoteAddr = ip + ":0"
-		}
-	}
-
-	qCtx := handler.NewContext(q, utils.NewNetAddr(remoteAddr, req.URL.Scheme))
-	qCtx.SetTCPClient(true)
-	h.s.L().Debug("new query", qCtx.InfoField(), zap.String("from", req.RemoteAddr))
-
-	responseWriter := &httpDnsRespWriter{httpRespWriter: w}
-	ctx, cancel := context.WithTimeout(req.Context(), h.conf.queryTimeout)
-	defer cancel()
-	h.s.handler.ServeDNS(ctx, qCtx, responseWriter)
-}
-
-func getMsgFromReq(req *http.Request) (*dns.Msg, error) {
-	var b []byte
-	var err error
-	switch req.Method {
-	case http.MethodGet:
-		s := req.URL.Query().Get("dns")
-		if len(s) == 0 {
-			return nil, errors.New("no dns parameter")
-		}
-		msgSize := base64.RawURLEncoding.DecodedLen(len(s))
-		if msgSize > dns.MaxMsgSize {
-			return nil, fmt.Errorf("query length %d is too big", msgSize)
-		}
-		msgBuf := pool.GetMsgBuf(msgSize)
-		defer pool.ReleaseMsgBuf(msgBuf)
-		strBuf := readBufPool.Get()
-		defer readBufPool.Release(strBuf)
-
-		strBuf.WriteString(s)
-		n, err := base64.RawURLEncoding.Decode(msgBuf, strBuf.Bytes())
-		if err != nil {
-			return nil, fmt.Errorf("failed to decode query: %w", err)
-		}
-		b = msgBuf[:n]
-
-	case http.MethodPost:
-		buf := readBufPool.Get()
-		defer readBufPool.Release(buf)
-
-		_, err = buf.ReadFrom(io.LimitReader(req.Body, dns.MaxMsgSize))
-		if err != nil {
-			return nil, fmt.Errorf("failed to read request body: %w", err)
-		}
-		b = buf.Bytes()
-	default:
-		return nil, fmt.Errorf("unsupported method: %s", req.Method)
-	}
-
-	q := new(dns.Msg)
-	if err := q.Unpack(b); err != nil {
-		return nil, fmt.Errorf("invalid request: %w", err)
-	}
-	return q, nil
-}
-
-var readBufPool = pool.NewBytesBufPool(512)
-
-type httpDnsRespWriter struct {
-	httpRespWriter http.ResponseWriter
-}
-
-func (h *httpDnsRespWriter) Write(m *dns.Msg) (n int, err error) {
-	return dnsutils.WriteMsgToUDP(h.httpRespWriter, m)
 }

@@ -27,7 +27,7 @@ import (
 	"testing"
 )
 
-type ServerHandler interface {
+type DNSServerHandler interface {
 	// ServeDNS uses ctx to control deadline, exchanges qCtx, and writes response to w.
 	ServeDNS(ctx context.Context, qCtx *handler.Context, w ResponseWriter)
 }
