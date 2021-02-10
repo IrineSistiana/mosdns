@@ -20,6 +20,7 @@ package ecs
 import (
 	"context"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
 	"gopkg.in/yaml.v3"
@@ -54,18 +55,18 @@ ipv6: '2001:dd8:1a::'
 	testFunc := func(presetECS bool) {
 		typ := []uint16{dns.TypeA, dns.TypeAAAA}
 		wantECS := []*dns.EDNS0_SUBNET{ecs.ipv4, ecs.ipv6}
-		otherECS := newEDNS0Subnet(net.IPv4(1, 2, 3, 4), 32, false)
+		otherECS := dnsutils.NewEDNS0Subnet(net.IPv4(1, 2, 3, 4), 32, false)
 
 		for i := 0; i < 2; i++ {
 			m := new(dns.Msg)
 			m.SetQuestion("example.com.", typ[i])
-			if getMsgECS(m) != nil {
+			if dnsutils.GetMsgECS(m) != nil {
 				t.FailNow()
 			}
 
 			if presetECS {
-				setECS(m, otherECS)
-				if getMsgECS(m) != otherECS {
+				dnsutils.AppendECS(m, otherECS)
+				if dnsutils.GetMsgECS(m) != otherECS {
 					t.FailNow()
 				}
 			}
@@ -75,7 +76,7 @@ ipv6: '2001:dd8:1a::'
 				t.Fatal(err)
 			}
 
-			e := getMsgECS(m)
+			e := dnsutils.GetMsgECS(m)
 			if !reflect.DeepEqual(e, wantECS[i]) {
 				t.Fatal("ecs not equal")
 			}
@@ -109,20 +110,20 @@ func Test_ecs_auto(t *testing.T) {
 			utils.NewNetAddr("[2001:0db8::]:0", "test"),
 		}
 		wantECS := []*dns.EDNS0_SUBNET{
-			newEDNS0Subnet(net.ParseIP("192.168.0.1").To4(), 24, false),
-			newEDNS0Subnet(net.ParseIP("2001:0db8::").To16(), 32, true)}
-		otherECS := newEDNS0Subnet(net.IPv4(1, 2, 3, 4), 32, false)
+			dnsutils.NewEDNS0Subnet(net.ParseIP("192.168.0.1").To4(), 24, false),
+			dnsutils.NewEDNS0Subnet(net.ParseIP("2001:0db8::").To16(), 32, true)}
+		otherECS := dnsutils.NewEDNS0Subnet(net.IPv4(1, 2, 3, 4), 32, false)
 
 		for i := 0; i < 2; i++ {
 			m := new(dns.Msg)
 			m.SetQuestion("example.com.", typ[i])
-			if getMsgECS(m) != nil {
+			if dnsutils.GetMsgECS(m) != nil {
 				t.FailNow()
 			}
 
 			if presetECS {
-				setECS(m, otherECS)
-				if getMsgECS(m) != otherECS {
+				dnsutils.AppendECS(m, otherECS)
+				if dnsutils.GetMsgECS(m) != otherECS {
 					t.FailNow()
 				}
 			}
@@ -133,7 +134,7 @@ func Test_ecs_auto(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			e := getMsgECS(m)
+			e := dnsutils.GetMsgECS(m)
 			if !reflect.DeepEqual(e, wantECS[i]) {
 				t.Fatal("ecs not equal")
 			}
@@ -150,15 +151,15 @@ func Test_ecs_auto(t *testing.T) {
 func Test_remove_ecs(t *testing.T) {
 	m := new(dns.Msg)
 	m.SetQuestion("example.com.", dns.TypeA)
-	ecs := newEDNS0Subnet(net.IPv4(1, 2, 3, 4), 32, false)
-	setECS(m, ecs)
+	ecs := dnsutils.NewEDNS0Subnet(net.IPv4(1, 2, 3, 4), 32, false)
+	dnsutils.AppendECS(m, ecs)
 
 	p := &noECS{}
 	err := p.Exec(context.Background(), handler.NewContext(m, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if e := getMsgECS(m); e != nil {
+	if e := dnsutils.GetMsgECS(m); e != nil {
 		t.FailNow()
 	}
 }

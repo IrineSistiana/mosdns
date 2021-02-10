@@ -15,14 +15,14 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package ecs
+package dnsutils
 
 import (
 	"github.com/miekg/dns"
 	"net"
 )
 
-func getMsgECS(m *dns.Msg) (e *dns.EDNS0_SUBNET) {
+func GetMsgECS(m *dns.Msg) (e *dns.EDNS0_SUBNET) {
 	opt := m.IsEdns0()
 	if opt == nil { // no opt, no ecs
 		return nil
@@ -36,7 +36,7 @@ func getMsgECS(m *dns.Msg) (e *dns.EDNS0_SUBNET) {
 	return nil
 }
 
-func removeECS(m *dns.Msg) (removedECS *dns.EDNS0_SUBNET) {
+func RemoveECS(m *dns.Msg) (removedECS *dns.EDNS0_SUBNET) {
 	opt := m.IsEdns0()
 	if opt == nil { // no opt, no ecs
 		return nil
@@ -52,9 +52,9 @@ func removeECS(m *dns.Msg) (removedECS *dns.EDNS0_SUBNET) {
 	return nil
 }
 
-func setECS(m *dns.Msg, ecs *dns.EDNS0_SUBNET) *dns.Msg {
+func AppendECS(m *dns.Msg, ecs *dns.EDNS0_SUBNET) *dns.Msg {
 	opt := m.IsEdns0()
-	if opt == nil { // no opt, we need a new opt
+	if opt == nil { // No OPT record.
 		o := new(dns.OPT)
 		o.SetUDPSize(dns.MinMsgSize)
 		o.Hdr.Name = "."
@@ -64,7 +64,7 @@ func setECS(m *dns.Msg, ecs *dns.EDNS0_SUBNET) *dns.Msg {
 		return m
 	}
 
-	// if m has a opt, search ecs section
+	// If m has an OPT record, search ecs section.
 	for o := range opt.Option {
 		if opt.Option[o].Option() == dns.EDNS0SUBNET { // overwrite
 			opt.Option[o] = ecs
@@ -77,7 +77,7 @@ func setECS(m *dns.Msg, ecs *dns.EDNS0_SUBNET) *dns.Msg {
 	return m
 }
 
-func newEDNS0Subnet(ip net.IP, mask uint8, v6 bool) *dns.EDNS0_SUBNET {
+func NewEDNS0Subnet(ip net.IP, mask uint8, v6 bool) *dns.EDNS0_SUBNET {
 	edns0Subnet := new(dns.EDNS0_SUBNET)
 	// edns family: https://www.iana.org/assignments/address-family-numbers/address-family-numbers.xhtml
 	// ipv4 = 1
