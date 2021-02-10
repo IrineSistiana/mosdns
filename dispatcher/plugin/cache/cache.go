@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/cache"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
@@ -52,15 +53,7 @@ type cachePlugin struct {
 	*handler.BP
 	args *Args
 
-	c dnsCache
-}
-
-type dnsCache interface {
-	// get retrieves v from cache. The returned v is a copy of the original msg
-	// that stored in the cache.
-	get(ctx context.Context, key string) (v *dns.Msg, ttl time.Duration, ok bool, err error)
-	// store stores the v into cache. It stores a copy of v.
-	store(ctx context.Context, key string, v *dns.Msg, ttl time.Duration) (err error)
+	c cache.DnsCache
 }
 
 func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
@@ -68,10 +61,10 @@ func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
 }
 
 func newCachePlugin(bp *handler.BP, args *Args) (*cachePlugin, error) {
-	var c dnsCache
+	var c cache.DnsCache
 	var err error
 	if len(args.Redis) != 0 {
-		c, err = newRedisCache(args.Redis)
+		c, err = cache.NewRedisCache(args.Redis)
 		if err != nil {
 			return nil, err
 		}
@@ -89,7 +82,7 @@ func newCachePlugin(bp *handler.BP, args *Args) (*cachePlugin, error) {
 			args.CleanerInterval = 120
 		}
 
-		c = newMemCache(64, maxSizePerShard, time.Duration(args.CleanerInterval)*time.Second)
+		c = cache.NewMemCache(64, maxSizePerShard, time.Duration(args.CleanerInterval)*time.Second)
 	}
 	return &cachePlugin{
 		BP:   bp,
@@ -99,7 +92,7 @@ func newCachePlugin(bp *handler.BP, args *Args) (*cachePlugin, error) {
 }
 
 // ExecES searches the cache. If cache hits, earlyStop will be true.
-// It never returns an err. Because a cache fault should not terminate the query process.
+// It never returns an err, because a cache fault should not terminate the query process.
 func (c *cachePlugin) ExecES(ctx context.Context, qCtx *handler.Context) (earlyStop bool, err error) {
 	key, cacheHit := c.searchAndReply(ctx, qCtx)
 	if cacheHit {
@@ -122,7 +115,7 @@ func (c *cachePlugin) searchAndReply(ctx context.Context, qCtx *handler.Context)
 		return "", false
 	}
 
-	r, ttl, _, err := c.c.get(ctx, key)
+	r, ttl, _, err := c.c.Get(ctx, key)
 	if err != nil {
 		c.L().Warn("unable to access cache, skip it", qCtx.InfoField(), zap.Error(err))
 		return key, false
@@ -148,7 +141,7 @@ func newDeferStore(key string, p *cachePlugin) *deferCacheStore {
 }
 
 // Exec caches the response.
-// It never returns an err. Because a cache fault should not terminate the query process.
+// It never returns an err, because a cache fault should not terminate the query process.
 func (d *deferCacheStore) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
 	if err := d.exec(ctx, qCtx); err != nil {
 		d.p.L().Warn("failed to cache the data", qCtx.InfoField(), zap.Error(err))
@@ -163,7 +156,7 @@ func (d *deferCacheStore) exec(ctx context.Context, qCtx *handler.Context) (err 
 		if ttl > maxTTL {
 			ttl = maxTTL
 		}
-		return d.p.c.store(ctx, d.key, r, time.Duration(ttl)*time.Second)
+		return d.p.c.Store(ctx, d.key, r, time.Duration(ttl)*time.Second)
 	}
 	return nil
 }

@@ -25,8 +25,19 @@ import (
 	"time"
 )
 
-// memCache is a simple cache that stores msgs in memory.
-type memCache struct {
+type DnsCache interface {
+	// Get retrieves v from DnsCache. The returned v is a deepcopy of the original msg
+	// that stored in the cache.
+	Get(ctx context.Context, key string) (v *dns.Msg, ttl time.Duration, ok bool, err error)
+	// Store stores the v into DnsCache. It stores the deepcopy of v.
+	Store(ctx context.Context, key string, v *dns.Msg, ttl time.Duration) (err error)
+
+	// Close closes the cache backend.
+	Close() error
+}
+
+// MemCache is a simple cache that stores msgs in memory.
+type MemCache struct {
 	cleanerInterval time.Duration
 
 	closeOnce sync.Once
@@ -39,11 +50,11 @@ type elem struct {
 	expirationTime time.Time
 }
 
-// newMemCache returns a memCache.
-// If cleanerInterval <= 0, memCache cleaner is disabled.
-// If shardNum or maxSizePerShard <=0, newMemCache will panic.
-func newMemCache(shardNum, maxSizePerShard int, cleanerInterval time.Duration) *memCache {
-	c := &memCache{
+// NewMemCache returns a MemCache.
+// If cleanerInterval <= 0, MemCache cleaner is disabled.
+// If shardNum or maxSizePerShard <=0, NewMemCache will panic.
+func NewMemCache(shardNum, maxSizePerShard int, cleanerInterval time.Duration) *MemCache {
+	c := &MemCache{
 		cleanerInterval: cleanerInterval,
 		lru:             concurrent_lru.NewConcurrentLRU(shardNum, maxSizePerShard, nil, nil),
 	}
@@ -55,7 +66,8 @@ func newMemCache(shardNum, maxSizePerShard int, cleanerInterval time.Duration) *
 	return c
 }
 
-func (c *memCache) Close() error {
+// Close closes the cleaner
+func (c *MemCache) Close() error {
 	c.closeOnce.Do(func() {
 		if c.closeChan != nil {
 			close(c.closeChan)
@@ -64,7 +76,7 @@ func (c *memCache) Close() error {
 	return nil
 }
 
-func (c *memCache) get(_ context.Context, key string) (v *dns.Msg, ttl time.Duration, ok bool, err error) {
+func (c *MemCache) Get(_ context.Context, key string) (v *dns.Msg, ttl time.Duration, ok bool, err error) {
 	e, ok := c.lru.Get(key)
 
 	if ok {
@@ -78,7 +90,7 @@ func (c *memCache) get(_ context.Context, key string) (v *dns.Msg, ttl time.Dura
 	return nil, 0, false, nil
 }
 
-func (c *memCache) store(_ context.Context, key string, v *dns.Msg, ttl time.Duration) (err error) {
+func (c *MemCache) Store(_ context.Context, key string, v *dns.Msg, ttl time.Duration) (err error) {
 	if ttl <= 0 {
 		return
 	}
@@ -90,7 +102,7 @@ func (c *memCache) store(_ context.Context, key string, v *dns.Msg, ttl time.Dur
 	return
 }
 
-func (c *memCache) startCleaner() {
+func (c *MemCache) startCleaner() {
 	ticker := time.NewTicker(c.cleanerInterval)
 	defer ticker.Stop()
 	for {
@@ -107,6 +119,6 @@ func cleanFunc(_ string, v interface{}) bool {
 	return v.(*elem).expirationTime.Before(time.Now())
 }
 
-func (c *memCache) len() int {
+func (c *MemCache) len() int {
 	return c.lru.Len()
 }
