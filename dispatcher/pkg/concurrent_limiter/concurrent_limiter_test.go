@@ -18,7 +18,7 @@ func Test_ConcurrentLimiter_acquire_release(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			select {
-			case <-l.Wait():
+			case l.Wait() <- struct{}{}:
 				time.Sleep(time.Millisecond * 200)
 				l.Done()
 			case <-ctx.Done():

@@ -69,7 +69,7 @@ func SplitSchemeAndHost(addr string) (protocol, host string) {
 	}
 }
 
-// TryAddPort add port to host if host does not has an port suffix.
+// TryAddPort add port to host if host does not have an port suffix.
 func TryAddPort(host string, port uint16) string {
 	if _, p, _ := net.SplitHostPort(host); len(p) == 0 {
 		return host + ":" + strconv.Itoa(int(port))
@@ -245,7 +245,7 @@ func (g *ExchangeSingleFlightGroup) Exchange(ctx context.Context, qCtx *handler.
 	}
 
 	rUnsafe := v.(*dns.Msg)
-	if shared && rUnsafe != nil { // shared reply may has different id and is not safe to modify.
+	if shared && rUnsafe != nil { // shared reply may has a different id and is not safe to modify.
 		r = rUnsafe.Copy()
 		r.Id = qCtx.Q().Id
 		return r, nil
@@ -304,7 +304,7 @@ func ExchangeParallel(ctx context.Context, qCtx *handler.Context, upstreams []Up
 		return r, nil
 	}
 
-	c := make(chan *parallelResult, t) // use buf chan to avoid block.
+	c := make(chan *parallelResult, t) // use buf chan to avoid blocking.
 	qCopy := qCtx.CopyNoR()            // qCtx is not safe for concurrent use.
 	for _, u := range upstreams {
 		u := u

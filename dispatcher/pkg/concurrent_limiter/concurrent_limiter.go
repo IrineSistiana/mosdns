@@ -17,11 +17,15 @@
 
 package concurrent_limiter
 
-import "fmt"
+import (
+	"fmt"
+	"sync/atomic"
+)
 
 // ConcurrentLimiter is a soft limiter.
 type ConcurrentLimiter struct {
-	bucket chan struct{}
+	running int32
+	bucket  chan struct{}
 }
 
 // NewConcurrentLimiter returns a ConcurrentLimiter, max must > 0.
@@ -31,25 +35,33 @@ func NewConcurrentLimiter(max int) *ConcurrentLimiter {
 	}
 
 	bucket := make(chan struct{}, max)
-	for i := 0; i < max; i++ {
-		bucket <- struct{}{}
-	}
-
 	return &ConcurrentLimiter{bucket: bucket}
 }
 
-func (l *ConcurrentLimiter) Wait() <-chan struct{} {
+func (l *ConcurrentLimiter) Wait() chan<- struct{} {
+	r := atomic.AddInt32(&l.running, 1)
+	if r < 0 {
+		panic("ConcurrentLimiter: running overflow")
+	}
 	return l.bucket
 }
 
 func (l *ConcurrentLimiter) Done() {
+	r := atomic.AddInt32(&l.running, -1)
+	if r < 0 {
+		panic("ConcurrentLimiter: running overflow")
+	}
 	select {
-	case l.bucket <- struct{}{}:
+	case <-l.bucket:
 	default:
 		panic("ConcurrentLimiter: bucket overflow")
 	}
 }
 
 func (l *ConcurrentLimiter) Available() int {
-	return len(l.bucket)
+	return cap(l.bucket) - len(l.bucket)
+}
+
+func (l *ConcurrentLimiter) Running() int32 {
+	return atomic.LoadInt32(&l.running)
 }

@@ -103,7 +103,7 @@ func loadConfig(f string, depth int) {
 		pluginConfig := pluginConfig
 
 		select {
-		case <-pool.Wait():
+		case pool.Wait() <- struct{}{}:
 			wg.Add(1)
 			go func() {
 				defer pool.Done()

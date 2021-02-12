@@ -19,6 +19,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/dnsutils"
@@ -47,51 +48,40 @@ func (u *udpResponseWriter) Write(m *dns.Msg) (n int, err error) {
 	return dnsutils.WriteUDPMsgTo(m, u.c, u.to)
 }
 
-// remainder: startUDP should be called only after ServerGroup is locked.
-func (sg *ServerGroup) startUDP(conf *Server) error {
-	c, err := net.ListenPacket("udp", conf.Addr)
-	if err != nil {
-		return err
+// startUDP starts a udp server.
+func (s *Server) startUDP() error {
+	if s.PacketConn == nil {
+		return errors.New("udp server has a nil packet conn")
 	}
-	sg.listener[c] = struct{}{}
+	c := s.PacketConn
 
-	go func() {
-		sg.L().Info("udp server started", zap.Stringer("addr", c.LocalAddr()))
-		defer sg.L().Info("udp server exited", zap.Stringer("addr", c.LocalAddr()))
+	listenerCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-		listenerCtx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		for {
-			q, from, _, err := dnsutils.ReadUDPMsgFrom(c, dnsutils.IPv4UdpMaxPayload)
-			if err != nil {
-				if ioErr := dnsutils.IsIOErr(err); ioErr != nil {
-					if netErr, ok := ioErr.(net.Error); ok && netErr.Temporary() { // is a temporary net err
-						sg.L().Warn("listener temporary err", zap.Stringer("addr", c.LocalAddr()), zap.Error(err))
-						time.Sleep(time.Second * 5)
-						continue
-					} else { // unexpected io err
-						sg.errChan <- fmt.Errorf("unexpected listener err: %w", err)
-						return
-					}
-				} else { // not an io err, maybe because we received an invalid msg
+	for {
+		q, from, _, err := dnsutils.ReadUDPMsgFrom(c, dnsutils.IPv4UdpMaxPayload)
+		if err != nil {
+			if ioErr := dnsutils.IsIOErr(err); ioErr != nil {
+				if netErr, ok := ioErr.(net.Error); ok && netErr.Temporary() { // is a temporary net err
+					s.logger.Warn("listener temporary err", zap.Error(err))
+					time.Sleep(time.Second * 5)
 					continue
+				} else { // unexpected io err
+					return fmt.Errorf("unexpected listener err: %w", err)
 				}
+			} else { // not an io err, maybe caused by an invalid msg.
+				s.logger.Warn("udp read err", zap.Error(err))
 			}
+		}
+
+		go func() {
 			w := &udpResponseWriter{
 				c:       c,
 				to:      from,
 				maxSize: getMaxSizeFromQuery(q),
 			}
 			qCtx := handler.NewContext(q, from)
-			sg.L().Debug("new query", qCtx.InfoField(), zap.Stringer("from", from))
-
-			go func() {
-				queryCtx, cancel := context.WithTimeout(listenerCtx, time.Second*5)
-				defer cancel()
-				sg.handler.ServeDNS(queryCtx, qCtx, w)
-			}()
-		}
-	}()
-	return nil
+			s.handleQueryTimeout(listenerCtx, qCtx, w)
+		}()
+	}
 }

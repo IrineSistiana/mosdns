@@ -15,7 +15,7 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package server_handler
+package server
 
 import (
 	"context"
@@ -30,18 +30,30 @@ import (
 	"go.uber.org/zap"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 )
 
 type DoHHandler struct {
-	Logger              *zap.Logger      // It cannot be nil.
+	DNSHandler          DNSServerHandler // DNS handler for incoming requests. This cannot be nil.
 	URLPath             string           // If empty, DoHHandler will not check request's path.
 	GetUserIPFromHeader string           // Get client ip from http header, e.g. for nginx, X-Forwarded-For.
-	QueryTimeout        time.Duration    // This should > 0.
-	DNSHandler          DNSServerHandler // DNS handler for incoming requests.
+	QueryTimeout        time.Duration    // Default is defaultQueryTimeout.
+	Logger              *zap.Logger      // Nil logger disables logging.
+
+	initLoggerOnce sync.Once
+	logger         *zap.Logger
 }
 
 func (h *DoHHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	h.initLoggerOnce.Do(func() {
+		if extLogger := h.Logger; extLogger != nil {
+			h.logger = extLogger
+		} else {
+			h.logger = zap.NewNop()
+		}
+	})
+
 	if len(h.URLPath) != 0 && req.URL.Path != h.URLPath {
 		w.WriteHeader(http.StatusNotFound)
 		return
@@ -49,19 +61,28 @@ func (h *DoHHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	q, err := GetMsgFromReq(req)
 	if err != nil {
-		h.Logger.Warn("invalid request", zap.String("from", req.RemoteAddr), zap.String("url", req.RequestURI), zap.String("method", req.Method), zap.Error(err))
+		h.logger.Warn("invalid request", zap.String("from", req.RemoteAddr), zap.String("url", req.RequestURI), zap.String("method", req.Method), zap.Error(err))
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
 	qCtx := handler.NewContext(q, GetClientIPFromReq(req, h.GetUserIPFromHeader))
 	qCtx.SetTCPClient(true)
-	h.Logger.Debug("new query", qCtx.InfoField(), zap.String("from", req.RemoteAddr))
 
-	responseWriter := &httpDnsRespWriter{httpRespWriter: w}
-	ctx, cancel := context.WithTimeout(req.Context(), h.QueryTimeout)
+	ctx, cancel := context.WithTimeout(req.Context(), h.queryTimeout())
 	defer cancel()
-	h.DNSHandler.ServeDNS(ctx, qCtx, responseWriter)
+	if h.DNSHandler == nil {
+		h.logger.Error("nil dns handler")
+		w.WriteHeader(http.StatusInternalServerError)
+	}
+	h.DNSHandler.ServeDNS(ctx, qCtx, &httpDnsRespWriter{httpRespWriter: w})
+}
+
+func (h *DoHHandler) queryTimeout() time.Duration {
+	if t := h.QueryTimeout; t > 0 {
+		return t
+	}
+	return defaultQueryTimeout
 }
 
 func GetClientIPFromReq(req *http.Request, checkHeader string) *utils.NetAddr {

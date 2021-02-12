@@ -21,7 +21,6 @@ import (
 	"context"
 	"errors"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/concurrent_limiter"
 	"github.com/miekg/dns"
 	"reflect"
 	"testing"
@@ -168,28 +167,6 @@ func TestSplitString2(t *testing.T) {
 			}
 			if gotOk != tt.wantOk {
 				t.Errorf("SplitString2() gotOk = %v, want %v", gotOk, tt.wantOk)
-			}
-		})
-	}
-}
-
-func Test_NewConcurrentLimiter(t *testing.T) {
-	type args struct {
-		max int
-	}
-	tests := []struct {
-		name    string
-		args    args
-		wantLen int
-	}{
-		{"1", args{max: 1}, 1},
-		{"2", args{max: 50}, 50},
-		{"3", args{max: 1000}, 1000},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := concurrent_limiter.NewConcurrentLimiter(tt.args.max); got.Available() != tt.wantLen {
-				t.Errorf("NewConcurrentLimiter() = %v, want %v", got.Available(), tt.wantLen)
 			}
 		})
 	}

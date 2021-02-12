@@ -15,7 +15,7 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package server_handler
+package server
 
 import (
 	"context"
@@ -24,6 +24,7 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/executable_seq"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
+	"sync"
 	"testing"
 )
 
@@ -38,50 +39,42 @@ type ResponseWriter interface {
 }
 
 type DefaultServerHandler struct {
-	config *DefaultServerHandlerConfig
-
-	limiter       *concurrent_limiter.ConcurrentLimiter  // if it's nil, means no limit.
-	clientLimiter *concurrent_limiter.ClientQueryLimiter // if it's nil, means no limit.
-}
-
-type DefaultServerHandlerConfig struct {
-	// Logger is used for logging, it cannot be nil.
+	// Logger is used for logging. A nil value will disable logging.
 	Logger *zap.Logger
-	// Entry is the entry ExecutablePlugin's tag. This shouldn't be empty.
-	Entry *executable_seq.ExecutableCmdSequence
+
+	// Entry is the entry ExecutablePlugin's tag. This cannot be nil.
+	Entry executable_seq.ExecutableCmd
+
 	// ConcurrentLimit controls the max concurrent queries for the DefaultServerHandler.
 	// If ConcurrentLimit <= 0, means no limit.
 	// When calling DefaultServerHandler.ServeDNS(), if a query exceeds the limit, it will wait on a FIFO queue until
 	// - its ctx is done -> The query will be dropped silently.
 	// - it can be proceeded -> Normal procedure.
 	ConcurrentLimit int
-}
 
-// NewDefaultServerHandler
-// Also see DefaultServerHandler.ServeDNS.
-func NewDefaultServerHandler(config *DefaultServerHandlerConfig) *DefaultServerHandler {
-	h := &DefaultServerHandler{config: config}
-
-	if config.ConcurrentLimit > 0 {
-		h.limiter = concurrent_limiter.NewConcurrentLimiter(config.ConcurrentLimit)
-	}
-
-	return h
+	initOnce sync.Once // init the followings
+	logger   *zap.Logger
+	limiter  *concurrent_limiter.ConcurrentLimiter // if it's nil, means no limit.
 }
 
 // ServeDNS
 // If entry returns an err, a SERVFAIL response will be sent back to client.
 // If concurrentLimit is reached, the query will block and wait available token until ctx is done.
 func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *handler.Context, w ResponseWriter) {
-	write := func(r *dns.Msg) {
-		if _, err := w.Write(r); err != nil {
-			h.config.Logger.Warn("write response", qCtx.InfoField(), zap.Error(err))
+	h.initOnce.Do(func() {
+		if h.Logger != nil {
+			h.logger = h.Logger
+		} else {
+			h.logger = zap.NewNop()
 		}
-	}
+		if h.ConcurrentLimit > 0 {
+			h.limiter = concurrent_limiter.NewConcurrentLimiter(h.ConcurrentLimit)
+		}
+	})
 
 	if h.limiter != nil {
 		select {
-		case <-h.limiter.Wait():
+		case h.limiter.Wait() <- struct{}{}:
 			defer h.limiter.Done()
 		case <-ctx.Done():
 			// silently drop this query
@@ -92,9 +85,9 @@ func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *handler.Conte
 	err := h.execEntry(ctx, qCtx)
 
 	if err != nil {
-		h.config.Logger.Warn("entry returned an err", qCtx.InfoField(), zap.Error(err))
+		h.logger.Warn("entry returned an err", qCtx.InfoField(), zap.Error(err))
 	} else {
-		h.config.Logger.Debug("entry returned", qCtx.InfoField(), zap.Stringer("status", qCtx.Status()))
+		h.logger.Debug("entry returned", qCtx.InfoField(), zap.Stringer("status", qCtx.Status()))
 	}
 
 	var r *dns.Msg
@@ -107,12 +100,14 @@ func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *handler.Conte
 	}
 
 	if r != nil {
-		write(r)
+		if _, err := w.Write(r); err != nil {
+			h.logger.Warn("write response", qCtx.InfoField(), zap.Error(err))
+		}
 	}
 }
 
 func (h *DefaultServerHandler) execEntry(ctx context.Context, qCtx *handler.Context) error {
-	err := executable_seq.WalkExecutableCmd(ctx, qCtx, h.config.Logger, h.config.Entry)
+	err := executable_seq.WalkExecutableCmd(ctx, qCtx, h.logger, h.Entry)
 	if err != nil {
 		return err
 	}
