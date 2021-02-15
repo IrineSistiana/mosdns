@@ -19,6 +19,7 @@
 * [AdguardTeam/dnsproxy](https://github.com/AdguardTeam/dnsproxy): [Apache License 2.0](https://github.com/AdguardTeam/dnsproxy/blob/master/LICENSE)
 * [mitchellh/mapstructure](https://github.com/mitchellh/mapstructure): [MIT](https://github.com/mitchellh/mapstructure/blob/master/LICENSE)
 * [go-redis/redis](https://github.com/go-redis/redis): [BSD-2-Clause License](https://github.com/go-redis/redis/blob/master/LICENSE)
+* [kardianos/service](https://github.com/kardianos/service): [zlib](https://github.com/kardianos/service/blob/master/LICENSE)
 
 使用源码
 

@@ -5,8 +5,9 @@ go 1.15
 require (
 	github.com/AdguardTeam/dnsproxy v0.34.1
 	github.com/ameshkov/dnscrypt/v2 v2.0.3 // indirect
-	github.com/go-redis/redis/v8 v8.4.11
+	github.com/go-redis/redis/v8 v8.5.0
 	github.com/golang/protobuf v1.4.3
+	github.com/kardianos/service v1.2.0
 	github.com/miekg/dns v1.1.38
 	github.com/mitchellh/mapstructure v1.4.1
 	github.com/vishvananda/netlink v1.1.1-0.20201029203352-d40f9887b852

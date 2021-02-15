@@ -23,6 +23,7 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/coremain"
 	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/IrineSistiana/mosdns/tools"
+	"github.com/kardianos/service"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -50,6 +51,9 @@ var (
 
 	convV2IPDat     = flag.String("conv-v2ray-ip-dat", "", "[path] convert v2ray ip data file to text")
 	convV2DomainDat = flag.String("conv-v2ray-domain-dat", "", "[path] convert v2ray domain data file to text")
+
+	// service
+	serviceAct = flag.String("s", "", "service control, [install,uninstall,start,restart]")
 
 	//DEBUG ONLY
 	cpu       = flag.Int("cpu", runtime.NumCPU(), "the maximum number of CPUs that can be executing simultaneously")
@@ -132,16 +136,12 @@ func main() {
 
 	// main program starts here
 
-	// show summary
-	mlog.S().Infof("mosdns ver: %s", version)
-	mlog.S().Infof("arch: %s, os: %s, go: %s", runtime.GOARCH, runtime.GOOS, runtime.Version())
-
 	// try to change working dir to os.Executable() or *dir
 	var wd string
 	if *dirFollowExecutable {
 		ex, err := os.Executable()
 		if err != nil {
-			mlog.S().Fatalf("failed to get executable path: %v", err)
+			mlog.S().Fatalf("failed to get the executable path: %v", err)
 		}
 		wd = filepath.Dir(ex)
 	} else {
@@ -157,5 +157,68 @@ func main() {
 		mlog.S().Infof("current working directory: %s", wd)
 	}
 
-	coremain.Run(*configPath)
+	svcConfig := &service.Config{
+		Name:        "mosdns",
+		DisplayName: "mosdns",
+		Description: "A DNS forwarder",
+	}
+
+	mosdns := new(mosdns)
+	s, err := service.New(mosdns, svcConfig)
+	if err != nil {
+		mlog.S().Fatalf("failed to init service: %v", err)
+	}
+
+	switch *serviceAct {
+	case "", "run":
+		mlog.S().Infof("mosdns ver: %s", version)
+		mlog.S().Infof("arch: %s, os: %s, go: %s", runtime.GOARCH, runtime.GOOS, runtime.Version())
+
+		if err := s.Run(); err != nil {
+			mlog.S().Fatalf("failed to run service: %v", err)
+		}
+		os.Exit(0)
+	case "install":
+		if len(*configPath) != 0 {
+			svcConfig.Arguments = append(svcConfig.Arguments, "-c", *configPath, "-s", "run")
+		}
+		if len(*dir) == 0 {
+			svcConfig.Arguments = append(svcConfig.Arguments, "-dir2exe")
+		} else {
+			wd, err := os.Getwd()
+			if err != nil {
+				mlog.S().Fatalf("failed to get working dir: %v", err)
+			}
+			mlog.S().Infof("setting mosdns working dir to %s", wd)
+			svcConfig.Arguments = append(svcConfig.Arguments, "-dir", wd)
+		}
+		err = s.Install()
+	case "uninstall":
+		err = s.Uninstall()
+	case "start":
+		err = s.Start()
+	case "stop":
+		err = s.Stop()
+	case "restart":
+		err = s.Restart()
+	default:
+		mlog.S().Fatalf("unknown service action [%s]", *serviceAct)
+	}
+	if err != nil {
+		mlog.S().Fatalf("%s mosdns: %v", *serviceAct, err)
+	} else {
+		mlog.S().Infof("%s mosdns: done", *serviceAct)
+		os.Exit(0)
+	}
+}
+
+type mosdns struct{}
+
+func (m *mosdns) Start(s service.Service) error {
+	go coremain.Run(*configPath)
+	return nil
+}
+
+func (m *mosdns) Stop(s service.Service) error {
+	return nil
 }

@@ -17,8 +17,8 @@
 ::    You should have received a copy of the GNU General Public License
 ::    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-set WINSW_BIN=mosdns-winsw.exe
 set MOSDNS_BIN=mosdns.exe
+set MOSDNS_CONF=config.yaml
 
 :: Administrative check
 net session >nul 2>&1
@@ -32,11 +32,17 @@ if %errorLevel% == 0 (
 
 cd /d "%~dp0"
 
-if not exist %WINSW_BIN% (
-    echo Error: winsw not find
+if not exist %MOSDNS_BIN% (
+    echo Error: mosdns.exe not find
 	pause
 	exit
-) 
+)
+
+if not exist %MOSDNS_CONF% (
+    echo Error: mosdns config file config.yaml not find
+	pause
+	exit
+)
 
 :select
 echo ========================
@@ -56,40 +62,39 @@ goto %case%
 
 :: install
 :case_1
-	%WINSW_BIN% stop
-	%WINSW_BIN% uninstall
-	%WINSW_BIN% install
-	%WINSW_BIN% start
+	%MOSDNS_BIN% -s stop
+	%MOSDNS_BIN% -s uninstall
+	%MOSDNS_BIN% -s install
+	%MOSDNS_BIN% -s start
 	echo.
 	pause
 	goto :select
 
-
 :: uninstall
 :case_2
-	%WINSW_BIN% stop
-	%WINSW_BIN% uninstall
+	%MOSDNS_BIN% -s stop
+	%MOSDNS_BIN% -s uninstall
 	echo.
 	pause
 	goto :select
 
 :: start
 :case_3
-	%WINSW_BIN% start
+	%MOSDNS_BIN% -s start
 	echo.
 	pause
 	goto :select
 
 :: stop
 :case_4
-	%WINSW_BIN% stop
+	%MOSDNS_BIN% -s stop
 	echo.
 	pause
 	goto :select
 
 :: restart
 :case_5
-	%WINSW_BIN% restart
+	%MOSDNS_BIN% -s restart
 	echo.
 	pause
 	goto :select
@@ -104,16 +109,9 @@ goto %case%
 
 :: Status check
 :case_7
-	tasklist /FI "IMAGENAME eq %WINSW_BIN%" 2>NUL | find /I /N "%WINSW_BIN%">NUL
-	if "%ERRORLEVEL%"=="0" (
-		echo winsw %WINSW_BIN% is running as service.
-	) else (
-		echo Error: %WINSW_BIN% is not running. error log might have more information.
-	)
-
 	tasklist /FI "IMAGENAME eq %MOSDNS_BIN%" 2>NUL | find /I /N "%MOSDNS_BIN%">NUL
 	if "%ERRORLEVEL%"=="0" (
-		echo mosdns %MOSDNS_BIN% is running in the background.
+		echo %MOSDNS_BIN% is running in the background.
 	) else (
 		echo Error: %MOSDNS_BIN% is not running. error log might have more information.
 	)
