@@ -55,17 +55,45 @@ func GenConfig(p string) error {
 	c := new(Config)
 	c.Log.Level = "info"
 
-	argsPlaceholder := map[string]interface{}{"arg1": "value1", "arg2": "value2"}
-	c.Plugin = append(c.Plugin, &handler.Config{
-		Tag:  "server",
-		Type: "server",
-		Args: argsPlaceholder,
-	})
+	c.Plugin = append(
+		c.Plugin,
+		&handler.Config{
+			Tag:  "server",
+			Type: "server",
+			Args: map[string]interface{}{
+				"entry": []interface{}{"forward_google"},
+				"server": []interface{}{
+					map[string]interface{}{
+						"protocol": "udp",
+						"addr":     "127.0.0.1:53",
+					},
+					map[string]interface{}{
+						"protocol": "tcp",
+						"addr":     "127.0.0.1:53",
+					},
+					map[string]interface{}{
+						"protocol": "udp",
+						"addr":     "[::1]:53",
+					},
+					map[string]interface{}{
+						"protocol": "tcp",
+						"addr":     "[::1]:53",
+					},
+				},
+			},
+		},
+	)
 
 	c.Plugin = append(c.Plugin, &handler.Config{
-		Tag:  "forward",
+		Tag:  "forward_google",
 		Type: "forward",
-		Args: argsPlaceholder,
+		Args: map[string]interface{}{
+			"upstream": []interface{}{
+				map[string]interface{}{
+					"addr": "https://8.8.8.8/dns-query",
+				},
+			},
+		},
 	})
 	return c.Save(p)
 }

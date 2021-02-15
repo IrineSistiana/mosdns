@@ -1,9 +1,14 @@
 # !/usr/bin/env python3
+import argparse
 import logging
 import os
 import subprocess
-import sys
 import zipfile
+
+parser = argparse.ArgumentParser()
+parser.add_argument("-upx", action="store_true")
+parser.add_argument("-i", type=int)
+args = parser.parse_args()
 
 PROJECT_NAME = 'mosdns'
 RELEASE_DIR = './release'
@@ -43,9 +48,8 @@ def go_build():
     logger.info(f'building {PROJECT_NAME}')
 
     global envs
-    if len(sys.argv) == 2 and sys.argv[1].isdigit():
-        index = int(sys.argv[1])
-        envs = [envs[index]]
+    if args.i:
+        envs = [envs[args.i]]
 
     VERSION = 'dev/unknown'
     try:
@@ -54,7 +58,7 @@ def go_build():
         logger.error(f'get git tag failed: {e.args}')
 
     try:
-        subprocess.check_call('go run ../ -gen config-template.yaml', shell=True, env=os.environ)
+        subprocess.check_call('go run ../ -gen config.yaml', shell=True, env=os.environ)
     except Exception:
         logger.exception('failed to generate config template')
         raise
@@ -77,7 +81,7 @@ def go_build():
                 f'go build -ldflags "-s -w -X main.version={VERSION}" -trimpath -o {bin_filename} ../', shell=True,
                 env=os_env)
 
-            if len(sys.argv) > 1 and '-upx' in sys.argv[1:]:
+            if args.upx:
                 try:
                     subprocess.check_call(f'upx -9 -q {bin_filename}', shell=True, stderr=subprocess.DEVNULL,
                                           stdout=subprocess.DEVNULL)
@@ -88,10 +92,9 @@ def go_build():
                                  compresslevel=5) as zf:
                 zf.write(bin_filename)
                 zf.write('../README.md', 'README.md')
-                zf.write('./config-template.yaml', 'config-template.yaml')
+                zf.write('./config.yaml', 'config.yaml')
                 zf.write('../LICENSE', 'LICENSE')
                 if os_env['GOOS'] == 'windows':
-                    zf.write('../scripts/windows/mosdns-winsw.xml', 'mosdns-winsw.xml')
                     zf.write('../scripts/windows/service_control.bat', 'service_control.bat')
 
         except subprocess.CalledProcessError as e:
@@ -105,5 +108,8 @@ if __name__ == '__main__':
 
     if not os.path.exists(RELEASE_DIR):
         os.mkdir(RELEASE_DIR)
-    os.chdir(RELEASE_DIR)
+
+    if len(RELEASE_DIR) != 0:
+        os.chdir(RELEASE_DIR)
+
     go_build()
