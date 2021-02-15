@@ -126,8 +126,8 @@ func ParseFallbackECS(c *FallbackConfig) (*FallbackECS, error) {
 	return fallbackECS, nil
 }
 
-func (f *FallbackECS) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (goTwo string, earlyStop bool, err error) {
-	return "", false, f.execCmd(ctx, qCtx, logger)
+func (f *FallbackECS) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (goTwo handler.ESExecutable, earlyStop bool, err error) {
+	return nil, false, f.execCmd(ctx, qCtx, logger)
 }
 
 func (f *FallbackECS) execCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {

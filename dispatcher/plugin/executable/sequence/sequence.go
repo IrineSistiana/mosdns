@@ -68,7 +68,7 @@ var _ handler.ExecutablePlugin = (*noop)(nil)
 var _ handler.ESExecutablePlugin = (*noop)(nil)
 
 // noop is a no-op handler.Executable and handler.ESExecutable.
-// It can be used as a stop sign in handler.ExecutableCmd.
+// It can be used as a stop sign in the handler.ExecutableCmd.
 type noop struct {
 	*handler.BP
 }

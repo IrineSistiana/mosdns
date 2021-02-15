@@ -7,6 +7,7 @@ import (
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
+	"reflect"
 	"testing"
 )
 
@@ -154,8 +155,14 @@ exec:
 				t.Errorf("ExecCmd() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if gotNext != tt.wantNext {
-				t.Errorf("ExecCmd() gotNext = %v, want %v", gotNext, tt.wantNext)
+
+			var wantNext handler.ESExecutable
+			if len(tt.wantNext) != 0 {
+				wantNext = RefESExecutablePlugin(tt.wantNext)
+			}
+
+			if !reflect.DeepEqual(gotNext, wantNext) {
+				t.Errorf("ExecCmd() gotNext = %v, want %v", gotNext, wantNext)
 			}
 
 			if gotEarlyStop != tt.wantES {

@@ -32,13 +32,8 @@ func WalkExecutableCmd(ctx context.Context, qCtx *handler.Context, logger *zap.L
 		return err
 	}
 
-	if len(goTwo) != 0 {
-		logger.Debug("goto plugin", qCtx.InfoField(), zap.String("goto", goTwo))
-		p, err := handler.GetPlugin(goTwo)
-		if err != nil {
-			return err
-		}
-		_, err = p.ExecES(ctx, qCtx)
+	if goTwo != nil {
+		_, err = goTwo.ExecES(ctx, qCtx)
 		return err
 	}
 	return nil

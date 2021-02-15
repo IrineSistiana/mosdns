@@ -60,7 +60,7 @@ func (r *pluginRegister) regPlugin(p Plugin, errIfDup bool) error {
 		r.Unlock()
 		return fmt.Errorf("plugin tag %s has been registered", tag)
 	}
-	r.register[tag] = newPluginWrapper(p)
+	r.register[tag] = NewPluginWrapper(p)
 	r.Unlock()
 
 	if dup {

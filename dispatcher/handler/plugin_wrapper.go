@@ -20,6 +20,8 @@ package handler
 import (
 	"context"
 	"fmt"
+	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
+	"go.uber.org/zap"
 )
 
 var (
@@ -42,7 +44,7 @@ type PluginWrapper struct {
 	s  Service
 }
 
-func newPluginWrapper(gp Plugin) *PluginWrapper {
+func NewPluginWrapper(gp Plugin) *PluginWrapper {
 	w := new(PluginWrapper)
 	w.p = gp
 
@@ -69,7 +71,12 @@ func (w *PluginWrapper) GetPlugin() Plugin {
 	return w.p
 }
 
+func (w *PluginWrapper) logDebug(qCtx *Context) {
+	mlog.L().Debug("exec plugin", qCtx.InfoField(), zap.String("exec", w.p.Tag()))
+}
+
 func (w *PluginWrapper) Connect(ctx context.Context, qCtx *Context, pipeCtx *PipeContext) (err error) {
+	w.logDebug(qCtx)
 	if err = ctx.Err(); err != nil {
 		return err
 	}
@@ -86,6 +93,7 @@ func (w *PluginWrapper) Connect(ctx context.Context, qCtx *Context, pipeCtx *Pip
 }
 
 func (w *PluginWrapper) Match(ctx context.Context, qCtx *Context) (matched bool, err error) {
+	w.logDebug(qCtx)
 	if err = ctx.Err(); err != nil {
 		return false, err
 	}
@@ -102,6 +110,7 @@ func (w *PluginWrapper) Match(ctx context.Context, qCtx *Context) (matched bool,
 }
 
 func (w *PluginWrapper) ExecES(ctx context.Context, qCtx *Context) (earlyStop bool, err error) {
+	w.logDebug(qCtx)
 	if err = ctx.Err(); err != nil {
 		return false, err
 	}

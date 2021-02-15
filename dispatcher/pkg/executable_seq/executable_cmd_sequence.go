@@ -22,26 +22,50 @@ import (
 	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 	"go.uber.org/zap"
 	"reflect"
 	"strings"
 )
 
-type executablePluginTag struct {
-	s string
+// EarlyStop is a noop ExecutableCmd that returns earlyStop == true.
+var EarlyStop earlyStop
+
+type earlyStop struct{}
+
+func (e earlyStop) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (goTwo handler.ESExecutable, earlyStop bool, err error) {
+	return nil, true, nil
 }
 
-func (t executablePluginTag) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (goTwo string, earlyStop bool, err error) {
-	p, err := handler.GetPlugin(t.s)
+// RefESExecutablePlugin is a handler.ESExecutablePlugin reference tag.
+type RefESExecutablePlugin string
+
+func (ref RefESExecutablePlugin) ExecES(ctx context.Context, qCtx *handler.Context) (earlyStop bool, err error) {
+	p, err := handler.GetPlugin(string(ref))
 	if err != nil {
-		return "", false, err
+		return false, err
 	}
 
-	logger.Debug("exec executable plugin", qCtx.InfoField(), zap.String("exec", t.s))
-	earlyStop, err = p.ExecES(ctx, qCtx)
-	return "", earlyStop, err
+	return p.ExecES(ctx, qCtx)
 }
 
+func (ref RefESExecutablePlugin) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (goTwo handler.ESExecutable, earlyStop bool, err error) {
+	earlyStop, err = ref.ExecES(ctx, qCtx)
+	return nil, earlyStop, err
+}
+
+// RefMatcherPlugin is a handler.MatcherPlugin reference tag.
+type RefMatcherPlugin string
+
+func (ref RefMatcherPlugin) Match(ctx context.Context, qCtx *handler.Context) (matched bool, err error) {
+	p, err := handler.GetPlugin(string(ref))
+	if err != nil {
+		return false, err
+	}
+	return p.Match(ctx, qCtx)
+}
+
+// IfBlockConfig can build a IfBlock from human input.
 type IfBlockConfig struct {
 	If    []string      `yaml:"if"`
 	IfAnd []string      `yaml:"if_and"`
@@ -49,110 +73,91 @@ type IfBlockConfig struct {
 	Goto  string        `yaml:"goto"`
 }
 
-type matcher struct {
-	tag    string
-	negate bool
-}
-
-func paresMatcher(s []string) []matcher {
-	m := make([]matcher, 0, len(s))
+func paresRefMatcher(s []string) []handler.Matcher {
+	m := make([]handler.Matcher, 0, len(s))
 	for _, tag := range s {
 		if strings.HasPrefix(tag, "!") {
-			m = append(m, matcher{tag: strings.TrimPrefix(tag, "!"), negate: true})
+			m = append(m, NagateMatcher(RefMatcherPlugin(strings.TrimPrefix(tag, "!"))))
 		} else {
-			m = append(m, matcher{tag: tag})
+			m = append(m, RefMatcherPlugin(tag))
 		}
 	}
 	return m
 }
 
-type IfBlock struct {
-	ifMatcher     []matcher
-	ifAndMatcher  []matcher
-	executableCmd ExecutableCmd
-	goTwo         string
+type NagativeMatcher struct {
+	m handler.Matcher
 }
 
-func (b *IfBlock) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (goTwo string, earlyStop bool, err error) {
-	if len(b.ifMatcher) > 0 {
-		If, err := ifCondition(ctx, qCtx, logger, b.ifMatcher, false)
+func NagateMatcher(m handler.Matcher) handler.Matcher {
+	if nm, ok := m.(*NagativeMatcher); ok {
+		return nm.m
+	}
+	return &NagativeMatcher{m: m}
+}
+
+func (n *NagativeMatcher) Match(ctx context.Context, qCtx *handler.Context) (matched bool, err error) {
+	matched, err = n.m.Match(ctx, qCtx)
+	if err != nil {
+		return false, err
+	}
+	return !matched, nil
+}
+
+type IfBlock struct {
+	IfMatcher     []handler.Matcher
+	IfAndMatcher  []handler.Matcher
+	ExecutableCmd ExecutableCmd
+	GoTwo         handler.ESExecutable
+}
+
+func (b *IfBlock) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (goTwo handler.ESExecutable, earlyStop bool, err error) {
+	if len(b.IfMatcher) > 0 {
+		If, err := utils.BoolLogic(ctx, qCtx, b.IfMatcher, false)
 		if err != nil {
-			return "", false, err
+			return nil, false, err
 		}
 		if If == false {
-			return "", false, nil // if case returns false, skip this block.
+			return nil, false, nil // if case returns false, skip this block.
 		}
 	}
 
-	if len(b.ifAndMatcher) > 0 {
-		If, err := ifCondition(ctx, qCtx, logger, b.ifAndMatcher, true)
+	if len(b.IfAndMatcher) > 0 {
+		If, err := utils.BoolLogic(ctx, qCtx, b.IfAndMatcher, true)
 		if err != nil {
-			return "", false, err
+			return nil, false, err
 		}
 		if If == false {
-			return "", false, nil
+			return nil, false, nil
 		}
 	}
 
 	// exec
-	if b.executableCmd != nil {
-		goTwo, earlyStop, err = b.executableCmd.ExecCmd(ctx, qCtx, logger)
+	if b.ExecutableCmd != nil {
+		goTwo, earlyStop, err = b.ExecutableCmd.ExecCmd(ctx, qCtx, logger)
 		if err != nil {
-			return "", false, err
+			return nil, false, err
 		}
-		if len(goTwo) != 0 || earlyStop {
+		if goTwo != nil || earlyStop {
 			return goTwo, earlyStop, nil
 		}
 	}
 
 	// goto
-	if len(b.goTwo) != 0 { // if block has a goto, return it
-		return b.goTwo, false, nil
+	if b.GoTwo != nil { // if block has a goto, return it
+		return b.GoTwo, false, nil
 	}
 
-	return "", false, nil
+	return nil, false, nil
 }
 
-func ifCondition(ctx context.Context, qCtx *handler.Context, logger *zap.Logger, p []matcher, isAnd bool) (ok bool, err error) {
-	if len(p) == 0 {
-		return false, err
-	}
-
-	for _, m := range p {
-		mp, err := handler.GetPlugin(m.tag)
-		if err != nil {
-			return false, err
-		}
-		matched, err := mp.Match(ctx, qCtx)
-		if err != nil {
-			return false, err
-		}
-		logger.Debug("exec matcher plugin", qCtx.InfoField(), zap.String("exec", m.tag), zap.Bool("result", matched))
-
-		res := matched != m.negate
-		if !isAnd && res == true {
-			return true, nil // or: if one of the case is true, skip others.
-		}
-		if isAnd && res == false {
-			return false, nil // and: if one of the case is false, skip others.
-		}
-
-		ok = res
-	}
-	return ok, nil
-}
-
-func ParseIfBlock(in map[string]interface{}) (*IfBlock, error) {
-	c := new(IfBlockConfig)
-	err := handler.WeakDecode(in, c)
-	if err != nil {
-		return nil, err
-	}
-
+func ParseIfBlock(c *IfBlockConfig) (*IfBlock, error) {
 	b := &IfBlock{
-		ifMatcher:    paresMatcher(c.If),
-		ifAndMatcher: paresMatcher(c.IfAnd),
-		goTwo:        c.Goto,
+		IfMatcher:    paresRefMatcher(c.If),
+		IfAndMatcher: paresRefMatcher(c.IfAnd),
+	}
+	if len(c.Goto) != 0 {
+		b.GoTwo = RefESExecutablePlugin(c.Goto)
 	}
 
 	if len(c.Exec) != 0 {
@@ -160,7 +165,7 @@ func ParseIfBlock(in map[string]interface{}) (*IfBlock, error) {
 		if err != nil {
 			return nil, err
 		}
-		b.executableCmd = ecs
+		b.ExecutableCmd = ecs
 	}
 
 	return b, nil
@@ -173,7 +178,7 @@ type ExecutableCmdSequence struct {
 func ParseExecutableCmdSequence(in []interface{}) (*ExecutableCmdSequence, error) {
 	es := &ExecutableCmdSequence{c: make([]ExecutableCmd, 0, len(in))}
 	for i, v := range in {
-		ec, err := parseExecutableCmd(v)
+		ec, err := ParseExecutableCmd(v)
 		if err != nil {
 			return nil, fmt.Errorf("invalid cmd #%d: %w", i, err)
 		}
@@ -182,14 +187,20 @@ func ParseExecutableCmdSequence(in []interface{}) (*ExecutableCmdSequence, error
 	return es, nil
 }
 
-func parseExecutableCmd(in interface{}) (ExecutableCmd, error) {
+func ParseExecutableCmd(in interface{}) (ExecutableCmd, error) {
 	switch v := in.(type) {
+	case ExecutableCmd:
+		return v, nil
+	case handler.Executable:
+		return &warpExec{e: v}, nil
+	case handler.ESExecutable:
+		return &warpESExec{e: v}, nil
 	case string:
-		return &executablePluginTag{s: v}, nil
+		return RefESExecutablePlugin(v), nil
 	case map[string]interface{}:
 		switch {
 		case hasKey(v, "if") || hasKey(v, "if_and"): // if block
-			ec, err := ParseIfBlock(v)
+			ec, err := parseIfBlock(v)
 			if err != nil {
 				return nil, fmt.Errorf("invalid if section: %w", err)
 			}
@@ -212,6 +223,16 @@ func parseExecutableCmd(in interface{}) (ExecutableCmd, error) {
 	default:
 		return nil, fmt.Errorf("unexpected type: %s", reflect.TypeOf(in).String())
 	}
+}
+
+func parseIfBlock(m map[string]interface{}) (ec ExecutableCmd, err error) {
+	conf := new(IfBlockConfig)
+	err = handler.WeakDecode(m, conf)
+	if err != nil {
+		return nil, err
+	}
+
+	return ParseIfBlock(conf)
 }
 
 func parseParallelECS(m map[string]interface{}) (ec ExecutableCmd, err error) {
@@ -238,20 +259,38 @@ func hasKey(m map[string]interface{}, key string) bool {
 }
 
 // ExecCmd executes the sequence.
-func (es *ExecutableCmdSequence) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (goTwo string, earlyStop bool, err error) {
+func (es *ExecutableCmdSequence) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (goTwo handler.ESExecutable, earlyStop bool, err error) {
 	for _, cmd := range es.c {
 		goTwo, earlyStop, err = cmd.ExecCmd(ctx, qCtx, logger)
 		if err != nil {
-			return "", false, err
+			return nil, false, err
 		}
-		if len(goTwo) != 0 || earlyStop {
+		if goTwo != nil || earlyStop {
 			return goTwo, earlyStop, nil
 		}
 	}
 
-	return "", false, nil
+	return nil, false, nil
 }
 
 func (es *ExecutableCmdSequence) Len() int {
 	return len(es.c)
+}
+
+type warpExec struct {
+	e handler.Executable
+}
+
+func (w *warpExec) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (goTwo handler.ESExecutable, earlyStop bool, err error) {
+	err = w.e.Exec(ctx, qCtx)
+	return nil, false, err
+}
+
+type warpESExec struct {
+	e handler.ESExecutable
+}
+
+func (w *warpESExec) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (goTwo handler.ESExecutable, earlyStop bool, err error) {
+	earlyStop, err = w.e.ExecES(ctx, qCtx)
+	return nil, earlyStop, err
 }
