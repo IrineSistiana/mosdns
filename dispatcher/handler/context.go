@@ -35,7 +35,6 @@ type Context struct {
 	// init at beginning
 	q          *dns.Msg
 	clientAddr net.Addr
-	info       string // a short Context summary for logging
 	id         uint32 // additional uint to distinguish duplicated msg
 	startTime  time.Time
 
@@ -95,14 +94,16 @@ func NewContext(q *dns.Msg, from net.Addr) *Context {
 		status: ContextStatusWaitingResponse,
 	}
 
+	return ctx
+}
+
+func (ctx *Context) String() string {
+	q := ctx.q
 	if len(q.Question) == 1 {
 		q := q.Question[0]
-		ctx.info = fmt.Sprintf("%s %d %d %d %d", q.Name, q.Qtype, q.Qclass, ctx.q.Id, ctx.id)
-	} else {
-		ctx.info = fmt.Sprintf("%v %d %d", ctx.q.Question, ctx.id, ctx.q.Id)
+		return fmt.Sprintf("%s %d %d %d %d", q.Name, q.Qtype, q.Qclass, ctx.q.Id, ctx.id)
 	}
-
-	return ctx
+	return fmt.Sprintf("%v %d %d", ctx.q.Question, ctx.id, ctx.q.Id)
 }
 
 // Q returns the query msg. It always returns a non-nil msg.
@@ -203,7 +204,7 @@ func (ctx *Context) StartTime() time.Time {
 // InfoField returns a zap.Field.
 // Just for convenience.
 func (ctx *Context) InfoField() zap.Field {
-	return zap.String("query", ctx.info)
+	return zap.Stringer("query", ctx)
 }
 
 // Copy deep copies this Context.
@@ -225,7 +226,6 @@ func (ctx *Context) CopyNoR() *Context {
 
 	newCtx.q = ctx.q.Copy()
 	newCtx.clientAddr = ctx.clientAddr
-	newCtx.info = ctx.info
 	newCtx.id = ctx.id
 	newCtx.startTime = ctx.startTime
 	newCtx.tcpClient = ctx.tcpClient
