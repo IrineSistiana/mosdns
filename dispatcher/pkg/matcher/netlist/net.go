@@ -68,6 +68,8 @@ func (net Net) Contains(ip IPv6) bool {
 	return true
 }
 
+var v4InV6Prefix uint64 = 0xffff << 32
+
 //Conv converts ip to type IPv6.
 //ip should be an ipv4/6 address (with length 4 or 16)
 //Conv will return ErrInvalidIP if ip has an invalid length.
@@ -81,7 +83,7 @@ func Conv(ip net.IP) (IPv6, error) {
 		}
 		return ipv6, nil
 	case 4:
-		return IPv6{0, uint64(binary.BigEndian.Uint32(ip))}, nil
+		return IPv6{0, uint64(binary.BigEndian.Uint32(ip)) + v4InV6Prefix}, nil
 	default:
 		return IPv6{}, ErrInvalidIP
 	}

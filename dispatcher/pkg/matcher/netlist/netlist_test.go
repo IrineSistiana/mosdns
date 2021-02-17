@@ -51,6 +51,9 @@ var (
 192.168.9.24/24
 192.168.3.0/24
 192.169.0.0/16
+
+# issue https://github.com/IrineSistiana/mosdns/issues/76
+127.0.0.0/8
 `
 )
 
@@ -62,7 +65,7 @@ func TestIPNetList_New_And_Contains(t *testing.T) {
 	}
 	ipNetList.Sort()
 
-	if ipNetList.Len() != 18 {
+	if ipNetList.Len() != 19 {
 		t.Fatalf("unexpected length %d", ipNetList.Len())
 	}
 
@@ -90,6 +93,8 @@ func TestIPNetList_New_And_Contains(t *testing.T) {
 		{"14", args{net.IPv4(192, 168, 255, 255)}, true},
 		{"15", args{net.IPv4(192, 169, 4, 4)}, true},
 		{"14", args{net.IPv4(192, 170, 4, 4)}, false},
+		{"https://github.com/IrineSistiana/mosdns/issues/76 1", args{ip: net.IPv4(127, 0, 0, 1)}, true},
+		{"https://github.com/IrineSistiana/mosdns/issues/76 2", args{ip: net.IP{127, 0, 0, 1}}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
