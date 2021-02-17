@@ -24,8 +24,50 @@ import (
 	"testing"
 )
 
-var (
-	rawList = `
+func TestIPNetList_Sort_And_Merge(t *testing.T) {
+	raw := `
+192.168.0.0/16
+192.168.1.1/24 # merged
+192.168.9.24/24 # merged
+192.168.3.0/24 # merged
+192.169.0.0/16
+`
+	ipNetList := NewList()
+	err := LoadFromReader(ipNetList, bytes.NewBufferString(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ipNetList.Sort()
+
+	if ipNetList.Len() != 2 {
+		t.Fatalf("unexpected length %d", ipNetList.Len())
+	}
+
+	tests := []struct {
+		name   string
+		testIP net.IP
+		want   bool
+	}{
+		{"0", net.IPv4(192, 167, 255, 255), false},
+		{"1", net.IPv4(192, 168, 0, 0), true},
+		{"2", net.IPv4(192, 168, 1, 1), true},
+		{"3", net.IPv4(192, 168, 9, 255), true},
+		{"4", net.IPv4(192, 168, 255, 255), true},
+		{"5", net.IPv4(192, 169, 1, 1), true},
+		{"6", net.IPv4(192, 170, 1, 1), false},
+		{"7", net.IPv4(1, 1, 1, 1), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ipNetList.Contains(tt.testIP); got != tt.want {
+				t.Errorf("IPNetList.Contains() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIPNetList_New_And_Contains(t *testing.T) {
+	raw := `
 # comment line
 1.0.1.0/24 additional strings should be ignored 
 1.1.2.0/23 # comment
@@ -46,59 +88,40 @@ var (
 3.3.3.3
 2002:222::1
 
-192.168.0.0/16
-192.168.1.1/24
-192.168.9.24/24
-192.168.3.0/24
-192.169.0.0/16
-
 # issue https://github.com/IrineSistiana/mosdns/issues/76
 127.0.0.0/8
 `
-)
 
-func TestIPNetList_New_And_Contains(t *testing.T) {
 	ipNetList := NewList()
-	err := LoadFromReader(ipNetList, bytes.NewBufferString(rawList))
+	err := LoadFromReader(ipNetList, bytes.NewBufferString(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
 	ipNetList.Sort()
 
-	if ipNetList.Len() != 19 {
-		t.Fatalf("unexpected length %d", ipNetList.Len())
-	}
-
-	type args struct {
-		ip net.IP
-	}
 	tests := []struct {
-		name string
-		args args
-		want bool
+		name   string
+		testIP net.IP
+		want   bool
 	}{
-		{"1", args{net.IPv4(1, 0, 1, 1)}, true},
-		{"2", args{net.IPv4(1, 0, 2, 2)}, true},
-		{"3", args{net.IPv4(1, 1, 1, 1)}, false},
-		{"4", args{net.IPv4(1, 0, 4, 4)}, false},
-		{"5", args{net.ParseIP("2001:250:2000::1")}, true},
-		{"6", args{net.ParseIP("2002:250:2000::1")}, false},
-		{"7", args{net.IPv4(2, 2, 2, 2)}, true},
-		{"8", args{net.IPv4(2, 2, 2, 3)}, false},
-		{"9", args{net.IPv4(3, 3, 3, 3)}, true},
-		{"10", args{net.IPv4(4, 4, 4, 4)}, false},
-		{"11", args{net.ParseIP("2002:222::1")}, true},
-		{"12", args{net.ParseIP("2002:222::2")}, false},
-		{"13", args{net.IPv4(192, 168, 4, 4)}, true},
-		{"14", args{net.IPv4(192, 168, 255, 255)}, true},
-		{"15", args{net.IPv4(192, 169, 4, 4)}, true},
-		{"14", args{net.IPv4(192, 170, 4, 4)}, false},
-		{"https://github.com/IrineSistiana/mosdns/issues/76 1", args{ip: net.IPv4(127, 0, 0, 1)}, true},
-		{"https://github.com/IrineSistiana/mosdns/issues/76 2", args{ip: net.IP{127, 0, 0, 1}}, true},
+		{"1", net.IPv4(1, 0, 1, 1), true},
+		{"2", net.IPv4(1, 0, 2, 2), true},
+		{"3", net.IPv4(1, 1, 1, 1), false},
+		{"4", net.IPv4(1, 0, 4, 4), false},
+		{"5", net.ParseIP("2001:250:2000::1"), true},
+		{"6", net.ParseIP("2002:250:2000::1"), false},
+		{"7", net.IPv4(2, 2, 2, 2), true},
+		{"8", net.IPv4(2, 2, 2, 3), false},
+		{"9", net.IPv4(3, 3, 3, 3), true},
+		{"10", net.IPv4(4, 4, 4, 4), false},
+		{"11", net.ParseIP("2002:222::1"), true},
+		{"12", net.ParseIP("2002:222::2"), false},
+		{"https://github.com/IrineSistiana/mosdns/issues/76 1", net.IPv4(127, 0, 0, 1), true},
+		{"https://github.com/IrineSistiana/mosdns/issues/76 2", net.IP{127, 0, 0, 1}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ipNetList.Contains(tt.args.ip); got != tt.want {
+			if got := ipNetList.Contains(tt.testIP); got != tt.want {
 				t.Errorf("IPNetList.Contains() = %v, want %v", got, tt.want)
 			}
 		})
@@ -108,7 +131,7 @@ func TestIPNetList_New_And_Contains(t *testing.T) {
 func Test_cidrMask(t *testing.T) {
 	tests := []struct {
 		name  string
-		n     uint
+		n     int
 		wantM mask
 	}{
 		{"0", 0, [2]uint64{0, 0}},

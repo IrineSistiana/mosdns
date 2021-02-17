@@ -48,7 +48,7 @@ type Net struct {
 
 //NewNet returns a new IPNet, mask should be an ipv6 mask,
 //which means you should +96 if you have an ipv4 mask.
-func NewNet(ipv6 IPv6, mask uint) (n Net) {
+func NewNet(ipv6 IPv6, mask int) (n Net) {
 	n.ip = ipv6
 	n.mask = cidrMask(mask)
 	for i := 0; i < 2; i++ {
@@ -141,7 +141,7 @@ func ParseCIDR(s string) (Net, error) {
 			return Net{}, fmt.Errorf("cidr mask %s overflow", s)
 		}
 
-		return NewNet(ipv6, uint(maskLen)), nil
+		return NewNet(ipv6, int(maskLen)), nil
 	}
 
 	ipv6, _, err := ParseIP(s)
@@ -151,20 +151,41 @@ func ParseCIDR(s string) (Net, error) {
 	return NewNet(ipv6, 128), nil
 }
 
-func cidrMask(n uint) (m mask) {
-	for i := uint(0); i < 2; i++ {
-		if n != 0 {
-			m[i] = ^(maxUint64 >> n)
-		} else {
-			break
-		}
+func (ip IPv6) ToNetIP() net.IP {
+	nip := make(net.IP, 16)
+	uint64ToBytes(ip, nip)
+	return nip
+}
 
-		if n > 64 {
-			n = n - 64
-		} else {
-			break
-		}
+func (m mask) toNetMask() net.IPMask {
+	nMask := make(net.IPMask, 16)
+	uint64ToBytes(m, nMask)
+	return nMask
+}
+
+func uint64ToBytes(in [2]uint64, out []byte) {
+	if len(out) < 16 {
+		panic("uint64ToBytes: invalid out length")
 	}
+	binary.BigEndian.PutUint64(out[:8], in[0])
+	binary.BigEndian.PutUint64(out[8:], in[1])
+}
 
+func (n Net) ToNetIPNet() *net.IPNet {
+	nn := new(net.IPNet)
+	nn.IP = n.ip.ToNetIP()
+	nn.Mask = n.mask.toNetMask()
+	return nn
+}
+
+func (n Net) String() string {
+	return n.ToNetIPNet().String()
+}
+
+func cidrMask(n int) (m mask) {
+	m[0] = ^(maxUint64 >> n)
+	if n > 64 {
+		m[1] = ^(maxUint64 >> (n - 64))
+	}
 	return m
 }

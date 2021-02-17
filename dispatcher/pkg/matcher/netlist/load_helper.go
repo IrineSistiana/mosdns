@@ -143,9 +143,9 @@ func LoadFromV2CIDR(l *List, cidr []*v2data.CIDR) error {
 		}
 		switch len(e.Ip) {
 		case 4:
-			l.Append(NewNet(ipv6, uint(e.Prefix+96)))
+			l.Append(NewNet(ipv6, int(e.Prefix+96)))
 		case 16:
-			l.Append(NewNet(ipv6, uint(e.Prefix)))
+			l.Append(NewNet(ipv6, int(e.Prefix)))
 		default:
 			return fmt.Errorf("invalid cidr ip length at #%d", i)
 		}

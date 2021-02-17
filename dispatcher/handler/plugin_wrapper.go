@@ -93,7 +93,6 @@ func (w *PluginWrapper) Connect(ctx context.Context, qCtx *Context, pipeCtx *Pip
 }
 
 func (w *PluginWrapper) Match(ctx context.Context, qCtx *Context) (matched bool, err error) {
-	w.logDebug(qCtx)
 	if err = ctx.Err(); err != nil {
 		return false, err
 	}
@@ -106,6 +105,7 @@ func (w *PluginWrapper) Match(ctx context.Context, qCtx *Context) (matched bool,
 	if err != nil {
 		return false, NewPluginError(w.p.Tag(), err)
 	}
+	mlog.L().Debug("exec matcher", qCtx.InfoField(), zap.String("exec", w.p.Tag()), zap.Bool("res", matched))
 	return matched, nil
 }
 
