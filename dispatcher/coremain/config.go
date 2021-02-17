@@ -90,7 +90,10 @@ func GenConfig(p string) error {
 		Args: map[string]interface{}{
 			"upstream": []interface{}{
 				map[string]interface{}{
-					"addr": "https://8.8.8.8/dns-query",
+					"addr": "https://dns.google/dns-query",
+					"ip_addr": []interface{}{
+						"8.8.8.8", "2001:4860:4860::8888",
+					},
 				},
 			},
 		},
