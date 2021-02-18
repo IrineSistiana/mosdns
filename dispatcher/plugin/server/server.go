@@ -18,6 +18,7 @@
 package server
 
 import (
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
@@ -132,6 +133,20 @@ func newServerPlugin(bp *handler.BP, args *Args) (*serverPlugin, error) {
 				return nil, err
 			}
 			s.Listener = c
+		}
+
+		switch s.Protocol {
+		case server.ProtocolDoT, server.ProtocolDoH:
+			if len(sc.Key) == 0 || len(sc.Cert) == 0 {
+				return nil, errors.New("no certificate")
+			}
+			cert, err := tls.LoadX509KeyPair(sc.Cert, sc.Key)
+			if err != nil {
+				return nil, fmt.Errorf("failed to load certificate: %w", err)
+			}
+			tlsConfig := new(tls.Config)
+			tlsConfig.Certificates = append(tlsConfig.Certificates, cert)
+			s.TLSConfig = tlsConfig
 		}
 
 		go func() {
