@@ -15,7 +15,7 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package responsematcher
+package msg_matcher
 
 import (
 	"context"
@@ -27,15 +27,15 @@ import (
 	"net"
 )
 
-type responseIPMatcher struct {
+type AAAAAIPMatcher struct {
 	ipMatcher netlist.Matcher
 }
 
-func newResponseIPMatcher(ipMatcher netlist.Matcher) *responseIPMatcher {
-	return &responseIPMatcher{ipMatcher: ipMatcher}
+func NewAAAAAIPMatcher(ipMatcher netlist.Matcher) *AAAAAIPMatcher {
+	return &AAAAAIPMatcher{ipMatcher: ipMatcher}
 }
 
-func (m *responseIPMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, _ error) {
+func (m *AAAAAIPMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, _ error) {
 	if qCtx.R() == nil {
 		return false, nil
 	}
@@ -57,15 +57,15 @@ func (m *responseIPMatcher) Match(_ context.Context, qCtx *handler.Context) (mat
 	return false, nil
 }
 
-type cnameMatcher struct {
+type CNameMatcher struct {
 	domainMatcher domain.Matcher
 }
 
-func newCnameMatcher(domainMatcher domain.Matcher) *cnameMatcher {
-	return &cnameMatcher{domainMatcher: domainMatcher}
+func NewCNameMatcher(domainMatcher domain.Matcher) *CNameMatcher {
+	return &CNameMatcher{domainMatcher: domainMatcher}
 }
 
-func (m *cnameMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, _ error) {
+func (m *CNameMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, _ error) {
 	if qCtx.R() == nil {
 		return false, nil
 	}
@@ -80,15 +80,15 @@ func (m *cnameMatcher) Match(_ context.Context, qCtx *handler.Context) (matched 
 	return false, nil
 }
 
-type rCodeMatcher struct {
+type RCodeMatcher struct {
 	elemMatcher *elem.IntMatcher
 }
 
-func newRCodeMatcher(elemMatcher *elem.IntMatcher) *rCodeMatcher {
-	return &rCodeMatcher{elemMatcher: elemMatcher}
+func NewRCodeMatcher(elemMatcher *elem.IntMatcher) *RCodeMatcher {
+	return &RCodeMatcher{elemMatcher: elemMatcher}
 }
 
-func (m *rCodeMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, _ error) {
+func (m *RCodeMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, _ error) {
 	if qCtx.R() == nil {
 		return false, nil
 	}

@@ -23,6 +23,7 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/domain"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/elem"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/msg_matcher"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/netlist"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
@@ -79,7 +80,7 @@ func newQueryMatcher(bp *handler.BP, args *Args) (m *queryMatcher, err error) {
 			return nil, err
 		}
 		ipMatcher.Sort()
-		m.matcherGroup = append(m.matcherGroup, newClientIPMatcher(ipMatcher))
+		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewClientIPMatcher(ipMatcher))
 	}
 	if len(args.Domain) > 0 {
 		mixMatcher := domain.NewMixMatcher()
@@ -87,16 +88,16 @@ func newQueryMatcher(bp *handler.BP, args *Args) (m *queryMatcher, err error) {
 		if err != nil {
 			return nil, err
 		}
-		m.matcherGroup = append(m.matcherGroup, newQDomainMatcher(mixMatcher))
+		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewQNameMatcher(mixMatcher))
 	}
 	if len(args.QType) > 0 {
 		elemMatcher := elem.NewIntMatcher(args.QType)
-		m.matcherGroup = append(m.matcherGroup, newQTypeMatcher(elemMatcher))
+		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewQTypeMatcher(elemMatcher))
 	}
 
 	if len(args.QClass) > 0 {
 		elemMatcher := elem.NewIntMatcher(args.QClass)
-		m.matcherGroup = append(m.matcherGroup, newQClassMatcher(elemMatcher))
+		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewQClassMatcher(elemMatcher))
 	}
 
 	return m, nil

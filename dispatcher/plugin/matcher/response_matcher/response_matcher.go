@@ -23,6 +23,7 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/domain"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/elem"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/msg_matcher"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/netlist"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
@@ -66,7 +67,7 @@ func newResponseMatcher(bp *handler.BP, args *Args) (m *responseMatcher, err err
 	m.args = args
 
 	if len(args.Rcode) > 0 {
-		m.matcherGroup = append(m.matcherGroup, newRCodeMatcher(elem.NewIntMatcher(args.Rcode)))
+		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewRCodeMatcher(elem.NewIntMatcher(args.Rcode)))
 	}
 
 	if len(args.CNAME) > 0 {
@@ -75,7 +76,7 @@ func newResponseMatcher(bp *handler.BP, args *Args) (m *responseMatcher, err err
 		if err != nil {
 			return nil, err
 		}
-		m.matcherGroup = append(m.matcherGroup, newCnameMatcher(mixMatcher))
+		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewCNameMatcher(mixMatcher))
 	}
 
 	if len(args.IP) > 0 {
@@ -85,7 +86,7 @@ func newResponseMatcher(bp *handler.BP, args *Args) (m *responseMatcher, err err
 			return nil, err
 		}
 		ipMatcher.Sort()
-		m.matcherGroup = append(m.matcherGroup, newResponseIPMatcher(ipMatcher))
+		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewAAAAAIPMatcher(ipMatcher))
 	}
 
 	return m, nil

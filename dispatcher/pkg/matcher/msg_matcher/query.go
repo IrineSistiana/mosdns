@@ -15,7 +15,7 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package querymatcher
+package msg_matcher
 
 import (
 	"context"
@@ -27,15 +27,15 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 )
 
-type clientIPMatcher struct {
+type ClientIPMatcher struct {
 	ipMatcher netlist.Matcher
 }
 
-func newClientIPMatcher(ipMatcher netlist.Matcher) *clientIPMatcher {
-	return &clientIPMatcher{ipMatcher: ipMatcher}
+func NewClientIPMatcher(ipMatcher netlist.Matcher) *ClientIPMatcher {
+	return &ClientIPMatcher{ipMatcher: ipMatcher}
 }
 
-func (m *clientIPMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, err error) {
+func (m *ClientIPMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, err error) {
 	if qCtx.From() != nil {
 		ip := utils.GetIPFromAddr(qCtx.From())
 		if ip != nil {
@@ -49,15 +49,15 @@ func (m *clientIPMatcher) Match(_ context.Context, qCtx *handler.Context) (match
 	return false, nil
 }
 
-type qDomainMatcher struct {
+type QNameMatcher struct {
 	domainMatcher domain.Matcher
 }
 
-func newQDomainMatcher(domainMatcher domain.Matcher) *qDomainMatcher {
-	return &qDomainMatcher{domainMatcher: domainMatcher}
+func NewQNameMatcher(domainMatcher domain.Matcher) *QNameMatcher {
+	return &QNameMatcher{domainMatcher: domainMatcher}
 }
 
-func (m *qDomainMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, _ error) {
+func (m *QNameMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, _ error) {
 	for i := range qCtx.Q().Question {
 		_, matched = m.domainMatcher.Match(qCtx.Q().Question[i].Name)
 		if matched {
@@ -67,15 +67,15 @@ func (m *qDomainMatcher) Match(_ context.Context, qCtx *handler.Context) (matche
 	return false, nil
 }
 
-type qTypeMatcher struct {
+type QTypeMatcher struct {
 	elemMatcher *elem.IntMatcher
 }
 
-func newQTypeMatcher(elemMatcher *elem.IntMatcher) *qTypeMatcher {
-	return &qTypeMatcher{elemMatcher: elemMatcher}
+func NewQTypeMatcher(elemMatcher *elem.IntMatcher) *QTypeMatcher {
+	return &QTypeMatcher{elemMatcher: elemMatcher}
 }
 
-func (m *qTypeMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, _ error) {
+func (m *QTypeMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, _ error) {
 	for i := range qCtx.Q().Question {
 		if m.elemMatcher.Match(int(qCtx.Q().Question[i].Qtype)) {
 			return true, nil
@@ -84,15 +84,15 @@ func (m *qTypeMatcher) Match(_ context.Context, qCtx *handler.Context) (matched 
 	return false, nil
 }
 
-type qClassMatcher struct {
+type QClassMatcher struct {
 	elemMatcher *elem.IntMatcher
 }
 
-func newQClassMatcher(elemMatcher *elem.IntMatcher) *qClassMatcher {
-	return &qClassMatcher{elemMatcher: elemMatcher}
+func NewQClassMatcher(elemMatcher *elem.IntMatcher) *QClassMatcher {
+	return &QClassMatcher{elemMatcher: elemMatcher}
 }
 
-func (m *qClassMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, _ error) {
+func (m *QClassMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, _ error) {
 	for i := range qCtx.Q().Question {
 		if m.elemMatcher.Match(int(qCtx.Q().Question[i].Qclass)) {
 			return true, nil
