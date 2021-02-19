@@ -59,8 +59,8 @@ type parallelECSResult struct {
 	from   int
 }
 
-func (p *ParallelECS) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (goTwo handler.ESExecutable, earlyStop bool, err error) {
-	return nil, false, p.execCmd(ctx, qCtx, logger)
+func (p *ParallelECS) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (earlyStop bool, err error) {
+	return false, p.execCmd(ctx, qCtx, logger)
 }
 
 func (p *ParallelECS) execCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {

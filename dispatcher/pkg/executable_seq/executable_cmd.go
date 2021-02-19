@@ -24,5 +24,5 @@ import (
 )
 
 type ExecutableCmd interface {
-	ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (goTwo handler.ESExecutable, earlyStop bool, err error)
+	ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (earlyStop bool, err error)
 }

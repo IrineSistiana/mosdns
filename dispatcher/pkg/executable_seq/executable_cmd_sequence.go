@@ -33,8 +33,8 @@ var EarlyStop earlyStop
 
 type earlyStop struct{}
 
-func (e earlyStop) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (goTwo handler.ESExecutable, earlyStop bool, err error) {
-	return nil, true, nil
+func (e earlyStop) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (earlyStop bool, err error) {
+	return true, nil
 }
 
 // RefESExecutablePlugin is a handler.ESExecutablePlugin reference tag.
@@ -49,9 +49,9 @@ func (ref RefESExecutablePlugin) ExecES(ctx context.Context, qCtx *handler.Conte
 	return p.ExecES(ctx, qCtx)
 }
 
-func (ref RefESExecutablePlugin) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (goTwo handler.ESExecutable, earlyStop bool, err error) {
+func (ref RefESExecutablePlugin) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (earlyStop bool, err error) {
 	earlyStop, err = ref.ExecES(ctx, qCtx)
-	return nil, earlyStop, err
+	return earlyStop, err
 }
 
 // RefMatcherPlugin is a handler.MatcherPlugin reference tag.
@@ -70,7 +70,7 @@ type IfBlockConfig struct {
 	If    []string      `yaml:"if"`
 	IfAnd []string      `yaml:"if_and"`
 	Exec  []interface{} `yaml:"exec"`
-	Goto  string        `yaml:"goto"`
+	Goto  string        `yaml:"goto"` // Deprecated, use Exec + EarlyStop instead.
 }
 
 func paresRefMatcher(s []string) []handler.Matcher {
@@ -108,47 +108,41 @@ type IfBlock struct {
 	IfMatcher     []handler.Matcher
 	IfAndMatcher  []handler.Matcher
 	ExecutableCmd ExecutableCmd
-	GoTwo         handler.ESExecutable
 }
 
-func (b *IfBlock) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (goTwo handler.ESExecutable, earlyStop bool, err error) {
+func (b *IfBlock) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (earlyStop bool, err error) {
 	if len(b.IfMatcher) > 0 {
 		If, err := utils.BoolLogic(ctx, qCtx, b.IfMatcher, false)
 		if err != nil {
-			return nil, false, err
+			return false, err
 		}
 		if If == false {
-			return nil, false, nil // if case returns false, skip this block.
+			return false, nil // if case returns false, skip this block.
 		}
 	}
 
 	if len(b.IfAndMatcher) > 0 {
 		If, err := utils.BoolLogic(ctx, qCtx, b.IfAndMatcher, true)
 		if err != nil {
-			return nil, false, err
+			return false, err
 		}
 		if If == false {
-			return nil, false, nil
+			return false, nil
 		}
 	}
 
 	// exec
 	if b.ExecutableCmd != nil {
-		goTwo, earlyStop, err = b.ExecutableCmd.ExecCmd(ctx, qCtx, logger)
+		earlyStop, err = b.ExecutableCmd.ExecCmd(ctx, qCtx, logger)
 		if err != nil {
-			return nil, false, err
+			return false, err
 		}
-		if goTwo != nil || earlyStop {
-			return goTwo, earlyStop, nil
+		if earlyStop {
+			return true, nil
 		}
 	}
 
-	// goto
-	if b.GoTwo != nil { // if block has a goto, return it
-		return b.GoTwo, false, nil
-	}
-
-	return nil, false, nil
+	return false, nil
 }
 
 func ParseIfBlock(c *IfBlockConfig) (*IfBlock, error) {
@@ -156,12 +150,14 @@ func ParseIfBlock(c *IfBlockConfig) (*IfBlock, error) {
 		IfMatcher:    paresRefMatcher(c.If),
 		IfAndMatcher: paresRefMatcher(c.IfAnd),
 	}
+
+	exec := c.Exec
 	if len(c.Goto) != 0 {
-		b.GoTwo = RefESExecutablePlugin(c.Goto)
+		exec = append(exec[0:len(exec):len(exec)], c.Goto, EarlyStop)
 	}
 
-	if len(c.Exec) != 0 {
-		ecs, err := ParseExecutableCmdSequence(c.Exec)
+	if len(exec) != 0 {
+		ecs, err := ParseExecutableCmdSequence(exec)
 		if err != nil {
 			return nil, err
 		}
@@ -259,18 +255,18 @@ func hasKey(m map[string]interface{}, key string) bool {
 }
 
 // ExecCmd executes the sequence.
-func (es *ExecutableCmdSequence) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (goTwo handler.ESExecutable, earlyStop bool, err error) {
+func (es *ExecutableCmdSequence) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (earlyStop bool, err error) {
 	for _, cmd := range es.c {
-		goTwo, earlyStop, err = cmd.ExecCmd(ctx, qCtx, logger)
+		earlyStop, err = cmd.ExecCmd(ctx, qCtx, logger)
 		if err != nil {
-			return nil, false, err
+			return false, err
 		}
-		if goTwo != nil || earlyStop {
-			return goTwo, earlyStop, nil
+		if earlyStop {
+			return true, nil
 		}
 	}
 
-	return nil, false, nil
+	return false, nil
 }
 
 func (es *ExecutableCmdSequence) Len() int {
@@ -281,16 +277,16 @@ type warpExec struct {
 	e handler.Executable
 }
 
-func (w *warpExec) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (goTwo handler.ESExecutable, earlyStop bool, err error) {
+func (w *warpExec) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (earlyStop bool, err error) {
 	err = w.e.Exec(ctx, qCtx)
-	return nil, false, err
+	return false, err
 }
 
 type warpESExec struct {
 	e handler.ESExecutable
 }
 
-func (w *warpESExec) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (goTwo handler.ESExecutable, earlyStop bool, err error) {
+func (w *warpESExec) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (earlyStop bool, err error) {
 	earlyStop, err = w.e.ExecES(ctx, qCtx)
-	return nil, earlyStop, err
+	return earlyStop, err
 }

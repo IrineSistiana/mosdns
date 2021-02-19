@@ -58,35 +58,44 @@ type statusTracker struct {
 	threshold int
 	status    []uint8 // 0 means success, !0 means failed
 	p         int
+	s         int
+	f         int
 }
 
 func newStatusTracker(threshold, statLength int) *statusTracker {
 	return &statusTracker{
 		threshold: threshold,
 		status:    make([]uint8, statLength),
+		s:         statLength,
 	}
 }
 
 func (t *statusTracker) good() bool {
 	t.Lock()
 	defer t.Unlock()
-
-	var failedSum int
-	for _, s := range t.status {
-		if s != 0 {
-			failedSum++
-		}
-	}
-	return failedSum < t.threshold
+	return t.f < t.threshold
 }
 
 func (t *statusTracker) update(s uint8) {
 	t.Lock()
 	defer t.Unlock()
 
+	if s > 0 {
+		t.f++
+	} else {
+		t.s++
+	}
+
 	if t.p >= len(t.status) {
 		t.p = 0
 	}
+	oldS := t.status[t.p]
+	if oldS > 0 {
+		t.f--
+	} else {
+		t.s--
+	}
+
 	t.status[t.p] = s
 	t.p++
 }
@@ -126,8 +135,8 @@ func ParseFallbackECS(c *FallbackConfig) (*FallbackECS, error) {
 	return fallbackECS, nil
 }
 
-func (f *FallbackECS) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (goTwo handler.ESExecutable, earlyStop bool, err error) {
-	return nil, false, f.execCmd(ctx, qCtx, logger)
+func (f *FallbackECS) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (earlyStop bool, err error) {
+	return false, f.execCmd(ctx, qCtx, logger)
 }
 
 func (f *FallbackECS) execCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {

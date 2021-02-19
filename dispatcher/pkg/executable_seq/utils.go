@@ -26,17 +26,9 @@ import (
 
 // WalkExecutableCmd executes the ExecutableCmd, include its `goto`.
 // This should only be used in root cmd node.
-func WalkExecutableCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger, entry ExecutableCmd) (err error) {
-	goTwo, _, err := entry.ExecCmd(ctx, qCtx, logger)
-	if err != nil {
-		return err
-	}
-
-	if goTwo != nil {
-		_, err = goTwo.ExecES(ctx, qCtx)
-		return err
-	}
-	return nil
+func WalkExecutableCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger, entry ExecutableCmd) error {
+	_, err := entry.ExecCmd(ctx, qCtx, logger)
+	return err
 }
 
 func asyncWait(ctx context.Context, qCtx *handler.Context, logger *zap.Logger, c chan *parallelECSResult, total int) error {

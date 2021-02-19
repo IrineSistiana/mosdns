@@ -7,7 +7,6 @@ import (
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
-	"reflect"
 	"testing"
 )
 
@@ -17,69 +16,78 @@ func Test_ECS(t *testing.T) {
 
 	mErr := errors.New("mErr")
 	eErr := errors.New("eErr")
+	target := new(dns.Msg)
+	target.Id = 50000
 
 	var tests = []struct {
-		name     string
-		yamlStr  string
-		wantNext string
-		wantES   bool
-		wantErr  error
+		name       string
+		yamlStr    string
+		wantTarget bool
+		wantES     bool
+		wantErr    error
 	}{
 		{name: "test empty input", yamlStr: `
 exec:
 `,
-			wantNext: "", wantErr: nil},
+			wantTarget: false, wantErr: nil},
 		{name: "test empty end", yamlStr: `
 exec:
 - if: ["!matched",not_matched] # not matched
   exec: [exec_err]
-  goto: goto`,
-			wantNext: "", wantErr: nil},
+`,
+			wantTarget: false, wantErr: nil},
 
 		{name: "test if_and", yamlStr: `
 exec:
 - if_and: [matched, not_matched] # not matched
-  goto: goto1
+  exec: [exec_err]
 - if_and: [matched, not_matched, match_err] # not matched, early stop, no err
-  goto: goto2
+  exec: [exec_err]
 - if_and: [matched, matched, matched] # matched
-  goto: goto3
+  exec: exec_target
 `,
-			wantNext: "goto3", wantErr: nil},
+			wantTarget: true, wantErr: nil},
 
 		{name: "test if_and err", yamlStr: `
 exec:
 - if_and: [matched, match_err] # err
-  goto: goto1
+  exec: exec_target
 `,
-			wantNext: "", wantErr: mErr},
+			wantTarget: false, wantErr: mErr},
 
 		{name: "test if", yamlStr: `
 exec:
 - if: ["!matched", not_matched] # test ! prefix, not matched
-  goto: goto1
+  exec: exec_err
 - if: [matched, match_err] # matched, early stop, no err
   exec:
-  - if: ["!not_matched", not_matched] # matched
-    goto: goto2 						# reached here
-  goto: goto3
+  - if: ["!not_matched", not_matched] 	# matched
+    exec: exec_target					# reached here
+
 `,
-			wantNext: "goto2", wantErr: nil},
+			wantTarget: true, wantErr: nil},
+		{name: "test if goto", yamlStr: `
+exec:
+- if: [matched] # matched
+  exec: []
+  goto: exec_target # reached here
+
+`,
+			wantTarget: true, wantErr: nil, wantES: true},
 
 		{name: "test if err", yamlStr: `
 exec:
 - if: [not_matched, match_err] # err
-  goto: goto1
+  exec: exec
 `,
-			wantNext: "", wantErr: mErr},
+			wantTarget: false, wantErr: mErr},
 
 		{name: "test exec err", yamlStr: `
 exec:
 - if: [matched] 
   exec: exec_err
-  goto: goto1
 `,
-			wantNext: "", wantErr: eErr},
+			wantTarget: false, wantErr: eErr},
 
 		{name: "test early return in main sequence", yamlStr: `
 exec:
@@ -87,16 +95,16 @@ exec:
 - exec_skip
 - exec_err 	# skipped, should not reach here.
 `,
-			wantNext: "", wantES: true, wantErr: nil},
+			wantTarget: false, wantES: true, wantErr: nil},
 
 		{name: "test early return in if branch", yamlStr: `
 exec:
 - if: [matched] 
   exec: 
     - exec_skip
-  goto: goto1 # skipped, should not reach here.
+    - exec_err # skipped, should not reach here.
 `,
-			wantNext: "", wantES: true, wantErr: nil},
+			wantTarget: false, wantES: true, wantErr: nil},
 	}
 
 	// not_matched
@@ -109,6 +117,12 @@ exec:
 	// do something
 	handler.MustRegPlugin(&handler.DummyExecutablePlugin{
 		BP:      handler.NewBP("exec", ""),
+		WantErr: nil,
+	}, true)
+
+	handler.MustRegPlugin(&handler.DummyExecutablePlugin{
+		BP:      handler.NewBP("exec_target", ""),
+		WantR:   target,
 		WantErr: nil,
 	}, true)
 
@@ -150,19 +164,16 @@ exec:
 				t.Fatal(err)
 			}
 
-			gotNext, gotEarlyStop, err := ecs.ExecCmd(context.Background(), handler.NewContext(new(dns.Msg), nil), zap.NewNop())
+			qCtx := handler.NewContext(new(dns.Msg), nil)
+			gotEarlyStop, err := ecs.ExecCmd(context.Background(), qCtx, zap.NewNop())
 			if (err != nil || tt.wantErr != nil) && !errors.Is(err, tt.wantErr) {
 				t.Errorf("ExecCmd() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 
-			var wantNext handler.ESExecutable
-			if len(tt.wantNext) != 0 {
-				wantNext = RefESExecutablePlugin(tt.wantNext)
-			}
-
-			if !reflect.DeepEqual(gotNext, wantNext) {
-				t.Errorf("ExecCmd() gotNext = %v, want %v", gotNext, wantNext)
+			var gotTarget = qCtx.R()
+			if tt.wantTarget && gotTarget.Id != target.Id {
+				t.Errorf("ExecCmd() gotTarget = %d, want %d", gotTarget.Id, target.Id)
 			}
 
 			if gotEarlyStop != tt.wantES {
