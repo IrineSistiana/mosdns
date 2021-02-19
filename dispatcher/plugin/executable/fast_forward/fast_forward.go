@@ -156,7 +156,10 @@ type upstreamWrapper struct {
 }
 
 func (u *upstreamWrapper) Exchange(qCtx *handler.Context) (*dns.Msg, error) {
-	return u.u.Exchange(qCtx)
+	if qCtx.IsTCPClient() {
+		return u.u.ExchangeNoTruncated(qCtx.Q())
+	}
+	return u.u.Exchange(qCtx.Q())
 }
 
 func (u *upstreamWrapper) Address() string {

@@ -22,12 +22,12 @@ import (
 	"errors"
 	"fmt"
 	"github.com/AdguardTeam/dnsproxy/upstream"
-	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
 	"math/rand"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -194,9 +194,16 @@ func testUpstream(u *FastUpstream, isTCPClient bool) error {
 
 			q := new(dns.Msg)
 			q.SetQuestion("example.com.", dns.TypeA)
-			qCtx := handler.NewContext(q, nil)
-			qCtx.SetTCPClient(isTCPClient)
-			r, err := u.Exchange(qCtx)
+			var (
+				r   *dns.Msg
+				err error
+			)
+
+			if isTCPClient {
+				r, err = u.ExchangeNoTruncated(q)
+			} else {
+				r, err = u.Exchange(q)
+			}
 			if err != nil {
 				logErr(err)
 				return
@@ -257,13 +264,24 @@ func Benchmark_transport(b *testing.B) {
 					b.Fatal(err)
 				}
 
-				benchmarkTransport(b, u)
+				connOpened := uint32(0)
 				if u.udpTransport != nil {
-					b.Logf("%d udp conn(s) opened", u.udpTransport.connOpened)
+					df := u.udpTransport.DialFunc
+					u.udpTransport.DialFunc = func() (net.Conn, error) {
+						atomic.AddUint32(&connOpened, 1)
+						return df()
+					}
 				}
 				if u.tcpTransport != nil {
-					b.Logf("%d tcp conn(s) opened", u.tcpTransport.connOpened)
+					df := u.tcpTransport.DialFunc
+					u.tcpTransport.DialFunc = func() (net.Conn, error) {
+						atomic.AddUint32(&connOpened, 1)
+						return df()
+					}
 				}
+
+				benchmarkTransport(b, u)
+				b.Logf("%d tcp conn(s) opened", connOpened)
 			})
 		}
 	}
@@ -288,21 +306,13 @@ func Benchmark_dnsproxy(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			benchmarkTransport(b, &testUpstreamWrapper{dnsproxyUpstream: u})
+			benchmarkTransport(b, u)
 		})
 	}
 }
 
 type benchUpstream interface {
-	Exchange(qCtx *handler.Context) (*dns.Msg, error)
-}
-
-type testUpstreamWrapper struct {
-	dnsproxyUpstream upstream.Upstream
-}
-
-func (u *testUpstreamWrapper) Exchange(qCtx *handler.Context) (*dns.Msg, error) {
-	return u.dnsproxyUpstream.Exchange(qCtx.Q())
+	Exchange(q *dns.Msg) (*dns.Msg, error)
 }
 
 func benchmarkTransport(b *testing.B, u benchUpstream) {
@@ -310,11 +320,10 @@ func benchmarkTransport(b *testing.B, u benchUpstream) {
 	b.ResetTimer()
 	q := new(dns.Msg)
 	q.SetQuestion("example.com.", dns.TypeA)
-	qCtx := handler.NewContext(q, nil)
 	b.SetParallelism(4)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			r, err := u.Exchange(qCtx)
+			r, err := u.Exchange(q)
 			if err != nil {
 				b.Fatal(err)
 			}

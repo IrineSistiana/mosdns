@@ -23,7 +23,6 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
@@ -95,8 +94,8 @@ type FastUpstream struct {
 	addrWithPort string
 	idleTimeout  time.Duration
 
-	udpTransport *transport   // used by udp
-	tcpTransport *transport   // used by udp(upgraded), tcp, dot.
+	udpTransport *Transport   // used by udp
+	tcpTransport *Transport   // used by udp(upgraded), tcp, dot.
 	httpClient   *http.Client // used by doh.
 }
 
@@ -109,10 +108,7 @@ func NewUpstream(opt *Option) (*FastUpstream, error) {
 	u.protocol = opt.Protocol
 
 	switch opt.Protocol {
-	case ProtocolUDP:
-		u.addrWithPort = utils.TryAddPort(opt.Addr, 53)
-		u.idleTimeout = time.Second * 0 // this is for tcp fallback
-	case ProtocolTCP:
+	case ProtocolUDP, ProtocolTCP:
 		u.addrWithPort = utils.TryAddPort(opt.Addr, 53)
 		u.idleTimeout = time.Second * 0
 	case ProtocolDoT:
@@ -155,19 +151,24 @@ func NewUpstream(opt *Option) (*FastUpstream, error) {
 
 	// udpTransport
 	if opt.Protocol == ProtocolUDP {
-		u.udpTransport = newTransport(
-			u.logger,
-			func() (net.Conn, error) {
+		udpTransport := &Transport{
+			Logger: u.logger,
+			DialFunc: func() (net.Conn, error) {
 				return u.dialTimeout("udp", dialTimeout)
 			},
-			dnsutils.WriteMsgToUDP,
-			func(c io.Reader) (m *dns.Msg, n int, err error) {
+			WriteFunc: dnsutils.WriteMsgToUDP,
+			ReadFunc: func(c io.Reader) (m *dns.Msg, n int, err error) {
 				return dnsutils.ReadMsgFromUDP(c, dnsutils.IPv4UdpMaxPayload)
 			},
-			u.maxConns,
-			time.Second*30,
-			u.readTimeout,
-		)
+			MaxConns:    u.maxConns,
+			IdleTimeout: time.Second * 30,
+			Timeout:     u.readTimeout,
+		}
+		if err := udpTransport.Init(); err != nil {
+			return nil, fmt.Errorf("failed to init udp transport: %w", err)
+		}
+
+		u.udpTransport = udpTransport
 	}
 
 	// tcpTransport
@@ -199,15 +200,20 @@ func NewUpstream(opt *Option) (*FastUpstream, error) {
 			}
 		}
 
-		u.tcpTransport = newTransport(
-			u.logger,
-			dialFunc,
-			dnsutils.WriteMsgToTCP,
-			dnsutils.ReadMsgFromTCP,
-			u.maxConns,
-			u.idleTimeout,
-			u.readTimeout,
-		)
+		tcpTransport := &Transport{
+			Logger:      u.logger,
+			DialFunc:    dialFunc,
+			WriteFunc:   dnsutils.WriteMsgToTCP,
+			ReadFunc:    dnsutils.ReadMsgFromTCP,
+			MaxConns:    u.maxConns,
+			IdleTimeout: u.idleTimeout,
+			Timeout:     u.readTimeout,
+		}
+		if err := tcpTransport.Init(); err != nil {
+			return nil, fmt.Errorf("failed to init tcp transport: %w", err)
+		}
+
+		u.tcpTransport = tcpTransport
 	}
 
 	// httpClient
@@ -244,21 +250,33 @@ func NewUpstream(opt *Option) (*FastUpstream, error) {
 	return u, nil
 }
 
-func (u *FastUpstream) Exchange(qCtx *handler.Context) (r *dns.Msg, err error) {
-	q := qCtx.Q()
+func (u *FastUpstream) Exchange(q *dns.Msg) (r *dns.Msg, err error) {
+	return u.exchange(q, false)
+}
+
+func (u *FastUpstream) ExchangeNoTruncated(q *dns.Msg) (r *dns.Msg, err error) {
+	return u.exchange(q, true)
+}
+
+func (u *FastUpstream) exchange(q *dns.Msg, noTruncated bool) (r *dns.Msg, err error) {
 	switch u.protocol {
 	case ProtocolUDP:
-		if qCtx.IsTCPClient() { // upgrade to tcp
-			return u.exchangeTCP(q)
+		if noTruncated { // upgrade to tcp
+			r, err = u.exchangeTCP(q)
+		} else {
+			r, err = u.exchangeUDP(q)
 		}
-		return u.exchangeUDP(q)
 	case ProtocolTCP, ProtocolDoT:
-		return u.exchangeTCP(q)
+		r, err = u.exchangeTCP(q)
 	case ProtocolDoH:
-		return u.exchangeDoH(q)
+		r, err = u.exchangeDoH(q)
 	default:
-		panic(fmt.Sprintf("fastUpstream: invalid protocol %d", u.protocol))
+		err = fmt.Errorf("fastUpstream: invalid protocol %d", u.protocol)
 	}
+	if err != nil {
+		return nil, err
+	}
+	return r, nil
 }
 
 // dialTimeout: see dialContext.
@@ -293,15 +311,18 @@ func (u *FastUpstream) exchangeTCP(q *dns.Msg) (r *dns.Msg, err error) {
 	start := time.Now()
 	retry := 0
 exchangeAgain:
-	r, reusedConn, err := u.tcpTransport.exchange(q)
-	if err != nil && reusedConn == true && retry < 3 && time.Since(start) < time.Millisecond*100 {
+	m, reusedConn, err := u.tcpTransport.Exchange(q)
+	if err != nil && reusedConn == true && retry < 2 && time.Since(start) < time.Millisecond*50 {
 		retry++
 		goto exchangeAgain
 	}
-	return r, err
+	return m, nil
 }
 
 func (u *FastUpstream) exchangeUDP(q *dns.Msg) (r *dns.Msg, err error) {
-	r, _, err = u.udpTransport.exchange(q)
-	return r, err
+	m, _, err := u.udpTransport.Exchange(q)
+	if err != nil {
+		return nil, err
+	}
+	return m, nil
 }

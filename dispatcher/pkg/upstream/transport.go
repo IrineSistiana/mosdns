@@ -33,57 +33,95 @@ import (
 var (
 	errDialTimeout = errors.New("dial timeout")
 	errReadTimeout = errors.New("read timeout")
+	errIdCollision = errors.New("id collision")
 )
 
-type transport struct {
-	// cannot be nil
-	logger      *zap.Logger
-	dialFunc    func() (net.Conn, error)
-	writeFunc   func(c io.Writer, m *dns.Msg) (n int, err error)
-	readFunc    func(c io.Reader) (m *dns.Msg, n int, err error)
-	maxConn     int           // including dialing connections. Must >= 1.
-	idleTimeout time.Duration // if idleTimeout <=0, transport will not reuse connections.
-	readTimeout time.Duration // must > 0
+const (
+	defaultReadTimeout = time.Second * 5
+	defaultMaxConns    = 1
+)
+
+type Transport struct {
+	// Nil logger disables logging.
+	Logger *zap.Logger
+
+	// The following funcs cannot be nil.
+	DialFunc  func() (net.Conn, error)
+	WriteFunc func(c io.Writer, m *dns.Msg) (n int, err error)
+	ReadFunc  func(c io.Reader) (m *dns.Msg, n int, err error)
+	// MaxConns controls the maximum connections Transport can open.
+	// It includes dialing connections.
+	// Default is 1.
+	MaxConns int
+
+	// IdleTimeout controls the maximum idle time for each connection.
+	// If IdleTimeout <= 0, Transport will not reuse connections.
+	IdleTimeout time.Duration
+
+	// Timeout controls the read timeout for each read operation.
+	// Default is defaultReadTimeout.
+	Timeout time.Duration
+
+	initOnce sync.Once
+	logger   *zap.Logger // a non-nil logger
 
 	cm           sync.Mutex // protect the following maps
-	conns        map[*dnsConn]struct{}
+	conns        map[*clientConn]struct{}
 	dialingCalls map[*dialCall]struct{}
-
-	// for debugging and testing
-	connOpened uint32
 }
 
-func newTransport(
-	logger *zap.Logger,
-	dialFunc func() (net.Conn, error),
-	writeFunc func(c io.Writer, m *dns.Msg) (n int, err error),
-	readFunc func(c io.Reader) (m *dns.Msg, n int, err error),
-	maxConn int,
-	idleTimeout time.Duration,
-	readTimeout time.Duration,
-) *transport {
-	return &transport{
-		logger:      logger,
-		dialFunc:    dialFunc,
-		writeFunc:   writeFunc,
-		readFunc:    readFunc,
-		maxConn:     maxConn,
-		idleTimeout: idleTimeout,
-		readTimeout: readTimeout,
-
-		conns:        make(map[*dnsConn]struct{}),
-		dialingCalls: make(map[*dialCall]struct{}),
+func (t *Transport) timeout() time.Duration {
+	if t := t.Timeout; t > 0 {
+		return t
 	}
+	return defaultReadTimeout
+}
+
+func (t *Transport) maxConns() int {
+	if n := t.MaxConns; n > 0 {
+		return n
+	}
+	return defaultMaxConns
+}
+
+func (t *Transport) Init() error {
+	var err error
+	t.initOnce.Do(func() {
+		err = t.init()
+	})
+	return err
+}
+
+func (t *Transport) init() error {
+	switch {
+	case t.DialFunc == nil:
+		return errors.New("DialFunc is nil")
+	case t.WriteFunc == nil:
+		return errors.New("WriteFunc is nil")
+	case t.ReadFunc == nil:
+		return errors.New("ReadFunc is nil")
+	}
+
+	if logger := t.Logger; logger != nil {
+		t.logger = logger
+	} else {
+		t.logger = zap.NewNop()
+	}
+
+	t.conns = make(map[*clientConn]struct{})
+	t.dialingCalls = make(map[*dialCall]struct{})
+
+	return nil
 }
 
 type dialCall struct {
 	done chan struct{}
-	c    *dnsConn // will be ready after done is closed.
+	c    *clientConn // will be ready after done is closed.
 	err  error
 }
 
-func (t *transport) exchange(q *dns.Msg) (r *dns.Msg, reusedConn bool, err error) {
-	if t.idleTimeout <= 0 {
+func (t *Transport) Exchange(q *dns.Msg) (r *dns.Msg, reusedConn bool, err error) {
+	if t.IdleTimeout <= 0 {
 		r, err = t.exchangeNoKeepAlive(q)
 		return r, false, err
 	}
@@ -97,30 +135,32 @@ func (t *transport) exchange(q *dns.Msg) (r *dns.Msg, reusedConn bool, err error
 	return r, reusedConn, err
 }
 
-func (t *transport) exchangeNoKeepAlive(q *dns.Msg) (*dns.Msg, error) {
-	atomic.AddUint32(&t.connOpened, 1)
-	conn, err := t.dialFunc()
+func (t *Transport) exchangeNoKeepAlive(q *dns.Msg) (*dns.Msg, error) {
+	conn, err := t.DialFunc()
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close()
 
-	conn.SetDeadline(time.Now().Add(t.readTimeout))
-	_, err = t.writeFunc(conn, q)
+	conn.SetDeadline(time.Now().Add(t.timeout()))
+	_, err = t.WriteFunc(conn, q)
 	if err != nil {
 		return nil, err
 	}
-	r, _, err := t.readFunc(conn)
-	return r, err
+	r, _, err := t.ReadFunc(conn)
+	if err != nil {
+		return nil, err
+	}
+	return r, nil
 }
 
-func (t *transport) removeConn(conn *dnsConn) {
+func (t *Transport) removeConn(conn *clientConn) {
 	t.cm.Lock()
 	delete(t.conns, conn)
 	t.cm.Unlock()
 }
 
-func (t *transport) getConn() (conn *dnsConn, reusedConn bool, err error) {
+func (t *Transport) getConn() (conn *clientConn, reusedConn bool, err error) {
 	t.cm.Lock()
 	for c := range t.conns {
 		t.cm.Unlock()
@@ -129,7 +169,7 @@ func (t *transport) getConn() (conn *dnsConn, reusedConn bool, err error) {
 
 	// need a new connection
 	var dCall *dialCall
-	if len(t.dialingCalls) < t.maxConn { // we can dial a new connection
+	if len(t.dialingCalls) < t.maxConns() { // we can dial a new connection
 		dCall = t.startDial()
 	} else {
 		for call := range t.dialingCalls {
@@ -143,7 +183,7 @@ func (t *transport) getConn() (conn *dnsConn, reusedConn bool, err error) {
 		panic("Transport getConn: dCall is nil")
 	}
 
-	timer := pool.GetTimer(t.readTimeout)
+	timer := pool.GetTimer(t.timeout())
 	defer pool.ReleaseTimer(timer)
 	select {
 	case <-timer.C:
@@ -154,14 +194,13 @@ func (t *transport) getConn() (conn *dnsConn, reusedConn bool, err error) {
 }
 
 // startDial: It must be called when t.cm is locked.
-func (t *transport) startDial() *dialCall {
+func (t *Transport) startDial() *dialCall {
 	dCall := new(dialCall)
 	dCall.done = make(chan struct{})
 	t.dialingCalls[dCall] = struct{}{} // add it to dialingCalls
 
 	go func() {
-		atomic.AddUint32(&t.connOpened, 1)
-		c, err := t.dialFunc()
+		c, err := t.DialFunc()
 		if err != nil {
 			dCall.err = err
 			close(dCall.done)
@@ -183,22 +222,23 @@ func (t *transport) startDial() *dialCall {
 	return dCall
 }
 
-type dnsConn struct {
-	t *transport
+type clientConn struct {
+	t *Transport
 
-	c      net.Conn
-	nextId uint32 // atomic access
+	c net.Conn
 
 	qm    sync.RWMutex
 	queue map[uint16]chan *dns.Msg
 
 	cleanOnce sync.Once
 	closeChan chan struct{}
-	err       error // will be ready after dnsConn is closed
+	closeErr  error // will be ready after clientConn is closed
+
+	qId uint32 // atomic
 }
 
-func newDnsConn(t *transport, c net.Conn) *dnsConn {
-	return &dnsConn{
+func newDnsConn(t *Transport, c net.Conn) *clientConn {
+	return &clientConn{
 		t:         t,
 		c:         c,
 		queue:     make(map[uint16]chan *dns.Msg),
@@ -206,76 +246,86 @@ func newDnsConn(t *transport, c net.Conn) *dnsConn {
 	}
 }
 
-func (c *dnsConn) exchange(m *dns.Msg) (r *dns.Msg, err error) {
-	queryId := uint16(atomic.AddUint32(&c.nextId, 1))
+func (c *clientConn) exchange(qOld *dns.Msg) (*dns.Msg, error) {
+	qId := uint16(atomic.AddUint32(&c.qId, 1))
+	q := new(dns.Msg)
+	*q = *qOld
+	q.Id = qId
+
 	resChan := make(chan *dns.Msg, 1)
 	c.qm.Lock()
-	c.queue[queryId] = resChan
+	if _, ok := c.queue[qId]; ok {
+		c.qm.Unlock()
+		return nil, errIdCollision
+	}
+	c.queue[qId] = resChan
 	c.qm.Unlock()
+
 	defer func() {
 		c.qm.Lock()
-		delete(c.queue, queryId)
+		delete(c.queue, qId)
 		c.qm.Unlock()
 	}()
 
-	nm := new(dns.Msg)
-	*nm = *m // shadow copy msg, we just need to change its id.
-	nm.Id = queryId
-
-	c.c.SetDeadline(time.Now().Add(c.t.idleTimeout))
-	_, err = c.t.writeFunc(c.c, nm)
+	c.c.SetDeadline(time.Now().Add(c.t.IdleTimeout))
+	_, err := c.t.WriteFunc(c.c, q)
 	if err != nil {
 		c.closeAndCleanup(err) // abort this connection.
 		return nil, err
 	}
 
-	timer := pool.GetTimer(c.t.readTimeout)
+	timer := pool.GetTimer(c.t.timeout())
 	defer pool.ReleaseTimer(timer)
 
 	select {
 	case <-timer.C:
 		return nil, errReadTimeout
 	case r := <-resChan:
-		r.Id = m.Id
+		if r != nil {
+			r.Id = qOld.Id
+		}
 		return r, nil
 	case <-c.closeChan:
-		return nil, c.err
+		return nil, c.closeErr
 	}
 }
 
-func (c *dnsConn) notifyExchange(m *dns.Msg) {
+func (c *clientConn) notifyExchange(r *dns.Msg) {
+	if r == nil {
+		return
+	}
 	c.qm.RLock()
-	resChan, ok := c.queue[m.Id]
+	resChan, ok := c.queue[r.Id]
 	c.qm.RUnlock()
 	if ok {
 		select {
-		case resChan <- m:
+		case resChan <- r:
 		default:
 		}
 	}
 }
 
-func (c *dnsConn) readLoop() {
+func (c *clientConn) readLoop() {
 	for {
-		c.c.SetDeadline(time.Now().Add(c.t.idleTimeout))
-		m, _, err := c.t.readFunc(c.c)
-		if m != nil {
-			c.notifyExchange(m)
-		}
+		c.c.SetDeadline(time.Now().Add(c.t.IdleTimeout))
+		m, _, err := c.t.ReadFunc(c.c)
 		if err != nil {
 			c.closeAndCleanup(err) // abort this connection.
 			return
 		}
+		if m != nil {
+			c.notifyExchange(m)
+		}
 	}
 }
 
-func (c *dnsConn) closeAndCleanup(err error) {
+func (c *clientConn) closeAndCleanup(err error) {
 	c.cleanOnce.Do(func() {
-		c.err = err
+		c.closeErr = err
 		c.t.removeConn(c)
 		c.c.Close()
 		c.t.logger.Debug(
-			"dnsConn read loop exited",
+			"clientConn read loop exited",
 			zap.Stringer("LocalAddr", c.c.LocalAddr()),
 			zap.Stringer("RemoteAddr", c.c.RemoteAddr()),
 			zap.Error(err),
