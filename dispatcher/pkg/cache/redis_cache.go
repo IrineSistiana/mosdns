@@ -25,21 +25,21 @@ import (
 	"time"
 )
 
-type redisCache struct {
+type RedisCache struct {
 	client *redis.Client
 }
 
-func NewRedisCache(url string) (*redisCache, error) {
+func NewRedisCache(url string) (*RedisCache, error) {
 	opt, err := redis.ParseURL(url)
 	if err != nil {
 		return nil, err
 	}
 
 	c := redis.NewClient(opt)
-	return &redisCache{client: c}, nil
+	return &RedisCache{client: c}, nil
 }
 
-func (r *redisCache) Get(ctx context.Context, key string) (v *dns.Msg, ttl time.Duration, ok bool, err error) {
+func (r *RedisCache) Get(ctx context.Context, key string) (v *dns.Msg, ttl time.Duration, ok bool, err error) {
 	b, err := r.client.Get(ctx, key).Bytes()
 	if err != nil {
 		if err == redis.Nil {
@@ -62,7 +62,7 @@ func (r *redisCache) Get(ctx context.Context, key string) (v *dns.Msg, ttl time.
 	return v, ttl, true, nil
 }
 
-func (r *redisCache) Store(ctx context.Context, key string, v *dns.Msg, ttl time.Duration) (err error) {
+func (r *RedisCache) Store(ctx context.Context, key string, v *dns.Msg, ttl time.Duration) (err error) {
 	wireMsg, buf, err := pool.PackBuffer(v)
 	if err != nil {
 		return err
@@ -72,6 +72,6 @@ func (r *redisCache) Store(ctx context.Context, key string, v *dns.Msg, ttl time
 }
 
 // Close closes the redis client.
-func (r *redisCache) Close() error {
+func (r *RedisCache) Close() error {
 	return r.client.Close()
 }
