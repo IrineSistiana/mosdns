@@ -55,5 +55,6 @@ func newFallback(bp *handler.BP, args *Args) (*fallback, error) {
 }
 
 func (f *fallback) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
-	return executable_seq.WalkExecutableCmd(ctx, qCtx, f.L(), f.fallbackECS)
+	_, err = f.fallbackECS.ExecCmd(ctx, qCtx, f.L())
+	return err
 }

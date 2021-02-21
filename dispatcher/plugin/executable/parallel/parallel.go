@@ -56,5 +56,6 @@ func newParallel(bp *handler.BP, args *Args) (*parallel, error) {
 }
 
 func (p *parallel) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
-	return executable_seq.WalkExecutableCmd(ctx, qCtx, p.L(), p.ps)
+	_, err = p.ps.ExecCmd(ctx, qCtx, p.L())
+	return err
 }

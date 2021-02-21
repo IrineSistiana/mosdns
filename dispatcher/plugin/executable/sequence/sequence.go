@@ -61,7 +61,8 @@ func newSequencePlugin(bp *handler.BP, args *Args) (*sequenceRouter, error) {
 }
 
 func (s *sequenceRouter) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
-	return executable_seq.WalkExecutableCmd(ctx, qCtx, s.L(), s.ecs)
+	_, err = s.ecs.ExecCmd(ctx, qCtx, s.L())
+	return err
 }
 
 var _ handler.ExecutablePlugin = (*noop)(nil)

@@ -178,12 +178,12 @@ func (ctx *Context) ExecDefer(cCtx context.Context) error {
 	}
 	defer atomic.CompareAndSwapUint32(&ctx.deferAtomic, 1, 0)
 
-	for range ctx.deferrable {
+	for i := range ctx.deferrable {
 		executable := ctx.deferrable[len(ctx.deferrable)-1]
 		ctx.deferrable[len(ctx.deferrable)-1] = nil
 		ctx.deferrable = ctx.deferrable[0 : len(ctx.deferrable)-1]
 		if err := executable.Exec(cCtx, ctx); err != nil {
-			return err
+			return fmt.Errorf("defer exec #%d: %w", i, err)
 		}
 	}
 	return nil

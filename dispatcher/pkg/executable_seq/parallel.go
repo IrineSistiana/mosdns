@@ -73,7 +73,7 @@ func (p *ParallelECS) execCmd(ctx context.Context, qCtx *handler.Context, logger
 	}
 
 	t := len(p.s)
-	c := make(chan *parallelECSResult, len(p.s)) // use buf chan to avoid block.
+	c := make(chan *parallelECSResult, len(p.s)) // use buf chan to avoid blocking.
 
 	for i, sequence := range p.s {
 		i := i
@@ -90,10 +90,7 @@ func (p *ParallelECS) execCmd(ctx context.Context, qCtx *handler.Context, logger
 				defer ecsCancel()
 			}
 
-			err := WalkExecutableCmd(ecsCtx, qCtxCopy, logger, sequence)
-			if err == nil {
-				err = qCtxCopy.ExecDefer(pCtx)
-			}
+			err := ExecRoot(ecsCtx, qCtxCopy, logger, sequence)
 			c <- &parallelECSResult{
 				r:      qCtxCopy.R(),
 				status: qCtxCopy.Status(),

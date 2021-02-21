@@ -24,10 +24,13 @@ import (
 	"go.uber.org/zap"
 )
 
-// WalkExecutableCmd executes the ExecutableCmd, include its `goto`.
-// This should only be used in root cmd node.
-func WalkExecutableCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger, entry ExecutableCmd) error {
+// ExecRoot executes the ExecutableCmd and qCtx.ExecDefer().
+// This intends for root cmd node.
+func ExecRoot(ctx context.Context, qCtx *handler.Context, logger *zap.Logger, entry ExecutableCmd) error {
 	_, err := entry.ExecCmd(ctx, qCtx, logger)
+	if err == nil {
+		err = qCtx.ExecDefer(ctx)
+	}
 	return err
 }
 

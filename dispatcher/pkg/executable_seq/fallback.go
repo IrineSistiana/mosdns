@@ -159,10 +159,7 @@ func (f *FallbackECS) isolateDoPrimary(ctx context.Context, qCtx *handler.Contex
 }
 
 func (f *FallbackECS) doPrimary(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
-	err = WalkExecutableCmd(ctx, qCtx, logger, f.primary)
-	if err == nil {
-		err = qCtx.ExecDefer(ctx)
-	}
+	err = ExecRoot(ctx, qCtx, logger, f.primary)
 	if f.primaryST != nil {
 		if err != nil || qCtx.R() == nil {
 			f.primaryST.update(1)
@@ -202,7 +199,7 @@ func (f *FallbackECS) doFastFallback(ctx context.Context, qCtx *handler.Context,
 	go func() {
 		if !f.alwaysStandby { // not always standby, wait here.
 			select {
-			case <-fCtx.Done(): // primary is done, no needs to exec this.
+			case <-fCtx.Done(): // primary is done, no need to exec this.
 				return
 			case <-primFailed: // primary failed or timeout, exec now.
 			case <-timer.C:
@@ -235,18 +232,14 @@ func (f *FallbackECS) doFastFallback(ctx context.Context, qCtx *handler.Context,
 }
 
 func (f *FallbackECS) doSecondary(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
-	err = WalkExecutableCmd(ctx, qCtx, logger, f.secondary)
-	if err == nil {
-		err = qCtx.ExecDefer(ctx)
-	}
-	return err
+	return ExecRoot(ctx, qCtx, logger, f.secondary)
 }
 
 func (f *FallbackECS) doFallback(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) error {
 	fCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	c := make(chan *parallelECSResult, 2) // buf size is 2, avoid block.
+	c := make(chan *parallelECSResult, 2) // buf size is 2, avoid blocking.
 
 	qCtxCopyP := qCtx.Copy()
 	go func() {
@@ -261,10 +254,7 @@ func (f *FallbackECS) doFallback(ctx context.Context, qCtx *handler.Context, log
 
 	qCtxCopyS := qCtx.Copy()
 	go func() {
-		err := WalkExecutableCmd(fCtx, qCtxCopyS, logger, f.secondary)
-		if err == nil {
-			err = qCtxCopyS.ExecDefer(fCtx)
-		}
+		err := f.doSecondary(fCtx, qCtxCopyS, logger)
 		c <- &parallelECSResult{
 			r:      qCtxCopyS.R(),
 			status: qCtxCopyS.Status(),

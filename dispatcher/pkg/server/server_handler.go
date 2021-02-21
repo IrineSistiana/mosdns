@@ -107,12 +107,7 @@ func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *handler.Conte
 }
 
 func (h *DefaultServerHandler) execEntry(ctx context.Context, qCtx *handler.Context) error {
-	err := executable_seq.WalkExecutableCmd(ctx, qCtx, h.logger, h.Entry)
-	if err != nil {
-		return err
-	}
-
-	return qCtx.ExecDefer(ctx)
+	return executable_seq.ExecRoot(ctx, qCtx, h.logger, h.Entry)
 }
 
 type DummyServerHandler struct {
