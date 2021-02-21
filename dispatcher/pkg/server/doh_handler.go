@@ -108,8 +108,8 @@ func GetMsgFromReq(req *http.Request) (*dns.Msg, error) {
 		if msgSize > dns.MaxMsgSize {
 			return nil, fmt.Errorf("query length %d is too big", msgSize)
 		}
-		msgBuf := pool.GetMsgBuf(msgSize)
-		defer pool.ReleaseMsgBuf(msgBuf)
+		msgBuf := pool.GetBuf(msgSize)
+		defer pool.ReleaseBuf(msgBuf)
 		strBuf := readBufPool.Get()
 		defer readBufPool.Release(strBuf)
 

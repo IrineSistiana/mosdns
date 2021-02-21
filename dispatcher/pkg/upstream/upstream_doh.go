@@ -22,6 +22,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/pool"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
 	"io"
 	"net/http"
@@ -37,7 +38,7 @@ func (u *FastUpstream) exchangeDoH(q *dns.Msg) (r *dns.Msg, err error) {
 	if err != nil {
 		return nil, err
 	}
-	defer pool.ReleaseMsgBuf(buf)
+	defer pool.ReleaseBuf(buf)
 
 	// In order to maximize HTTP cache friendliness, DoH clients using media
 	// formats that include the ID field from the DNS message header, such
@@ -47,23 +48,22 @@ func (u *FastUpstream) exchangeDoH(q *dns.Msg) (r *dns.Msg, err error) {
 	rRaw[0] = 0
 	rRaw[1] = 0
 
-	urlBuilder := bufPool512.Get()
-	defer bufPool512.Release(urlBuilder)
+	urlLen := len(u.url) + 5 + base64.RawURLEncoding.EncodedLen(len(rRaw))
+	urlBuf := pool.GetBuf(urlLen)
+	defer pool.ReleaseBuf(urlBuf)
 
 	// Padding characters for base64url MUST NOT be included.
 	// See: https://tools.ietf.org/html/rfc8484#section-6.
 	// That's why we use base64.RawURLEncoding.
-	urlBuilder.Grow(len(u.url) + base64.RawURLEncoding.EncodedLen(len(rRaw)))
-	urlBuilder.WriteString(u.url)
-	urlBuilder.WriteString("?dns=")
-	encoder := base64.NewEncoder(base64.RawURLEncoding, urlBuilder)
-	encoder.Write(rRaw)
-	encoder.Close()
+	p := 0
+	p += copy(urlBuf[p:], u.url)
+	p += copy(urlBuf[p:], "?dns=")
+	base64.RawURLEncoding.Encode(urlBuf[p:], rRaw)
 
 	ctx, cancel := context.WithTimeout(context.Background(), u.readTimeout)
 	defer cancel()
 
-	r, err = u.doHTTP(ctx, urlBuilder.String())
+	r, err = u.doHTTP(ctx, utils.BytesToStringUnsafe(urlBuf))
 	if err != nil {
 		return nil, err
 	}

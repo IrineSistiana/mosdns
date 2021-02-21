@@ -292,7 +292,7 @@ type parallelResult struct {
 func ExchangeParallel(ctx context.Context, qCtx *handler.Context, upstreams []Upstream, logger *zap.Logger) (r *dns.Msg, err error) {
 	t := len(upstreams)
 	if t == 0 {
-		return nil, errors.New("no upstream is configured")
+		return nil, errors.New("no upstream")
 	}
 	if t == 1 {
 		u := upstreams[0]
@@ -300,7 +300,7 @@ func ExchangeParallel(ctx context.Context, qCtx *handler.Context, upstreams []Up
 		if err != nil {
 			return nil, err
 		}
-		logger.Debug("received response", qCtx.InfoField(), zap.String("from", u.Address()))
+		logger.Debug("response received", qCtx.InfoField(), zap.String("from", u.Address()))
 		return r, nil
 	}
 
@@ -327,11 +327,11 @@ func ExchangeParallel(ctx context.Context, qCtx *handler.Context, upstreams []Up
 			}
 
 			if !res.from.Trusted() && res.r.Rcode != dns.RcodeSuccess {
-				logger.Debug("untrusted upstream return an err rcode", qCtx.InfoField(), zap.String("from", res.from.Address()), zap.Int("rcode", res.r.Rcode))
+				logger.Debug("untrusted upstream returned an err rcode", qCtx.InfoField(), zap.String("from", res.from.Address()), zap.Int("rcode", res.r.Rcode))
 				continue
 			}
 
-			logger.Debug("received response", qCtx.InfoField(), zap.String("from", res.from.Address()))
+			logger.Debug("response received", qCtx.InfoField(), zap.String("from", res.from.Address()))
 			return res.r, nil
 		case <-ctx.Done():
 			return nil, ctx.Err()

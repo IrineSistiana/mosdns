@@ -14,6 +14,7 @@
 //
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 package cache
 
 import (
@@ -21,9 +22,7 @@ import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/cache"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
-	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"time"
 )
@@ -41,7 +40,6 @@ func init() {
 }
 
 var _ handler.ESExecutablePlugin = (*cachePlugin)(nil)
-var _ handler.ContextPlugin = (*cachePlugin)(nil)
 
 type Args struct {
 	Size            int    `yaml:"size"`
@@ -94,89 +92,31 @@ func newCachePlugin(bp *handler.BP, args *Args) (*cachePlugin, error) {
 // ExecES searches the cache. If cache hits, earlyStop will be true.
 // It never returns an err, because a cache fault should not terminate the query process.
 func (c *cachePlugin) ExecES(ctx context.Context, qCtx *handler.Context) (earlyStop bool, err error) {
-	key, cacheHit := c.searchAndReply(ctx, qCtx)
-	if cacheHit {
-		return true, nil
-	}
-
-	if len(key) != 0 {
-		de := newDeferStore(key, c)
-		qCtx.DeferExec(de)
-	}
-
-	return false, nil
-}
-
-func (c *cachePlugin) searchAndReply(ctx context.Context, qCtx *handler.Context) (key string, cacheHit bool) {
 	q := qCtx.Q()
 	key, err := utils.GetMsgKey(q, 0)
 	if err != nil {
-		c.L().Warn("unable to get msg key, skip it", qCtx.InfoField(), zap.Error(err))
-		return "", false
+		c.L().Warn("unable to get msg key", qCtx.InfoField(), zap.Error(err))
+		return false, nil
 	}
 
-	r, ttl, _, err := c.c.Get(ctx, key)
+	// lookup in cache
+	r, err := c.c.Get(ctx, key)
 	if err != nil {
-		c.L().Warn("unable to access cache, skip it", qCtx.InfoField(), zap.Error(err))
-		return key, false
+		c.L().Warn("unable to access cache", qCtx.InfoField(), zap.Error(err))
+		return false, nil
 	}
 
-	if r != nil { // if cache hit
-		c.L().Debug("cache hit", qCtx.InfoField())
+	// cache hit
+	if r != nil {
 		r.Id = q.Id
-		dnsutils.SetTTL(r, uint32(ttl/time.Second))
+		c.L().Debug("cache hit", qCtx.InfoField())
 		qCtx.SetResponse(r, handler.ContextStatusResponded)
-		return key, true
-	}
-	return key, false
-}
-
-type deferCacheStore struct {
-	key string
-	p   *cachePlugin
-}
-
-func newDeferStore(key string, p *cachePlugin) *deferCacheStore {
-	return &deferCacheStore{key: key, p: p}
-}
-
-// Exec caches the response.
-// It never returns an err, because a cache fault should not terminate the query process.
-func (d *deferCacheStore) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
-	if err := d.exec(ctx, qCtx); err != nil {
-		d.p.L().Warn("failed to cache the data", qCtx.InfoField(), zap.Error(err))
-	}
-	return nil
-}
-
-func (d *deferCacheStore) exec(ctx context.Context, qCtx *handler.Context) (err error) {
-	r := qCtx.R()
-	if r != nil && r.Rcode == dns.RcodeSuccess && r.Truncated == false && len(r.Answer) != 0 {
-		ttl := dnsutils.GetMinimalTTL(r)
-		if ttl > maxTTL {
-			ttl = maxTTL
-		}
-		return d.p.c.Store(ctx, d.key, r, time.Duration(ttl)*time.Second)
-	}
-	return nil
-}
-
-func (c *cachePlugin) Connect(ctx context.Context, qCtx *handler.Context, pipeCtx *handler.PipeContext) (err error) {
-	key, cacheHit := c.searchAndReply(ctx, qCtx)
-	if cacheHit {
-		return nil
+		return true, nil
 	}
 
-	err = pipeCtx.ExecNextPlugin(ctx, qCtx)
-	if err != nil {
-		return err
-	}
-
-	if len(key) != 0 {
-		_ = newDeferStore(key, c).Exec(ctx, qCtx)
-	}
-
-	return nil
+	// cache miss
+	qCtx.DeferExec(cache.NewDeferStore(key, c.c))
+	return false, nil
 }
 
 func preset(bp *handler.BP, args *Args) *cachePlugin {

@@ -56,13 +56,13 @@ func (e *IOErr) Unwrap() error {
 }
 
 // ReadUDPMsgFrom reads dns msg from c in a wire format.
-// The bufSize cannot be greater than dns.MaxMsgSize.
+// The bufSize should not be greater than dns.MaxMsgSize.
 // Typically IPv4UdpMaxPayload is big enough.
 // An io err will be wrapped into an IOErr.
 // IsIOErr(err) can check and unwrap the inner io err.
 func ReadUDPMsgFrom(c net.PacketConn, bufSize int) (m *dns.Msg, from net.Addr, n int, err error) {
-	buf := pool.GetMsgBuf(bufSize)
-	defer pool.ReleaseMsgBuf(buf)
+	buf := pool.GetBuf(bufSize)
+	defer pool.ReleaseBuf(buf)
 
 	n, from, err = c.ReadFrom(buf)
 	if err != nil {
@@ -85,8 +85,8 @@ func ReadUDPMsgFrom(c net.PacketConn, bufSize int) (m *dns.Msg, from net.Addr, n
 
 // ReadMsgFromUDP See ReadUDPMsgFrom.
 func ReadMsgFromUDP(c io.Reader, bufSize int) (m *dns.Msg, n int, err error) {
-	buf := pool.GetMsgBuf(bufSize)
-	defer pool.ReleaseMsgBuf(buf)
+	buf := pool.GetBuf(bufSize)
+	defer pool.ReleaseBuf(buf)
 
 	n, err = c.Read(buf)
 	if err != nil {
@@ -113,7 +113,7 @@ func WriteMsgToUDP(c io.Writer, m *dns.Msg) (n int, err error) {
 	if err != nil {
 		return 0, err
 	}
-	defer pool.ReleaseMsgBuf(buf)
+	defer pool.ReleaseBuf(buf)
 
 	return WriteRawMsgToUDP(c, mRaw)
 }
@@ -133,7 +133,7 @@ func WriteUDPMsgTo(m *dns.Msg, c net.PacketConn, to net.Addr) (n int, err error)
 	if err != nil {
 		return 0, err
 	}
-	defer pool.ReleaseMsgBuf(buf)
+	defer pool.ReleaseBuf(buf)
 
 	n, err = c.WriteTo(mRaw, to)
 	if err != nil {
@@ -162,8 +162,8 @@ func ReadMsgFromTCP(c io.Reader) (m *dns.Msg, n int, err error) {
 		return nil, n, dns.ErrShortRead
 	}
 
-	buf := pool.GetMsgBuf(int(length))
-	defer pool.ReleaseMsgBuf(buf)
+	buf := pool.GetBuf(int(length))
+	defer pool.ReleaseBuf(buf)
 
 	n2, err := io.ReadFull(c, buf)
 	n = n + n2
@@ -190,7 +190,7 @@ func WriteMsgToTCP(c io.Writer, m *dns.Msg) (n int, err error) {
 	if err != nil {
 		return 0, err
 	}
-	defer pool.ReleaseMsgBuf(buf)
+	defer pool.ReleaseBuf(buf)
 
 	return WriteRawMsgToTCP(c, mRaw)
 }
@@ -210,18 +210,13 @@ func WriteRawMsgToTCP(c io.Writer, b []byte) (n int, err error) {
 		return int(wn), err
 	}
 
-	wb := tcpWriteBufPool.Get()
-	defer tcpWriteBufPool.Release(wb)
-	wb.WriteByte(byte(len(b) >> 8))
-	wb.WriteByte(byte(len(b)))
-	wb.Write(b)
-	n, err = c.Write(wb.Bytes())
+	wb := pool.GetBuf(2 + len(b))
+	defer pool.ReleaseBuf(wb)
+	binary.BigEndian.PutUint16(wb[:2], uint16(len(b)))
+	copy(wb[2:], b)
+	n, err = c.Write(wb)
 	if err != nil {
 		err = WrapIOErr(err)
 	}
 	return
 }
-
-var (
-	tcpWriteBufPool = pool.NewBytesBufPool(512 + 2)
-)

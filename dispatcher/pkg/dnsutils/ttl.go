@@ -63,6 +63,26 @@ func ApplyMinimalTTL(m *dns.Msg, ttl uint32) {
 	applyTTL(m, ttl, false)
 }
 
+// SubtractTTL subtract delta from every m's RR.
+// If RR's TTL is smaller than delta, SubtractTTL
+// will return overflowed = true.
+func SubtractTTL(m *dns.Msg, delta uint32) (overflowed bool) {
+	for _, section := range [...][]dns.RR{m.Answer, m.Ns, m.Extra} {
+		for _, rr := range section {
+			if rr.Header().Rrtype == dns.TypeOPT {
+				continue // opt record ttl is not ttl.
+			}
+			if ttl := rr.Header().Ttl; ttl > delta {
+				rr.Header().Ttl = ttl - delta
+			} else {
+				rr.Header().Ttl = 1
+				overflowed = true
+			}
+		}
+	}
+	return
+}
+
 func applyTTL(m *dns.Msg, ttl uint32, maximum bool) {
 	for _, section := range [...][]dns.RR{m.Answer, m.Ns, m.Extra} {
 		for _, rr := range section {

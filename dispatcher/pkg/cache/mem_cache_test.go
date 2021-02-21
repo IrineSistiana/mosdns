@@ -3,7 +3,6 @@ package cache
 import (
 	"context"
 	"github.com/miekg/dns"
-	"runtime"
 	"strconv"
 	"sync"
 	"testing"
@@ -22,13 +21,11 @@ func Test_memCache(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		v, _, ok, err := c.Get(ctx, key)
+		v, err := c.Get(ctx, key)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !ok {
-			t.Fatal()
-		}
+
 		if v.Id != uint16(i) {
 			t.Fatal("cache kv mismatched")
 		}
@@ -74,19 +71,14 @@ func Test_memCache_race(t *testing.T) {
 				err := c.Store(ctx, strconv.Itoa(i), m, time.Minute)
 				if err != nil {
 					t.Log(err)
-					t.Fail()
+					t.FailNow()
 				}
-				v, _, ok, err := c.Get(ctx, strconv.Itoa(i))
+				v, err := c.Get(ctx, strconv.Itoa(i))
 				if err != nil {
 					t.Log(err)
-					t.Fail()
-					runtime.Goexit()
+					t.FailNow()
 				}
-				if !ok {
-					t.Log("failed to get stored value")
-					t.Fail()
-					runtime.Goexit()
-				}
+
 				v.Id = uint16(i)
 				c.lru.Clean(cleanFunc)
 			}

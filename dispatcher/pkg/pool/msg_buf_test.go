@@ -18,21 +18,19 @@
 package pool
 
 import (
-	"fmt"
 	"github.com/miekg/dns"
+	"testing"
 )
 
-func PackBuffer(m *dns.Msg) (wire, buf []byte, err error) {
-	l := m.Len()
-	if l > dns.MaxMsgSize || l <= 0 {
-		return nil, nil, fmt.Errorf("msg length %d is invalid", l)
-	}
-	buf = allocator.Get(l + 4) // m.PackBuffer(buf) needs one more bit than its length. Wired. We give it a little more.
-
-	wire, err = m.PackBuffer(buf)
+func TestPackBuffer_No_Allocation(t *testing.T) {
+	m := new(dns.Msg)
+	m.SetQuestion("123.", dns.TypeAAAA)
+	wire, buf, err := PackBuffer(m)
 	if err != nil {
-		allocator.Release(buf)
-		return nil, nil, err
+		t.Fatal(err)
 	}
-	return wire, buf, nil
+
+	if cap(wire) != cap(buf) {
+		t.Fatalf("wire and buf have different cap, wire %d, buf %d", cap(wire), cap(buf))
+	}
 }
