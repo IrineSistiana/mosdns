@@ -21,10 +21,8 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/dnsutils"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"golang.org/x/net/http2"
@@ -32,6 +30,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -51,11 +50,11 @@ const (
 	ProtocolDoH
 )
 
-type Option struct {
+// FastUpstream is a udp, tcp, dot, doh upstream
+type FastUpstream struct {
 	Logger *zap.Logger // Nil value disables the logger.
 
-	// Addr is a network "host:port" addr, ":port" can be omitted.
-	// Addr cannot be empty.
+	// Addr is a network "host:port" addr
 	Addr       string
 	Protocol   Protocol // Default is ProtocolUDP.
 	Socks5     string   // Used by "tcp", "dot", "doh" as Socks5 server addr.
@@ -79,78 +78,49 @@ type Option struct {
 
 	RootCA             *x509.CertPool
 	InsecureSkipVerify bool // Used by "dot", "doh". Skip tls verification.
-}
 
-// FastUpstream is a udp, tcp, dot, doh upstream
-type FastUpstream struct {
-	protocol   Protocol
-	socks5Addr string
-	serverName string
-	url        string
-
-	logger       *zap.Logger
-	maxConns     int
-	readTimeout  time.Duration
-	addrWithPort string
-	idleTimeout  time.Duration
-
+	initOnce     sync.Once
+	logger       *zap.Logger  // non-nil logger
 	udpTransport *Transport   // used by udp
 	tcpTransport *Transport   // used by udp(upgraded), tcp, dot.
 	httpClient   *http.Client // used by doh.
 }
 
-func NewUpstream(opt *Option) (*FastUpstream, error) {
-	if len(opt.Addr) == 0 {
-		return nil, errors.New("empty server addr")
+func (u *FastUpstream) readTimeout() time.Duration {
+	if d := u.ReadTimeout; d > 0 {
+		return d
 	}
+	return generalReadTimeout
+}
 
-	u := new(FastUpstream)
-	u.protocol = opt.Protocol
-
-	switch opt.Protocol {
-	case ProtocolUDP, ProtocolTCP:
-		u.addrWithPort = utils.TryAddPort(opt.Addr, 53)
-		u.idleTimeout = time.Second * 0
-	case ProtocolDoT:
-		if len(opt.ServerName) == 0 {
-			return nil, errors.New("missing arg for dot protocol: server name")
-		}
-		u.addrWithPort = utils.TryAddPort(opt.Addr, 853)
-		u.serverName = opt.ServerName
-		u.idleTimeout = time.Second * 0
+func (u *FastUpstream) idleTimeout() time.Duration {
+	if d := u.IdleTimeout; d > 0 {
+		return d
+	}
+	switch u.Protocol {
 	case ProtocolDoH:
-		if len(opt.URL) == 0 {
-			return nil, errors.New("missing arg for doh protocol: url")
-		}
-		u.addrWithPort = utils.TryAddPort(opt.Addr, 443)
-		u.url = opt.URL
-		u.idleTimeout = time.Second * 30
+		return time.Second * 30
+	default:
+		return 0
 	}
+}
 
-	if opt.Logger != nil {
-		u.logger = opt.Logger
+func (u *FastUpstream) maxConns() int {
+	if n := u.MaxConns; n > 0 {
+		return n
+	}
+	return 1
+}
+
+func (u *FastUpstream) init() {
+	if u.Logger != nil {
+		u.logger = u.Logger
 	} else {
 		u.logger = zap.NewNop()
 	}
 
-	u.readTimeout = generalReadTimeout
-	if opt.ReadTimeout > 0 {
-		u.readTimeout = opt.ReadTimeout
-	}
-
-	u.maxConns = 1
-	if opt.MaxConns > 0 {
-		u.maxConns = opt.MaxConns
-	}
-
-	if opt.IdleTimeout > 0 { // overwrite default idle timeout
-		u.idleTimeout = opt.IdleTimeout
-	}
-
-	// init other stuffs in u
-
 	// udpTransport
-	if opt.Protocol == ProtocolUDP {
+	if u.Protocol == ProtocolUDP {
 		udpTransport := &Transport{
 			Logger: u.logger,
 			DialFunc: func() (net.Conn, error) {
@@ -160,25 +130,21 @@ func NewUpstream(opt *Option) (*FastUpstream, error) {
 			ReadFunc: func(c io.Reader) (m *dns.Msg, n int, err error) {
 				return dnsutils.ReadMsgFromUDP(c, dnsutils.IPv4UdpMaxPayload)
 			},
-			MaxConns:    u.maxConns,
+			MaxConns:    u.maxConns(),
 			IdleTimeout: time.Second * 30,
-			Timeout:     u.readTimeout,
+			Timeout:     u.readTimeout(),
 		}
-		if err := udpTransport.Init(); err != nil {
-			return nil, fmt.Errorf("failed to init udp transport: %w", err)
-		}
-
 		u.udpTransport = udpTransport
 	}
 
 	// tcpTransport
-	if opt.Protocol == ProtocolUDP || opt.Protocol == ProtocolTCP || opt.Protocol == ProtocolDoT {
+	if u.Protocol == ProtocolUDP || u.Protocol == ProtocolTCP || u.Protocol == ProtocolDoT {
 		var dialFunc func() (net.Conn, error)
-		if opt.Protocol == ProtocolDoT {
+		if u.Protocol == ProtocolDoT {
 			tlsConfig := new(tls.Config)
-			tlsConfig.ServerName = opt.ServerName
-			tlsConfig.RootCAs = opt.RootCA
-			tlsConfig.InsecureSkipVerify = opt.InsecureSkipVerify
+			tlsConfig.ServerName = u.ServerName
+			tlsConfig.RootCAs = u.RootCA
+			tlsConfig.InsecureSkipVerify = u.InsecureSkipVerify
 
 			dialFunc = func() (net.Conn, error) {
 				c, err := u.dialTimeout("tcp", dialTimeout)
@@ -205,49 +171,45 @@ func NewUpstream(opt *Option) (*FastUpstream, error) {
 			DialFunc:    dialFunc,
 			WriteFunc:   dnsutils.WriteMsgToTCP,
 			ReadFunc:    dnsutils.ReadMsgFromTCP,
-			MaxConns:    u.maxConns,
-			IdleTimeout: u.idleTimeout,
-			Timeout:     u.readTimeout,
+			MaxConns:    u.maxConns(),
+			IdleTimeout: u.idleTimeout(),
+			Timeout:     u.readTimeout(),
 		}
-		if err := tcpTransport.Init(); err != nil {
-			return nil, fmt.Errorf("failed to init tcp transport: %w", err)
-		}
-
 		u.tcpTransport = tcpTransport
 	}
 
 	// httpClient
-	if opt.Protocol == ProtocolDoH {
+	if u.Protocol == ProtocolDoH {
 		t := &http.Transport{
 			DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) { // overwrite server addr
 				return u.dialContext(ctx, network)
 			},
 			TLSClientConfig: &tls.Config{
-				RootCAs:            opt.RootCA,
-				InsecureSkipVerify: opt.InsecureSkipVerify,
+				RootCAs:            u.RootCA,
+				InsecureSkipVerify: u.InsecureSkipVerify,
 			},
 			TLSHandshakeTimeout:   tlsHandshakeTimeout,
-			IdleConnTimeout:       u.idleTimeout,
-			ResponseHeaderTimeout: u.readTimeout,
+			IdleConnTimeout:       u.idleTimeout(),
+			ResponseHeaderTimeout: u.readTimeout(),
 			// MaxConnsPerHost and MaxIdleConnsPerHost should be equal.
 			// Otherwise, it might seriously affect the efficiency of connection reuse.
-			MaxConnsPerHost:     u.maxConns,
-			MaxIdleConnsPerHost: u.maxConns,
+			MaxConnsPerHost:     u.maxConns(),
+			MaxIdleConnsPerHost: u.maxConns(),
 		}
 		t2, err := http2.ConfigureTransports(t)
 		if err != nil {
-			return nil, err
+			u.logger.Error("http2.ConfigureTransports", zap.Error(err))
 		}
 
-		t2.ReadIdleTimeout = time.Second * 30
-		t2.PingTimeout = time.Second * 5
+		if t2 != nil {
+			t2.ReadIdleTimeout = time.Second * 30
+			t2.PingTimeout = time.Second * 5
+		}
 
 		u.httpClient = &http.Client{
 			Transport: t,
 		}
 	}
-
-	return u, nil
 }
 
 func (u *FastUpstream) Exchange(q *dns.Msg) (r *dns.Msg, err error) {
@@ -259,7 +221,9 @@ func (u *FastUpstream) ExchangeNoTruncated(q *dns.Msg) (r *dns.Msg, err error) {
 }
 
 func (u *FastUpstream) exchange(q *dns.Msg, noTruncated bool) (r *dns.Msg, err error) {
-	switch u.protocol {
+	u.initOnce.Do(u.init)
+
+	switch u.Protocol {
 	case ProtocolUDP:
 		if noTruncated { // upgrade to tcp
 			r, err = u.exchangeTCP(q)
@@ -271,7 +235,7 @@ func (u *FastUpstream) exchange(q *dns.Msg, noTruncated bool) (r *dns.Msg, err e
 	case ProtocolDoH:
 		r, err = u.exchangeDoH(q)
 	default:
-		err = fmt.Errorf("fastUpstream: invalid protocol %d", u.protocol)
+		err = fmt.Errorf("fastUpstream: invalid protocol %d", u.Protocol)
 	}
 	if err != nil {
 		return nil, err
@@ -293,18 +257,18 @@ func (u *FastUpstream) dialTimeout(network string, timeout time.Duration) (net.C
 func (u *FastUpstream) dialContext(ctx context.Context, network string) (net.Conn, error) {
 	switch network {
 	case "tcp", "tcp4", "tcp6":
-		if len(u.socks5Addr) != 0 {
-			socks5Dialer, err := proxy.SOCKS5("tcp", u.socks5Addr, nil, nil)
+		if len(u.Socks5) != 0 {
+			socks5Dialer, err := proxy.SOCKS5("tcp", u.Socks5, nil, nil)
 			if err != nil {
 				return nil, fmt.Errorf("failed to init socks5 dialer: %w", err)
 			}
 
-			return socks5Dialer.(proxy.ContextDialer).DialContext(ctx, "tcp", u.addrWithPort)
+			return socks5Dialer.(proxy.ContextDialer).DialContext(ctx, "tcp", u.Addr)
 		}
 	}
 
 	d := net.Dialer{}
-	return d.DialContext(ctx, network, u.addrWithPort)
+	return d.DialContext(ctx, network, u.Addr)
 }
 
 func (u *FastUpstream) exchangeTCP(q *dns.Msg) (r *dns.Msg, err error) {

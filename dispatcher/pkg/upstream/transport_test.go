@@ -144,9 +144,6 @@ func TestTransport_Exchange(t1 *testing.T) {
 				IdleTimeout: tt.fields.IdleTimeout,
 				Timeout:     time.Millisecond * 100,
 			}
-			if err := t.Init(); err != nil {
-				t1.Fatal(err)
-			}
 
 			if tt.wantErr {
 				_, _, err := t.Exchange(&dns.Msg{})

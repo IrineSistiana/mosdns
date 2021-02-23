@@ -84,24 +84,7 @@ func (t *Transport) maxConns() int {
 	return defaultMaxConns
 }
 
-func (t *Transport) Init() error {
-	var err error
-	t.initOnce.Do(func() {
-		err = t.init()
-	})
-	return err
-}
-
-func (t *Transport) init() error {
-	switch {
-	case t.DialFunc == nil:
-		return errors.New("DialFunc is nil")
-	case t.WriteFunc == nil:
-		return errors.New("WriteFunc is nil")
-	case t.ReadFunc == nil:
-		return errors.New("ReadFunc is nil")
-	}
-
+func (t *Transport) init() {
 	if logger := t.Logger; logger != nil {
 		t.logger = logger
 	} else {
@@ -110,8 +93,6 @@ func (t *Transport) init() error {
 
 	t.conns = make(map[*clientConn]struct{})
 	t.dialingCalls = make(map[*dialCall]struct{})
-
-	return nil
 }
 
 type dialCall struct {
@@ -121,6 +102,8 @@ type dialCall struct {
 }
 
 func (t *Transport) Exchange(q *dns.Msg) (r *dns.Msg, reusedConn bool, err error) {
+	t.initOnce.Do(t.init)
+
 	if t.IdleTimeout <= 0 {
 		r, err = t.exchangeNoKeepAlive(q)
 		return r, false, err

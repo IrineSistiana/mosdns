@@ -143,20 +143,16 @@ func Test_fastUpstream(t *testing.T) {
 							})
 							defer shutdownServer()
 
-							opt := &Option{
+							u := &FastUpstream{
 								Addr:               addr,
 								Protocol:           protocol,
 								ServerName:         "test",
+								URL:                "https://" + addr + "/",
 								IdleTimeout:        idleTimeout,
 								MaxConns:           5,
 								InsecureSkipVerify: true,
-								URL:                "https://" + addr + "/",
 							}
 
-							u, err := NewUpstream(opt)
-							if err != nil {
-								t.Fatal(err)
-							}
 							if err := testUpstream(u, isTCPClient); err != nil {
 								t.Fatal(err)
 							}
@@ -250,18 +246,14 @@ func Benchmark_transport(b *testing.B) {
 				addr, shutdownFunc := f(b, &vServer{})
 				defer shutdownFunc()
 
-				opt := &Option{
+				u := &FastUpstream{
 					Addr:               addr,
 					Protocol:           protocol,
 					ServerName:         "test",
+					URL:                "https://" + addr + "/",
 					IdleTimeout:        idleTimeout,
 					MaxConns:           5,
 					InsecureSkipVerify: true,
-				}
-
-				u, err := NewUpstream(opt)
-				if err != nil {
-					b.Fatal(err)
 				}
 
 				connOpened := uint32(0)

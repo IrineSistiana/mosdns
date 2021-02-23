@@ -48,7 +48,7 @@ func (u *FastUpstream) exchangeDoH(q *dns.Msg) (r *dns.Msg, err error) {
 	rRaw[0] = 0
 	rRaw[1] = 0
 
-	urlLen := len(u.url) + 5 + base64.RawURLEncoding.EncodedLen(len(rRaw))
+	urlLen := len(u.URL) + 5 + base64.RawURLEncoding.EncodedLen(len(rRaw))
 	urlBuf := pool.GetBuf(urlLen)
 	defer pool.ReleaseBuf(urlBuf)
 
@@ -56,11 +56,11 @@ func (u *FastUpstream) exchangeDoH(q *dns.Msg) (r *dns.Msg, err error) {
 	// See: https://tools.ietf.org/html/rfc8484#section-6.
 	// That's why we use base64.RawURLEncoding.
 	p := 0
-	p += copy(urlBuf[p:], u.url)
+	p += copy(urlBuf[p:], u.URL)
 	p += copy(urlBuf[p:], "?dns=")
 	base64.RawURLEncoding.Encode(urlBuf[p:], rRaw)
 
-	ctx, cancel := context.WithTimeout(context.Background(), u.readTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), u.readTimeout())
 	defer cancel()
 
 	r, err = u.doHTTP(ctx, utils.BytesToStringUnsafe(urlBuf))
@@ -68,9 +68,6 @@ func (u *FastUpstream) exchangeDoH(q *dns.Msg) (r *dns.Msg, err error) {
 		return nil, err
 	}
 
-	if r.Id != 0 { // check msg id
-		return nil, dns.ErrId
-	}
 	// change the id back
 	r.Id = q.Id
 	return r, nil

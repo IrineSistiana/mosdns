@@ -49,10 +49,9 @@ type fastForward struct {
 type Args struct {
 	Upstream    []*UpstreamConfig `yaml:"upstream"`
 	Deduplicate bool              `yaml:"deduplicate"`
-	CA          []string          `yaml:"ca"` // certificate path, used by "dot", "doh" as ca root.
+	CA          []string          `yaml:"ca"` // certificate paths, used by "dot", "doh" as ca root.
 }
 
-// UpstreamConfig: Note: It is not reusable.
 type UpstreamConfig struct {
 	// Protocol: upstream protocol, can be:
 	// "", "udp" -> udp upstream
@@ -100,16 +99,29 @@ func newFastForward(bp *handler.BP, args *Args) (*fastForward, error) {
 	}
 
 	for _, config := range args.Upstream {
-		opt, err := config2Opt(config)
-		if err != nil {
-			return nil, err
+		u := new(upstream.FastUpstream)
+		u.Logger = bp.L()
+		u.Addr = config.Addr
+		switch config.Protocol {
+		case "", "udp":
+			u.Protocol = upstream.ProtocolUDP
+		case "tcp":
+			u.Protocol = upstream.ProtocolTCP
+		case "dot", "tls":
+			u.Protocol = upstream.ProtocolDoT
+		case "doh", "https":
+			u.Protocol = upstream.ProtocolDoH
+		default:
+			return nil, fmt.Errorf("invalid protocol %s", config.Protocol)
 		}
-		opt.RootCA = rootCA
-
-		u, err := upstream.NewUpstream(opt)
-		if err != nil {
-			return nil, err
-		}
+		u.Socks5 = config.Socks5
+		u.ServerName = config.ServerName
+		u.URL = config.URL
+		u.ReadTimeout = time.Duration(config.Timeout) * time.Second
+		u.IdleTimeout = time.Duration(config.IdleTimeout) * time.Second
+		u.MaxConns = config.MaxConns
+		u.InsecureSkipVerify = config.InsecureSkipVerify
+		u.RootCA = rootCA
 
 		wu := &upstreamWrapper{
 			trusted: config.Trusted,
@@ -121,32 +133,6 @@ func newFastForward(bp *handler.BP, args *Args) (*fastForward, error) {
 	}
 
 	return f, nil
-}
-
-func config2Opt(config *UpstreamConfig) (*upstream.Option, error) {
-	opt := new(upstream.Option)
-	opt.Addr = config.Addr
-	switch config.Protocol {
-	case "", "udp":
-		opt.Protocol = upstream.ProtocolUDP
-	case "tcp":
-		opt.Protocol = upstream.ProtocolTCP
-	case "dot", "tls":
-		opt.Protocol = upstream.ProtocolDoT
-	case "doh", "https":
-		opt.Protocol = upstream.ProtocolDoH
-	default:
-		return nil, fmt.Errorf("invalid protocol %s", config.Protocol)
-	}
-	opt.Socks5 = config.Socks5
-	opt.ServerName = config.ServerName
-	opt.URL = config.URL
-	opt.ReadTimeout = time.Duration(config.Timeout) * time.Second
-	opt.IdleTimeout = time.Duration(config.IdleTimeout) * time.Second
-	opt.MaxConns = config.MaxConns
-	opt.InsecureSkipVerify = config.InsecureSkipVerify
-
-	return opt, nil
 }
 
 type upstreamWrapper struct {
