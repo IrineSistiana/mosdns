@@ -21,13 +21,14 @@
 package pool
 
 import (
+	"fmt"
 	"math/bits"
 	"sync"
 )
 
 var (
-	// allocator is an allocator with maximum buf size limit 4GB (1<<32).
-	allocator = NewAllocator(32)
+	// allocator is an allocator with maximum buf size limit 1GB (1<<30).
+	allocator = NewAllocator(30)
 )
 
 // GetBuf returns a buf from allocator1m.
@@ -66,7 +67,7 @@ func NewAllocator(maxBitsLen int) *Allocator {
 // Get returns a []byte from pool with most appropriate cap
 func (alloc *Allocator) Get(size int) []byte {
 	if size <= 0 || size > alloc.maxLen {
-		panic("unexpected size")
+		panic(fmt.Sprintf("unexpected slice size %d", size))
 	}
 
 	i := shard(size)
