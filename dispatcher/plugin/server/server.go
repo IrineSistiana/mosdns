@@ -149,6 +149,10 @@ func newServerPlugin(bp *handler.BP, args *Args) (*serverPlugin, error) {
 			s.TLSConfig = tlsConfig
 		}
 
+		sg.mu.Lock()
+		sg.servers[s] = struct{}{}
+		sg.mu.Unlock()
+
 		go func() {
 			err := s.Start()
 			if err == server.ErrServerClosed {
@@ -159,10 +163,6 @@ func newServerPlugin(bp *handler.BP, args *Args) (*serverPlugin, error) {
 			delete(sg.servers, s)
 			sg.mu.Unlock()
 		}()
-
-		sg.mu.Lock()
-		sg.servers[s] = struct{}{}
-		sg.mu.Unlock()
 	}
 
 	go func() {
