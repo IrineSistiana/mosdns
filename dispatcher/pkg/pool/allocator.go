@@ -31,8 +31,8 @@ var (
 	allocator = NewAllocator(30)
 )
 
-// GetBuf returns a buf from allocator1m.
-// The size limit is 4GB.
+// GetBuf returns a buf from a global allocator.
+// The size limit is 1GB.
 func GetBuf(size int) []byte {
 	return allocator.Get(size)
 }
