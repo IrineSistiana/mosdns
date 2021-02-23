@@ -56,7 +56,7 @@ func (r *RedisCache) Get(ctx context.Context, key string) (v *dns.Msg, err error
 		return nil, err
 	}
 
-	dnsutils.SubtractTTL(v, uint32(time.Since(storedTime)/time.Second))
+	dnsutils.SubtractTTL(m, uint32(time.Since(storedTime)/time.Second))
 	return m, nil
 }
 
