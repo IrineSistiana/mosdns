@@ -106,10 +106,9 @@ def go_build():
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
 
-    if not os.path.exists(RELEASE_DIR):
-        os.mkdir(RELEASE_DIR)
-
     if len(RELEASE_DIR) != 0:
+        if not os.path.exists(RELEASE_DIR):
+            os.mkdir(RELEASE_DIR)
         os.chdir(RELEASE_DIR)
 
     go_build()
