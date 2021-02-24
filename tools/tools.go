@@ -43,10 +43,8 @@ func ProbServerTimeout(addr string) error {
 	switch protocol {
 	case "tcp":
 		isTLS = false
-		host = utils.TryAddPort(host, 53)
 	case "dot":
 		isTLS = true
-		host = utils.TryAddPort(host, 853)
 	default:
 		return fmt.Errorf("invalid protocol %s", protocol)
 	}

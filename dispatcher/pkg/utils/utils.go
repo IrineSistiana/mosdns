@@ -36,7 +36,6 @@ import (
 	"math/big"
 	"net"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -67,14 +66,6 @@ func SplitSchemeAndHost(addr string) (protocol, host string) {
 	} else {
 		return "", addr
 	}
-}
-
-// TryAddPort add port to host if host does not have an port suffix.
-func TryAddPort(host string, port uint16) string {
-	if _, p, _ := net.SplitHostPort(host); len(p) == 0 {
-		return host + ":" + strconv.Itoa(int(port))
-	}
-	return host
 }
 
 // NetAddr implements net.Addr interface.
