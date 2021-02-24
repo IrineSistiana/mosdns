@@ -58,7 +58,7 @@ type Args struct {
 type ecsPlugin struct {
 	*handler.BP
 	args       *Args
-	ipv4, ipv6 *dns.EDNS0_SUBNET
+	ipv4, ipv6 net.IP
 }
 
 func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
@@ -66,7 +66,6 @@ func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
 }
 
 func newPlugin(bp *handler.BP, args *Args) (p handler.Plugin, err error) {
-
 	if args.Mask4 == 0 {
 		args.Mask4 = 24
 	}
@@ -85,7 +84,7 @@ func newPlugin(bp *handler.BP, args *Args) (p handler.Plugin, err error) {
 		if ip4 := ip.To4(); ip4 == nil {
 			return nil, fmt.Errorf("%s is not a ipv4 address", args.IPv4)
 		} else {
-			ep.ipv4 = dnsutils.NewEDNS0Subnet(ip4, args.Mask4, false)
+			ep.ipv4 = ip4
 		}
 	}
 
@@ -97,7 +96,7 @@ func newPlugin(bp *handler.BP, args *Args) (p handler.Plugin, err error) {
 		if ip6 := ip.To16(); ip6 == nil {
 			return nil, fmt.Errorf("%s is not a ipv6 address", args.IPv6)
 		} else {
-			ep.ipv6 = dnsutils.NewEDNS0Subnet(ip6, args.Mask6, true)
+			ep.ipv6 = ip6
 		}
 	}
 
@@ -114,7 +113,7 @@ func (e ecsPlugin) Exec(_ context.Context, qCtx *handler.Context) (_ error) {
 	}
 
 	var ecs *dns.EDNS0_SUBNET
-	if e.args.Auto && qCtx.From() != nil {
+	if e.args.Auto && qCtx.From() != nil { // use client ip
 		ip := utils.GetIPFromAddr(qCtx.From())
 		if ip == nil {
 			e.L().Warn("internal err: can not parse client ip address", qCtx.InfoField(), zap.Stringer("from", qCtx.From()))
@@ -130,13 +129,22 @@ func (e ecsPlugin) Exec(_ context.Context, qCtx *handler.Context) (_ error) {
 				return nil
 			}
 		}
-	}
+	} else { // use preset ip
+		switch {
+		case checkQueryType(qCtx.Q(), dns.TypeA):
+			if e.ipv4 != nil {
+				ecs = dnsutils.NewEDNS0Subnet(e.ipv4, e.args.Mask4, false)
+			} else if e.ipv6 != nil {
+				ecs = dnsutils.NewEDNS0Subnet(e.ipv6, e.args.Mask6, true)
+			}
 
-	switch {
-	case e.ipv4 != nil && checkQueryType(qCtx.Q(), dns.TypeA):
-		ecs = e.ipv4
-	case e.ipv6 != nil && checkQueryType(qCtx.Q(), dns.TypeAAAA):
-		ecs = e.ipv6
+		case checkQueryType(qCtx.Q(), dns.TypeAAAA):
+			if e.ipv6 != nil {
+				ecs = dnsutils.NewEDNS0Subnet(e.ipv6, e.args.Mask6, true)
+			} else if e.ipv4 != nil {
+				ecs = dnsutils.NewEDNS0Subnet(e.ipv4, e.args.Mask4, false)
+			}
+		}
 	}
 
 	if ecs != nil {
