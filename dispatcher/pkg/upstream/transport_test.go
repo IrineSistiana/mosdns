@@ -146,7 +146,7 @@ func TestTransport_Exchange(t1 *testing.T) {
 			}
 
 			if tt.wantErr {
-				_, _, err := t.Exchange(&dns.Msg{})
+				_, err := t.Exchange(&dns.Msg{})
 				if err == nil {
 					t1.Fatal("want err, but got nil err")
 				}
@@ -156,7 +156,7 @@ func TestTransport_Exchange(t1 *testing.T) {
 			for id := uint16(0); id < 16; id++ {
 				v := &dns.Msg{}
 				v.Id = id
-				gotR, _, err := t.Exchange(v)
+				gotR, err := t.Exchange(v)
 				if (err != nil) != tt.wantErr {
 					t1.Errorf("Exchange() error = %v, wantErr %v", err, tt.wantErr)
 					return

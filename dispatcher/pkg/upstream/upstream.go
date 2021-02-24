@@ -274,21 +274,9 @@ func (u *FastUpstream) dialContext(ctx context.Context, network string) (net.Con
 }
 
 func (u *FastUpstream) exchangeTCP(q *dns.Msg) (r *dns.Msg, err error) {
-	start := time.Now()
-	retry := 0
-exchangeAgain:
-	m, reusedConn, err := u.tcpTransport.Exchange(q)
-	if err != nil && reusedConn == true && retry < 2 && time.Since(start) < time.Millisecond*50 {
-		retry++
-		goto exchangeAgain
-	}
-	return m, nil
+	return u.tcpTransport.Exchange(q)
 }
 
 func (u *FastUpstream) exchangeUDP(q *dns.Msg) (r *dns.Msg, err error) {
-	m, _, err := u.udpTransport.Exchange(q)
-	if err != nil {
-		return nil, err
-	}
-	return m, nil
+	return u.udpTransport.Exchange(q)
 }

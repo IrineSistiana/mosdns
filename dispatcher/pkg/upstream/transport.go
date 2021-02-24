@@ -101,21 +101,35 @@ type dialCall struct {
 	err  error
 }
 
-func (t *Transport) Exchange(q *dns.Msg) (r *dns.Msg, reusedConn bool, err error) {
+func (t *Transport) Exchange(q *dns.Msg) (r *dns.Msg, err error) {
 	t.initOnce.Do(t.init)
 
-	if t.IdleTimeout <= 0 {
-		r, err = t.exchangeNoKeepAlive(q)
-		return r, false, err
+	if t.IdleTimeout <= 0 { // no keep alive
+		return t.exchangeNoKeepAlive(q)
 	}
 
-	conn, reusedConn, err := t.getConn()
-	if err != nil {
-		return nil, false, fmt.Errorf("no connection available, %w", err)
-	}
+	start := time.Now()
+	retry := 0
+	for {
+		conn, reusedConn, err := t.getConn()
+		if err != nil {
+			return nil, fmt.Errorf("no available connection, %w", err)
+		}
 
-	r, err = conn.exchange(q)
-	return r, reusedConn, err
+		if !reusedConn {
+			return conn.exchange(q)
+		}
+
+		r, err = conn.exchange(q)
+		if err != nil {
+			if time.Since(start) < time.Millisecond*200 && retry < 2 {
+				retry++
+				continue
+			}
+			return nil, err
+		}
+		return r, nil
+	}
 }
 
 func (t *Transport) exchangeNoKeepAlive(q *dns.Msg) (*dns.Msg, error) {
@@ -229,11 +243,11 @@ func newDnsConn(t *Transport, c net.Conn) *clientConn {
 	}
 }
 
-func (c *clientConn) exchange(qOld *dns.Msg) (*dns.Msg, error) {
+func (c *clientConn) exchange(q *dns.Msg) (*dns.Msg, error) {
 	qId := uint16(atomic.AddUint32(&c.qId, 1))
-	q := new(dns.Msg)
-	*q = *qOld
-	q.Id = qId
+	qWithNewId := new(dns.Msg)
+	*qWithNewId = *q
+	qWithNewId.Id = qId
 
 	resChan := make(chan *dns.Msg, 1)
 	c.qm.Lock()
@@ -251,7 +265,7 @@ func (c *clientConn) exchange(qOld *dns.Msg) (*dns.Msg, error) {
 	}()
 
 	c.c.SetWriteDeadline(time.Now().Add(generalWriteTimeout))
-	_, err := c.t.WriteFunc(c.c, q)
+	_, err := c.t.WriteFunc(c.c, qWithNewId)
 	if err != nil {
 		c.closeAndCleanup(err) // abort this connection.
 		return nil, err
@@ -265,7 +279,7 @@ func (c *clientConn) exchange(qOld *dns.Msg) (*dns.Msg, error) {
 		return nil, errReadTimeout
 	case r := <-resChan:
 		if r != nil {
-			r.Id = qOld.Id
+			r.Id = q.Id
 		}
 		return r, nil
 	case <-c.closeChan:
@@ -308,11 +322,5 @@ func (c *clientConn) closeAndCleanup(err error) {
 		c.c.Close()
 		c.closeErr = err
 		close(c.closeChan)
-		c.t.logger.Debug(
-			"clientConn closed",
-			zap.Stringer("LocalAddr", c.c.LocalAddr()),
-			zap.Stringer("RemoteAddr", c.c.RemoteAddr()),
-			zap.Error(err),
-		)
 	})
 }
