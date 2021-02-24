@@ -54,7 +54,7 @@ ipv6: '2001:dd8:1a::'
 
 	testFunc := func(presetECS bool) {
 		typ := []uint16{dns.TypeA, dns.TypeAAAA}
-		wantECS := []*dns.EDNS0_SUBNET{ecs.ipv4, ecs.ipv6}
+		wantECS := []net.IP{ecs.ipv4, ecs.ipv6}
 		otherECS := dnsutils.NewEDNS0Subnet(net.IPv4(1, 2, 3, 4), 32, false)
 
 		for i := 0; i < 2; i++ {
@@ -77,7 +77,7 @@ ipv6: '2001:dd8:1a::'
 			}
 
 			e := dnsutils.GetMsgECS(m)
-			if !reflect.DeepEqual(e, wantECS[i]) {
+			if !reflect.DeepEqual(e.Address, wantECS[i]) {
 				t.Fatal("ecs not equal")
 			}
 		}
