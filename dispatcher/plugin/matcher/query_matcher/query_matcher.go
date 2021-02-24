@@ -27,6 +27,7 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/netlist"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
+	"go.uber.org/zap"
 )
 
 const PluginType = "query_matcher"
@@ -81,6 +82,7 @@ func newQueryMatcher(bp *handler.BP, args *Args) (m *queryMatcher, err error) {
 		}
 		ipMatcher.Sort()
 		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewClientIPMatcher(ipMatcher))
+		bp.L().Info("client ip matcher loaded", zap.Int("length", ipMatcher.Len()))
 	}
 	if len(args.Domain) > 0 {
 		mixMatcher := domain.NewMixMatcher()
@@ -89,10 +91,12 @@ func newQueryMatcher(bp *handler.BP, args *Args) (m *queryMatcher, err error) {
 			return nil, err
 		}
 		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewQNameMatcher(mixMatcher))
+		bp.L().Info("domain matcher loaded", zap.Int("length", mixMatcher.Len()))
 	}
 	if len(args.QType) > 0 {
 		elemMatcher := elem.NewIntMatcher(args.QType)
 		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewQTypeMatcher(elemMatcher))
+
 	}
 
 	if len(args.QClass) > 0 {

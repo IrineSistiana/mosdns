@@ -27,6 +27,7 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/netlist"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
+	"go.uber.org/zap"
 )
 
 const PluginType = "response_matcher"
@@ -77,6 +78,7 @@ func newResponseMatcher(bp *handler.BP, args *Args) (m *responseMatcher, err err
 			return nil, err
 		}
 		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewCNameMatcher(mixMatcher))
+		bp.L().Info("cname matcher loaded", zap.Int("length", mixMatcher.Len()))
 	}
 
 	if len(args.IP) > 0 {
@@ -87,6 +89,7 @@ func newResponseMatcher(bp *handler.BP, args *Args) (m *responseMatcher, err err
 		}
 		ipMatcher.Sort()
 		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewAAAAAIPMatcher(ipMatcher))
+		bp.L().Info("ip matcher loaded", zap.Int("length", ipMatcher.Len()))
 	}
 
 	return m, nil
