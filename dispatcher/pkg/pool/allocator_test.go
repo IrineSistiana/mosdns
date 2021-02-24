@@ -33,7 +33,7 @@ func TestAllocator_Get(t *testing.T) {
 	}{
 		{"-1", -1, 0, true},
 		{"0", 0, 0, true},
-		{"12", 12, 16, false},
+		{"12 ignored", 12, 12, false},
 		{"256", 256, 256, false},
 		{"257", 257, 0, true},
 	}
@@ -95,8 +95,8 @@ func TestAllocator_Put(t *testing.T) {
 		put       []byte
 		wantPanic bool
 	}{
-		{"release nil", nil, true},
-		{"invalid release 1", make([]byte, 12), true},
+
+		{"release 1 ignored", make([]byte, 12), false},
 		{"invalid release 2", make([]byte, 257), true},
 		{"invalid release 3", make([]byte, 512), true},
 	}

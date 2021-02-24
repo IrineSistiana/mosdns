@@ -26,6 +26,10 @@ import (
 	"sync"
 )
 
+const (
+	ignoreSmallObj = 64
+)
+
 var (
 	// allocator is an allocator with maximum buf size limit 1GB (1<<30).
 	allocator = NewAllocator(30)
@@ -70,12 +74,20 @@ func (alloc *Allocator) Get(size int) []byte {
 		panic(fmt.Sprintf("unexpected slice size %d", size))
 	}
 
+	if size <= ignoreSmallObj {
+		return make([]byte, size)
+	}
+
 	i := shard(size)
 	return alloc.buffers[i].Get().([]byte)[:size]
 }
 
 // Release releases the buf to Allocator.
 func (alloc *Allocator) Release(buf []byte) {
+	if cap(buf) <= ignoreSmallObj {
+		return
+	}
+
 	i := shard(cap(buf))
 	if cap(buf) == 0 || cap(buf) > alloc.maxLen || cap(buf) != 1<<i {
 		panic("unexpected cap size")

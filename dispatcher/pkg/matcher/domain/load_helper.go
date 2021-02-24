@@ -113,7 +113,7 @@ func LoadFromTextReader(m Matcher, r io.Reader, processAttr ProcessAttrFunc) err
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		lineCounter++
-		err := LoadFromText(m, utils.BytesToStringUnsafe(scanner.Bytes()), processAttr)
+		err := LoadFromText(m, scanner.Text(), processAttr)
 		if err != nil {
 			return fmt.Errorf("line %d: %v", lineCounter, err)
 		}

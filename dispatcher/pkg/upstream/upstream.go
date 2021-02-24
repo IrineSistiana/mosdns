@@ -37,6 +37,7 @@ import (
 const (
 	dialTimeout         = time.Second * 5
 	generalReadTimeout  = time.Second * 5
+	generalWriteTimeout = time.Second * 1
 	tlsHandshakeTimeout = time.Second * 5
 )
 
@@ -205,6 +206,7 @@ func (u *FastUpstream) init() {
 			t2.ReadIdleTimeout = time.Second * 30
 			t2.PingTimeout = time.Second * 5
 		}
+		t.CloseIdleConnections()
 
 		u.httpClient = &http.Client{
 			Transport: t,

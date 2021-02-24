@@ -70,7 +70,7 @@ func LoadFromReader(l *List, reader io.Reader) error {
 
 	for scanner.Scan() {
 		lineCounter++
-		s := utils.BytesToStringUnsafe(scanner.Bytes())
+		s := scanner.Text()
 		err := LoadFromText(l, s)
 		if err != nil {
 			return fmt.Errorf("invalid data at line #%d: %w", lineCounter, err)

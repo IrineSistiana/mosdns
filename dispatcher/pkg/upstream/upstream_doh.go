@@ -49,8 +49,7 @@ func (u *FastUpstream) exchangeDoH(q *dns.Msg) (r *dns.Msg, err error) {
 	rRaw[1] = 0
 
 	urlLen := len(u.URL) + 5 + base64.RawURLEncoding.EncodedLen(len(rRaw))
-	urlBuf := pool.GetBuf(urlLen)
-	defer pool.ReleaseBuf(urlBuf)
+	urlBuf := make([]byte, urlLen)
 
 	// Padding characters for base64url MUST NOT be included.
 	// See: https://tools.ietf.org/html/rfc8484#section-6.
