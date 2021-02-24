@@ -250,7 +250,7 @@ func (c *clientConn) exchange(qOld *dns.Msg) (*dns.Msg, error) {
 		c.qm.Unlock()
 	}()
 
-	c.c.SetDeadline(time.Now().Add(c.t.IdleTimeout))
+	c.c.SetWriteDeadline(time.Now().Add(generalWriteTimeout))
 	_, err := c.t.WriteFunc(c.c, q)
 	if err != nil {
 		c.closeAndCleanup(err) // abort this connection.
@@ -290,7 +290,7 @@ func (c *clientConn) notifyExchange(r *dns.Msg) {
 
 func (c *clientConn) readLoop() {
 	for {
-		c.c.SetDeadline(time.Now().Add(c.t.IdleTimeout))
+		c.c.SetReadDeadline(time.Now().Add(c.t.IdleTimeout))
 		m, _, err := c.t.ReadFunc(c.c)
 		if err != nil {
 			c.closeAndCleanup(err) // abort this connection.
@@ -304,15 +304,15 @@ func (c *clientConn) readLoop() {
 
 func (c *clientConn) closeAndCleanup(err error) {
 	c.cleanOnce.Do(func() {
-		c.closeErr = err
 		c.t.removeConn(c)
 		c.c.Close()
+		c.closeErr = err
+		close(c.closeChan)
 		c.t.logger.Debug(
-			"clientConn read loop exited",
+			"clientConn closed",
 			zap.Stringer("LocalAddr", c.c.LocalAddr()),
 			zap.Stringer("RemoteAddr", c.c.RemoteAddr()),
 			zap.Error(err),
 		)
-		close(c.closeChan)
 	})
 }
