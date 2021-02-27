@@ -71,6 +71,7 @@ func (s *Server) startUDP() error {
 				}
 			} else { // not an io err, maybe caused by an invalid msg.
 				s.logger.Warn("udp read err", zap.Error(err))
+				continue
 			}
 		}
 
