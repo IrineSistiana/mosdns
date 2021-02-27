@@ -18,8 +18,10 @@
 package server
 
 import (
+	"crypto/rand"
 	"crypto/tls"
 	"github.com/AdguardTeam/dnsproxy/upstream"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
 	"net"
@@ -68,6 +70,18 @@ func wantErrTest(tb testing.TB, f func() error) {
 		tb.Fatal("f() timeout")
 	}
 	return
+}
+
+func writeJunkDataTest(tb testing.TB, c net.Conn) {
+	junk := make([]byte, dnsutils.IPv4UdpMaxPayload)
+	_, err := rand.Read(junk)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	_, err = c.Write(junk)
+	if err != nil {
+		tb.Fatal(err)
+	}
 }
 
 func exchangeTest(tb testing.TB, u upstream.Upstream) {
@@ -142,7 +156,15 @@ func TestUDPServer(t *testing.T) {
 			}()
 			defer tt.server.Close()
 
-			u, err := upstream.AddressToUpstream(tt.server.PacketConn.LocalAddr().String(), opt)
+			addr := tt.server.PacketConn.LocalAddr().String()
+			c, err := net.Dial("udp", addr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer c.Close()
+			writeJunkDataTest(t, c)
+
+			u, err := upstream.AddressToUpstream(addr, opt)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -212,11 +234,19 @@ func TestTCPServer(t *testing.T) {
 			}()
 			defer tt.server.Close()
 
+			addr := tt.server.Listener.Addr().String()
+			c, err := net.Dial("udp", addr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer c.Close()
+			writeJunkDataTest(t, c)
+
 			prefix := "tcp"
 			if tt.server.Protocol == ProtocolDoT {
 				prefix = "tls"
 			}
-			u, err := upstream.AddressToUpstream(prefix+"://"+tt.server.Listener.Addr().String(), opt)
+			u, err := upstream.AddressToUpstream(prefix+"://"+addr, opt)
 			if err != nil {
 				t.Fatal(err)
 			}

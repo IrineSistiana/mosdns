@@ -95,6 +95,10 @@ func (s *Server) idleTimeout() time.Duration {
 // If server was closed, an ErrServerClosed will be returned.
 func (s *Server) Start() error {
 	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return ErrServerClosed
+	}
 	if s.started {
 		s.mu.Unlock()
 		return ErrServerStarted
