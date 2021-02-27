@@ -26,19 +26,18 @@ import (
 func TestAllocator_Get(t *testing.T) {
 	alloc := NewAllocator(8) // 256 bytes
 	tests := []struct {
-		name      string
 		size      int
 		wantCap   int
 		wantPanic bool
 	}{
-		{"-1", -1, 0, true},
-		{"0", 0, 0, true},
-		{"12 ignored", 12, 12, false},
-		{"256", 256, 256, false},
-		{"257", 257, 0, true},
+		{-1, 0, true},   // invalid
+		{0, 0, true},    // invalid
+		{12, 12, false}, // ignored, too small
+		{256, 256, false},
+		{257, 257, false}, // ignored, too big
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(strconv.Itoa(tt.size), func(t *testing.T) {
 			if tt.wantPanic {
 				defer func() {
 					msg := recover()
@@ -91,17 +90,16 @@ func Test_shard(t *testing.T) {
 func TestAllocator_Put(t *testing.T) {
 	alloc := NewAllocator(8) // 256 bytes
 	tests := []struct {
-		name      string
 		put       []byte
 		wantPanic bool
 	}{
 
-		{"release 1 ignored", make([]byte, 12), false},
-		{"invalid release 2", make([]byte, 257), true},
-		{"invalid release 3", make([]byte, 512), true},
+		{make([]byte, 12), false},  // too small, ignored
+		{make([]byte, 254), true},  // invalid
+		{make([]byte, 512), false}, // too big, ignored
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(strconv.Itoa(len(tt.put)), func(t *testing.T) {
 			if tt.wantPanic {
 				defer func() {
 					msg := recover()

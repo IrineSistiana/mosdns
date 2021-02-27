@@ -27,16 +27,18 @@ import (
 )
 
 const (
+	// Since go 1.15, the go memory allocator is much more faster than a sync.Pool
+	// when allocating small object.
 	ignoreSmallObj = 64
 )
 
 var (
-	// allocator is an allocator with maximum buf size limit 1GB (1<<30).
-	allocator = NewAllocator(30)
+	// allocator is an Allocator with 1 Megabyte maximum reusable buf size limit (1<<20).
+	allocator = NewAllocator(20)
 )
 
 // GetBuf returns a buf from a global allocator.
-// The size limit is 1GB.
+// The reuse limit is 1 Megabytes.
 func GetBuf(size int) []byte {
 	return allocator.Get(size)
 }
@@ -47,17 +49,18 @@ func ReleaseBuf(b []byte) {
 }
 
 type Allocator struct {
-	maxLen  int
-	buffers []sync.Pool
+	maxPoolLen int
+	buffers    []sync.Pool
 }
 
-// NewAllocator initiates a []byte allocator less than 1 << maxBitsLen bytes,
-// the waste(memory fragmentation) of space allocation is guaranteed to be
+// NewAllocator initiates a []byte allocatorL.
+// []byte that has less than 1 << maxPoolBitsLen bytes is managed by sync.Pool.
+// The waste(memory fragmentation) of space allocation is guaranteed to be
 // no more than 50%.
-func NewAllocator(maxBitsLen int) *Allocator {
+func NewAllocator(maxPoolBitsLen int) *Allocator {
 	alloc := &Allocator{
-		maxLen:  1 << maxBitsLen,
-		buffers: make([]sync.Pool, maxBitsLen+1),
+		maxPoolLen: 1 << maxPoolBitsLen,
+		buffers:    make([]sync.Pool, maxPoolBitsLen+1),
 	}
 	for i := range alloc.buffers {
 		bufSize := 1 << uint32(i)
@@ -70,11 +73,11 @@ func NewAllocator(maxBitsLen int) *Allocator {
 
 // Get returns a []byte from pool with most appropriate cap
 func (alloc *Allocator) Get(size int) []byte {
-	if size <= 0 || size > alloc.maxLen {
-		panic(fmt.Sprintf("unexpected slice size %d", size))
+	if size <= 0 {
+		panic(fmt.Sprintf("Allocator Get: negtive slice size %d", size))
 	}
 
-	if size <= ignoreSmallObj {
+	if size > alloc.maxPoolLen || size <= ignoreSmallObj {
 		return make([]byte, size)
 	}
 
@@ -82,22 +85,17 @@ func (alloc *Allocator) Get(size int) []byte {
 	return alloc.buffers[i].Get().([]byte)[:size]
 }
 
-// Release releases the buf to Allocator.
+// Release releases the buf to the allocatorL.
 func (alloc *Allocator) Release(buf []byte) {
-	if cap(buf) <= ignoreSmallObj {
+	if cap(buf) > alloc.maxPoolLen || cap(buf) <= ignoreSmallObj {
 		return
 	}
 
 	i := shard(cap(buf))
-	if cap(buf) == 0 || cap(buf) > alloc.maxLen || cap(buf) != 1<<i {
+	if cap(buf) == 0 || cap(buf) > alloc.maxPoolLen || cap(buf) != 1<<i {
 		panic("unexpected cap size")
 	}
 	alloc.buffers[i].Put(buf)
-}
-
-// MaxLen returns the Allocator maximum buf length.
-func (alloc *Allocator) MaxLen() int {
-	return alloc.maxLen
 }
 
 // shard returns the shard index that is suitable for the size.
