@@ -110,6 +110,7 @@ func newServerPlugin(bp *handler.BP, args *Args) (*serverPlugin, error) {
 		s.Handler = sh
 		s.QueryTimeout = time.Duration(sc.Timeout) * time.Second
 		s.IdleTimeout = time.Duration(sc.IdleTimeout) * time.Second
+		s.GetUserIPFromHeader = sc.GetUserIPFromHeader
 
 		var err error
 		s.Protocol, err = server.ParseProtocol(sc.Protocol)

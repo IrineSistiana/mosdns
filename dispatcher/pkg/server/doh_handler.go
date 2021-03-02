@@ -54,11 +54,19 @@ func (h *DoHHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 	})
 
+	// check handler
+	if h.DNSHandler == nil {
+		h.logger.Error("nil dns handler")
+		w.WriteHeader(http.StatusInternalServerError)
+	}
+
+	// check url path
 	if len(h.URLPath) != 0 && req.URL.Path != h.URLPath {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 
+	// read msg
 	q, err := GetMsgFromReq(req)
 	if err != nil {
 		h.logger.Warn("invalid request", zap.String("from", req.RemoteAddr), zap.String("url", req.RequestURI), zap.String("method", req.Method), zap.Error(err))
@@ -66,15 +74,18 @@ func (h *DoHHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	qCtx := handler.NewContext(q, GetClientIPFromReq(req, h.GetUserIPFromHeader))
-	qCtx.SetTCPClient(true)
+	// read remote addr
+	remoteAddr := req.RemoteAddr
+	if len(h.GetUserIPFromHeader) != 0 {
+		if ip := req.Header.Get(h.GetUserIPFromHeader); len(ip) != 0 {
+			remoteAddr = ip + ":0"
+		}
+	}
 
+	qCtx := handler.NewContext(q, utils.NewNetAddr(remoteAddr, req.URL.Scheme))
+	qCtx.SetTCPClient(true)
 	ctx, cancel := context.WithTimeout(req.Context(), h.queryTimeout())
 	defer cancel()
-	if h.DNSHandler == nil {
-		h.logger.Error("nil dns handler")
-		w.WriteHeader(http.StatusInternalServerError)
-	}
 	h.DNSHandler.ServeDNS(ctx, qCtx, &httpDnsRespWriter{httpRespWriter: w})
 }
 
@@ -83,16 +94,6 @@ func (h *DoHHandler) queryTimeout() time.Duration {
 		return t
 	}
 	return defaultQueryTimeout
-}
-
-func GetClientIPFromReq(req *http.Request, checkHeader string) *utils.NetAddr {
-	remoteAddr := req.RemoteAddr
-	if len(checkHeader) != 0 {
-		if ip := req.Header.Get(checkHeader); len(ip) != 0 {
-			remoteAddr = ip + ":0"
-		}
-	}
-	return utils.NewNetAddr(remoteAddr, req.URL.Scheme)
 }
 
 func GetMsgFromReq(req *http.Request) (*dns.Msg, error) {
