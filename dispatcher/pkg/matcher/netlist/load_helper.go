@@ -77,7 +77,7 @@ func LoadFromReader(l *List, reader io.Reader) error {
 		}
 	}
 
-	return nil
+	return scanner.Err()
 }
 
 // LoadFromText loads an IP from s.
