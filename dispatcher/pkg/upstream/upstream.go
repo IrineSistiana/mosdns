@@ -131,7 +131,7 @@ func (u *FastUpstream) init() {
 			ReadFunc: func(c io.Reader) (m *dns.Msg, n int, err error) {
 				return dnsutils.ReadMsgFromUDP(c, dnsutils.IPv4UdpMaxPayload)
 			},
-			MaxConns:    u.maxConns(),
+			MaxConns:    1,
 			IdleTimeout: time.Second * 30,
 			Timeout:     u.readTimeout(),
 		}

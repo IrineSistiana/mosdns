@@ -211,7 +211,7 @@ func SplitString2(s, symbol string) (s1 string, s2 string, ok bool) {
 		return "", s, true
 	}
 	if i := strings.Index(s, symbol); i >= 0 {
-		return s[:i], s[i+1:], true
+		return s[:i], s[i+len(symbol):], true
 	}
 	return "", "", false
 }

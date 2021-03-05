@@ -154,6 +154,9 @@ func TestSplitString2(t *testing.T) {
 		{"blank", args{"///", ""}, "", "///", true},
 		{"split", args{"///", "/"}, "", "//", true},
 		{"split", args{"--/", "/"}, "--", "", true},
+		{"split", args{"https://***.***.***", "://"}, "https", "***.***.***", true},
+		{"split", args{"://***.***.***", "://"}, "", "***.***.***", true},
+		{"split", args{"https://", "://"}, "https", "", true},
 		{"split", args{"--/", "*"}, "", "", false},
 	}
 	for _, tt := range tests {

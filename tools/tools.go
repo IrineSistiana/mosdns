@@ -57,19 +57,25 @@ func ProbServerTimeout(addr string) error {
 
 	mlog.S().Infof("connecting to %s", addr)
 	if isTLS {
+		serverName, _, _ := net.SplitHostPort(host)
 		tlsConfig := new(tls.Config)
-		tlsConfig.InsecureSkipVerify = true
-		tlsConn, err := tls.Dial("tcp", host, tlsConfig)
+		tlsConfig.InsecureSkipVerify = false
+		tlsConfig.ServerName = serverName
+		conn, err = net.Dial("tcp", host)
 		if err != nil {
-			return fmt.Errorf("failed to dail tls connection: %v", err)
+			return fmt.Errorf("failed to dial connection: %v", err)
 		}
+		tlsConn := tls.Client(conn, tlsConfig)
 		tlsConn.SetDeadline(time.Now().Add(time.Second * 5))
 		mlog.S().Info("connected, start TLS handshaking")
 		err = tlsConn.Handshake()
 		if err != nil {
 			return fmt.Errorf("tls handshake failed: %v", err)
 		}
-		mlog.S().Info("TLS handshake completed")
+		mlog.S().Info("TLS handshake completed", tlsConn.ConnectionState().ServerName)
+		mlog.S().Infof("Server name: %s", tlsConn.ConnectionState().ServerName)
+		mlog.S().Infof("TLS version: %x", tlsConn.ConnectionState().Version)
+		mlog.S().Infof("TLS cipher suite: %s", tls.CipherSuiteName(tlsConn.ConnectionState().CipherSuite))
 		conn = tlsConn
 	} else {
 		conn, err = net.Dial("tcp", host)
