@@ -74,7 +74,7 @@ type FastUpstream struct {
 
 	// MaxConns limits the total number of connections,
 	// including connections in the dialing states.
-	// Used by "udp", "tcp", "dot", "doh". Default: 1.
+	// Used by "udp"(fallback to tcp), "tcp", "dot", "doh". Default: 1.
 	MaxConns int
 
 	RootCA             *x509.CertPool
@@ -83,7 +83,7 @@ type FastUpstream struct {
 	initOnce     sync.Once
 	logger       *zap.Logger  // non-nil logger
 	udpTransport *Transport   // used by udp
-	tcpTransport *Transport   // used by udp(upgraded), tcp, dot.
+	tcpTransport *Transport   // used by udp(fallback to tcp), tcp, dot.
 	httpClient   *http.Client // used by doh.
 }
 
@@ -222,16 +222,14 @@ func (u *FastUpstream) ExchangeNoTruncated(q *dns.Msg) (r *dns.Msg, err error) {
 	return u.exchange(q, true)
 }
 
-func (u *FastUpstream) exchange(q *dns.Msg, noTruncated bool) (r *dns.Msg, err error) {
+func (u *FastUpstream) exchange(q *dns.Msg, noTruncated bool) (*dns.Msg, error) {
 	u.initOnce.Do(u.init)
 
+	var r *dns.Msg
+	var err error
 	switch u.Protocol {
 	case ProtocolUDP:
-		if noTruncated { // upgrade to tcp
-			r, err = u.exchangeTCP(q)
-		} else {
-			r, err = u.exchangeUDP(q)
-		}
+		r, err = u.exchangeUDP(q, noTruncated)
 	case ProtocolTCP, ProtocolDoT:
 		r, err = u.exchangeTCP(q)
 	case ProtocolDoH:
@@ -277,6 +275,13 @@ func (u *FastUpstream) exchangeTCP(q *dns.Msg) (r *dns.Msg, err error) {
 	return u.tcpTransport.Exchange(q)
 }
 
-func (u *FastUpstream) exchangeUDP(q *dns.Msg) (r *dns.Msg, err error) {
-	return u.udpTransport.Exchange(q)
+func (u *FastUpstream) exchangeUDP(q *dns.Msg, noTruncated bool) (r *dns.Msg, err error) {
+	r, err = u.udpTransport.Exchange(q)
+	if err != nil {
+		return nil, err
+	}
+	if r.Truncated && noTruncated { // fallback to tcp
+		return u.exchangeTCP(q)
+	}
+	return r, nil
 }
