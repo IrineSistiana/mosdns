@@ -18,70 +18,78 @@
 package load_cache
 
 import (
-	"io/ioutil"
-	"os"
+	"github.com/google/uuid"
 	"sync"
-	"time"
 )
 
-type LoadCache struct {
-	l     sync.Mutex
-	cache map[string]interface{}
+var globalCache = NewCache()
+
+func GetCache() *Cache {
+	return globalCache
 }
 
-func NewCache() *LoadCache {
-	return &LoadCache{
-		cache: make(map[string]interface{}),
+type Cache struct {
+	sync.RWMutex
+	m map[string]interface{}
+}
+
+func NewCache() *Cache {
+	return &Cache{m: make(map[string]interface{})}
+}
+
+func (c *Cache) Get(key string) (interface{}, bool) {
+	c.RLock()
+	defer c.RUnlock()
+
+	v, ok := c.m[key]
+	return v, ok
+}
+
+func (c *Cache) Store(key string, v interface{}) {
+	c.Lock()
+	defer c.Unlock()
+
+	c.m[key] = v
+}
+
+func (c *Cache) Remove(key string) {
+	c.Lock()
+	defer c.Unlock()
+
+	delete(c.m, key)
+}
+
+func (c *Cache) Purge() {
+	c.Lock()
+	defer c.Unlock()
+
+	c.m = make(map[string]interface{})
+}
+
+func (c *Cache) NewNamespace() *NNCache {
+	return &NNCache{
+		uuid: uuid.New(),
+		c:    c,
 	}
 }
 
-func (c *LoadCache) Put(key string, data interface{}, ttl time.Duration) {
-	if ttl <= 0 {
-		return
-	}
-
-	c.l.Lock()
-	defer c.l.Unlock()
-
-	c.cache[key] = data
-
-	rm := func() { c.Remove(key) }
-	time.AfterFunc(ttl, rm)
+type NNCache struct {
+	uuid uuid.UUID
+	c    *Cache
 }
 
-func (c *LoadCache) Remove(key string) {
-	c.l.Lock()
-	defer c.l.Unlock()
-
-	delete(c.cache, key)
+func (c *NNCache) combineKey(key string) string {
+	return key + c.uuid.String()
 }
 
-func (c *LoadCache) Load(key string) (interface{}, bool) {
-	c.l.Lock()
-	defer c.l.Unlock()
-
-	data, ok := c.cache[key]
-	return data, ok
+func (c *NNCache) Store(key string, v interface{}) {
+	c.c.Store(c.combineKey(key), v)
 }
 
-func (c *LoadCache) LoadFromCacheOrRawDisk(file string) (interface{}, []byte, error) {
-	// load from cache
-	data, ok := c.Load(file)
-	if ok {
-		return data, nil, nil
-	}
+func (c *NNCache) Remove(key string) {
+	c.c.Remove(c.combineKey(key))
+}
 
-	// load from disk
-	f, err := os.Open(file)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer f.Close()
-
-	b, err := ioutil.ReadAll(f)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return nil, b, nil
+func (c *NNCache) Get(key string) (interface{}, bool) {
+	return c.c.Get(c.combineKey(key))
 }

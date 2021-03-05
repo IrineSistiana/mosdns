@@ -27,15 +27,12 @@ import (
 	"github.com/golang/protobuf/proto"
 	"io"
 	"io/ioutil"
+	"os"
 	"strings"
 	"time"
 )
 
-var matcherCache = load_cache.NewCache()
-
-const (
-	cacheTTL = time.Second * 30
-)
+var matcherCache = load_cache.GetCache().NewNamespace()
 
 // BatchLoad is a helper func to load multiple files using Load.
 // It might modify the List and causes List unsorted.
@@ -171,22 +168,26 @@ func LoadGeoIPFromDAT(file, tag string) (*v2data.GeoIP, error) {
 }
 
 func LoadGeoIPListFromDAT(file string) (*v2data.GeoIPList, error) {
-	data, raw, err := matcherCache.LoadFromCacheOrRawDisk(file)
-	if err != nil {
-		return nil, err
-	}
 	// load from cache
-	if geoIPList, ok := data.(*v2data.GeoIPList); ok {
-		return geoIPList, nil
+	v, _ := matcherCache.Get(file)
+	if geoIP, ok := v.(*v2data.GeoIPList); ok {
+		return geoIP, nil
 	}
 
 	// load from disk
-	geoIPList := new(v2data.GeoIPList)
-	if err := proto.Unmarshal(raw, geoIPList); err != nil {
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		return nil, err
+	}
+	geoIP := new(v2data.GeoIPList)
+	if err := proto.Unmarshal(raw, geoIP); err != nil {
 		return nil, err
 	}
 
 	// cache the file
-	matcherCache.Put(file, geoIPList, cacheTTL)
-	return geoIPList, nil
+	matcherCache.Store(file, geoIP)
+	time.AfterFunc(time.Second*15, func() { // remove it after 15s
+		matcherCache.Remove(file)
+	})
+	return geoIP, nil
 }

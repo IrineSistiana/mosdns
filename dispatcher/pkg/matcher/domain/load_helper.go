@@ -27,17 +27,14 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 	"io"
 	"io/ioutil"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/golang/protobuf/proto"
 )
 
-var matcherCache = load_cache.NewCache()
-
-const (
-	cacheTTL = time.Second * 30
-)
+var matcherCache = load_cache.GetCache().NewNamespace()
 
 // ProcessAttrFunc processes the additional attributions. The given []string could have a 0 length or is nil.
 type ProcessAttrFunc func([]string) (v interface{}, accept bool, err error)
@@ -242,22 +239,26 @@ func LoadGeoSiteFromDAT(file, countryCode string) (*v2data.GeoSite, error) {
 }
 
 func LoadGeoSiteList(file string) (*v2data.GeoSiteList, error) {
-	data, raw, err := matcherCache.LoadFromCacheOrRawDisk(file)
-	if err != nil {
-		return nil, err
-	}
 	// load from cache
-	if geoSiteList, ok := data.(*v2data.GeoSiteList); ok {
+	v, _ := matcherCache.Get(file)
+	if geoSiteList, ok := v.(*v2data.GeoSiteList); ok {
 		return geoSiteList, nil
 	}
 
 	// load from disk
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		return nil, err
+	}
 	geoSiteList := new(v2data.GeoSiteList)
 	if err := proto.Unmarshal(raw, geoSiteList); err != nil {
 		return nil, err
 	}
 
 	// cache the file
-	matcherCache.Put(file, geoSiteList, cacheTTL)
+	matcherCache.Store(file, geoSiteList)
+	time.AfterFunc(time.Second*15, func() { // remove it after 15s
+		matcherCache.Remove(file)
+	})
 	return geoSiteList, nil
 }

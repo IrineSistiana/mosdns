@@ -22,6 +22,7 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/concurrent_limiter"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/load_cache"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -29,6 +30,7 @@ import (
 	"os/signal"
 	"plugin"
 	"runtime"
+	"runtime/debug"
 	"sync"
 	"syscall"
 )
@@ -38,6 +40,10 @@ func Run(c string) {
 	loadConfig(c, 0)
 
 	mlog.L().Info("all plugins are successfully loaded")
+	load_cache.GetCache().Purge()
+	runtime.GC()
+	debug.FreeOSMemory()
+
 	//wait for signals
 	osSignals := make(chan os.Signal, 1)
 	signal.Notify(osSignals, os.Interrupt, os.Kill, syscall.SIGTERM)

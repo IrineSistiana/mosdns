@@ -7,6 +7,7 @@ require (
 	github.com/ameshkov/dnscrypt/v2 v2.0.3 // indirect
 	github.com/go-redis/redis/v8 v8.6.0
 	github.com/golang/protobuf v1.4.3
+	github.com/google/uuid v1.2.0
 	github.com/kardianos/service v1.2.0
 	github.com/marten-seemann/qtls-go1-15 v0.1.2 // indirect
 	github.com/miekg/dns v1.1.40
