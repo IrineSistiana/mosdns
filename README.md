@@ -4,6 +4,8 @@
 
 下载预编译文件、更新日志，详见: [release](https://github.com/IrineSistiana/mosdns/releases)
 
+docker 镜像: [docker hub](https://hub.docker.com/r/irinesistiana/mosdns)
+
 插件和其对应的 `args` 参数说明，详见: [wiki/Plugin](https://github.com/IrineSistiana/mosdns/wiki/Plugin)
 
 ---
