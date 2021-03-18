@@ -41,7 +41,6 @@ func Run(c string) {
 
 	mlog.L().Info("all plugins are successfully loaded")
 	load_cache.GetCache().Purge()
-	runtime.GC()
 	debug.FreeOSMemory()
 
 	//wait for signals
