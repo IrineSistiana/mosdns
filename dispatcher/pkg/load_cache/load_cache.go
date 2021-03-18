@@ -18,8 +18,9 @@
 package load_cache
 
 import (
-	"github.com/google/uuid"
+	"strconv"
 	"sync"
+	"sync/atomic"
 )
 
 var globalCache = NewCache()
@@ -31,6 +32,8 @@ func GetCache() *Cache {
 type Cache struct {
 	sync.RWMutex
 	m map[string]interface{}
+
+	nn uint32
 }
 
 func NewCache() *Cache {
@@ -68,18 +71,18 @@ func (c *Cache) Purge() {
 
 func (c *Cache) NewNamespace() *NNCache {
 	return &NNCache{
-		uuid: uuid.New(),
-		c:    c,
+		prefix: strconv.Itoa(int(atomic.AddUint32(&c.nn, 1))),
+		c:      c,
 	}
 }
 
 type NNCache struct {
-	uuid uuid.UUID
-	c    *Cache
+	prefix string
+	c      *Cache
 }
 
 func (c *NNCache) combineKey(key string) string {
-	return key + c.uuid.String()
+	return c.prefix + key
 }
 
 func (c *NNCache) Store(key string, v interface{}) {
