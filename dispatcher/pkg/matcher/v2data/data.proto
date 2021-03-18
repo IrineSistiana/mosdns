@@ -4,7 +4,7 @@ syntax = "proto3";
 
 package v2data;
 
-option go_package = "dispatcher/matcher/v2data";
+option go_package = "dispatcher/pkg/matcher/v2data";
 
 // Domain for routing decision.
 message Domain {
