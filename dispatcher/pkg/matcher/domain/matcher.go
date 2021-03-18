@@ -25,149 +25,38 @@ import (
 	"strings"
 )
 
-type DomainMatcher struct {
-	mode DomainMatcherMode
-
-	s map[[16]byte]interface{}
-	m map[[32]byte]interface{}
-	l map[[256]byte]interface{}
+type FullMatcher struct {
+	m map[string]interface{}
 }
 
-type DomainMatcherMode uint8
-
-const (
-	DomainMatcherModeDomain DomainMatcherMode = iota
-	DomainMatcherModeFull
-)
-
-func NewDomainMatcher(mode DomainMatcherMode) *DomainMatcher {
-	return &DomainMatcher{
-		mode: mode,
-		s:    make(map[[16]byte]interface{}),
-		m:    make(map[[32]byte]interface{}),
-		l:    make(map[[256]byte]interface{}),
+func NewFullMatcher() *FullMatcher {
+	return &FullMatcher{
+		m: make(map[string]interface{}),
 	}
 }
 
-func (m *DomainMatcher) Add(domain string, v interface{}) error {
+func (m *FullMatcher) Add(domain string, v interface{}) error {
 	m.add(domain, v)
 	return nil
 }
 
-func (m *DomainMatcher) add(domain string, v interface{}) {
+func (m *FullMatcher) add(domain string, v interface{}) {
 	fqdn := dns.Fqdn(domain)
-	n := len(fqdn)
-
-	var old interface{}
-	switch {
-	case n <= 16:
-		var b [16]byte
-		copy(b[:], fqdn)
-		mm := m.s
-		if old = mm[b]; old == nil {
-			mm[b] = v
-		}
-	case n <= 32:
-		var b [32]byte
-		copy(b[:], fqdn)
-		mm := m.m
-		if old = mm[b]; old == nil {
-			mm[b] = v
-		}
-	default:
-		var b [256]byte
-		copy(b[:], fqdn)
-		mm := m.l
-		if old = mm[b]; old == nil {
-			mm[b] = v
-		}
-	}
-
-	if old != nil && v != nil {
-		if appendable, ok := old.(Appendable); ok {
-			appendable.Append(v)
-		}
+	oldV := m.m[fqdn]
+	if appendable, ok := oldV.(Appendable); ok {
+		appendable.Append(v)
+	} else {
+		m.m[fqdn] = v
 	}
 }
 
-func (m *DomainMatcher) Del(domain string) {
-	fqdn := dns.Fqdn(domain)
-	n := len(fqdn)
-	switch {
-	case n <= 16:
-		var b [16]byte
-		copy(b[:], fqdn)
-		mm := m.s
-		delete(mm, b)
-	case n <= 32:
-		var b [32]byte
-		copy(b[:], fqdn)
-		mm := m.m
-		delete(mm, b)
-	default:
-		var b [256]byte
-		copy(b[:], fqdn)
-		mm := m.l
-		delete(mm, b)
-	}
+func (m *FullMatcher) Match(fqdn string) (v interface{}, ok bool) {
+	v, ok = m.m[fqdn]
+	return
 }
 
-func (m *DomainMatcher) Match(fqdn string) (v interface{}, ok bool) {
-	switch m.mode {
-	case DomainMatcherModeFull:
-		return m.fullMatch(fqdn)
-	case DomainMatcherModeDomain:
-		return m.domainMatch(fqdn)
-	default:
-		panic(fmt.Sprintf("domain: invalid match mode %d", m.mode))
-	}
-}
-
-func (m *DomainMatcher) domainMatch(fqdn string) (v interface{}, ok bool) {
-	idx := make([]int, 1, 6)
-	off := 0
-	end := false
-
-	for {
-		off, end = dns.NextLabel(fqdn, off)
-		if end {
-			break
-		}
-		idx = append(idx, off)
-	}
-
-	for i := range idx {
-		p := idx[len(idx)-1-i]
-		if v, ok = m.fullMatch(fqdn[p:]); ok {
-			return v, true
-		}
-	}
-	return nil, false
-}
-
-func (m *DomainMatcher) fullMatch(fqdn string) (v interface{}, ok bool) {
-	n := len(fqdn)
-	switch {
-	case n <= 16:
-		var b [16]byte
-		copy(b[:], fqdn)
-		v, ok = m.s[b]
-		return
-	case n <= 32:
-		var b [32]byte
-		copy(b[:], fqdn)
-		v, ok = m.m[b]
-		return
-	default:
-		var b [256]byte
-		copy(b[:], fqdn)
-		v, ok = m.l[b]
-		return
-	}
-}
-
-func (m *DomainMatcher) Len() int {
-	return len(m.l) + len(m.m) + len(m.s)
+func (m *FullMatcher) Len() int {
+	return len(m.m)
 }
 
 type KeywordMatcher struct {
@@ -187,17 +76,11 @@ func (m *KeywordMatcher) Add(keyword string, v interface{}) error {
 
 func (m *KeywordMatcher) add(keyword string, v interface{}) {
 	o := m.kws[keyword]
-	if o == nil {
+	if appendable, ok := o.(Appendable); ok {
+		appendable.Append(v)
+	} else {
 		m.kws[keyword] = v
-	} else if v != nil {
-		if appendable, ok := o.(Appendable); ok {
-			appendable.Append(v)
-		}
 	}
-}
-
-func (m *KeywordMatcher) Del(keyword string) {
-	delete(m.kws, keyword)
 }
 
 func (m *KeywordMatcher) Match(fqdn string) (v interface{}, ok bool) {
@@ -237,19 +120,15 @@ func (m *RegexMatcher) Add(expr string, v interface{}) error {
 			reg: reg,
 			v:   v,
 		}
-	} else if v != nil {
-		if e.v == nil {
-			e.v = v
-		} else if appendable, ok := e.v.(Appendable); ok {
+	} else {
+		if appendable, ok := e.v.(Appendable); ok {
 			appendable.Append(v)
+		} else {
+			e.v = v
 		}
 	}
 
 	return nil
-}
-
-func (m *RegexMatcher) Del(expr string) {
-	delete(m.regs, expr)
 }
 
 func (m *RegexMatcher) Match(fqdn string) (v interface{}, ok bool) {
@@ -280,15 +159,15 @@ type MixMatcher struct {
 	keyword *KeywordMatcher
 	regex   *RegexMatcher
 	domain  *DomainMatcher
-	full    *DomainMatcher
+	full    *FullMatcher
 }
 
 func NewMixMatcher() *MixMatcher {
 	return &MixMatcher{
 		keyword: NewKeywordMatcher(),
 		regex:   NewRegexMatcher(),
-		domain:  NewDomainMatcher(DomainMatcherModeDomain),
-		full:    NewDomainMatcher(DomainMatcherModeFull),
+		domain:  NewDomainMatcher(),
+		full:    NewFullMatcher(),
 	}
 }
 
@@ -316,27 +195,12 @@ func (m *MixMatcher) AddElem(typ MixMatcherPatternType, pattern string, v interf
 	return m.getSubMatcher(typ).Add(pattern, v)
 }
 
-func (m *MixMatcher) Del(pattern string) {
-	typ, pattern, err := m.splitTypeAndPattern(pattern)
-	if err != nil {
-		return
-	}
-	m.getSubMatcher(typ).Del(pattern)
-}
-
 func (m *MixMatcher) Match(fqdn string) (v interface{}, ok bool) {
 	// it seems v2ray match full matcher first, then domain, reg and keyword matcher.
-	if v, ok = m.full.Match(fqdn); ok {
-		return
-	}
-	if v, ok = m.domain.Match(fqdn); ok {
-		return
-	}
-	if v, ok = m.regex.Match(fqdn); ok {
-		return
-	}
-	if v, ok = m.keyword.Match(fqdn); ok {
-		return
+	for _, matcher := range [...]Matcher{m.full, m.domain, m.regex, m.keyword} {
+		if v, ok = matcher.Match(fqdn); ok {
+			return
+		}
 	}
 	return
 }

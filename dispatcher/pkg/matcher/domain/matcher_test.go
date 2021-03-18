@@ -47,32 +47,12 @@ func (a *aStr) Append(v interface{}) {
 	a.s = a.s + v.(*aStr).s
 }
 
-func Test_DomainMatcher(t *testing.T) {
-	m := NewDomainMatcher(DomainMatcherModeDomain)
-	add := func(fqdn string, v Appendable) {
+func Test_FullMatcher(t *testing.T) {
+	m := NewFullMatcher()
+	assert := assertFunc(t, m)
+	add := func(fqdn string, v interface{}) {
 		m.Add(fqdn, v)
 	}
-	assert := assertFunc(t, m)
-
-	add("cn.", nil)
-	assert("cn.", true, nil)
-	assert("a.cn.", true, nil)
-	assert("a.com.", false, nil)
-	add("a.b.com.", nil)
-	assert("a.b.com.", true, nil)
-	assert("q.w.e.r.a.b.com.", true, nil)
-	assert("c.a.com.", false, nil)
-
-	// test appendable
-	add("append.", nil)
-	assert("a.append.", true, nil)
-	add("append.", s("a"))
-	assert("b.append.", true, s("a"))
-	add("append.", s("b"))
-	assert("c.append.", true, s("ab"))
-
-	m = NewDomainMatcher(DomainMatcherModeFull)
-	assert = assertFunc(t, m)
 
 	add("cn.", nil)
 	assert("cn.", true, nil)
@@ -80,11 +60,29 @@ func Test_DomainMatcher(t *testing.T) {
 	add("test.test.", nil)
 	assert("test.test.", true, nil)
 	assert("test.a.test.", false, nil)
+
+	// test replace
+	add("append.", 0)
+	assert("append.", true, 0)
+	add("append.", 1)
+	assert("append.", true, 1)
+	add("append.", nil)
+	assert("append.", true, nil)
+
+	// test appendable
+	add("append.", nil)
+	assert("append.", true, nil)
+	add("append.", s("a"))
+	assert("append.", true, s("a"))
+	add("append.", s("b"))
+	assert("append.", true, s("ab"))
+
+	assertInt(t, m.Len(), 3)
 }
 
 func Test_KeywordMatcher(t *testing.T) {
 	m := NewKeywordMatcher()
-	add := func(fqdn string, v Appendable) {
+	add := func(fqdn string, v interface{}) {
 		m.Add(fqdn, v)
 	}
 
@@ -98,6 +96,14 @@ func Test_KeywordMatcher(t *testing.T) {
 	assert("sub.example.com.", true, nil)
 	assert("example_sub.com.", false, nil)
 
+	// test replace
+	add("append.", 0)
+	assert("append.", true, 0)
+	add("append.", 1)
+	assert("append.", true, 1)
+	add("append.", nil)
+	assert("append.", true, nil)
+
 	// test appendable
 	add("append.", nil)
 	assert("a.append.", true, nil)
@@ -105,11 +111,13 @@ func Test_KeywordMatcher(t *testing.T) {
 	assert("b.append.", true, s("a"))
 	add("append.", s("b"))
 	assert("c.append.", true, s("ab"))
+
+	assertInt(t, m.Len(), 3)
 }
 
 func Test_RegexMatcher(t *testing.T) {
 	m := NewRegexMatcher()
-	add := func(expr string, v Appendable, wantErr bool) {
+	add := func(expr string, v interface{}, wantErr bool) {
 		err := m.Add(expr, v)
 		if (err != nil) != wantErr {
 			t.Fatalf("%s: want err %v, got %v", expr, wantErr, err != nil)
@@ -131,8 +139,16 @@ func Test_RegexMatcher(t *testing.T) {
 	assert("example.com", true, nil)
 	assert("sub.example.com", false, nil)
 
+	// test replace
+	add("append.", 0, false)
+	assert("append.", true, 0)
+	add("append.", 1, false)
+	assert("append.", true, 1)
+	add("append.", nil, false)
+	assert("append.", true, nil)
+
 	// test appendable
-	expr = "append.$"
+	expr = "append."
 	add(expr, nil, false)
 	assert("append.", true, nil)
 	add(expr, s("a"), false)
