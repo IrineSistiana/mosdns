@@ -128,7 +128,7 @@ func BenchIPMatcher(f string) error {
 
 	start := time.Now()
 
-	var n int = 1e6
+	var n int = 1e4
 
 	for i := 0; i < n; i++ {
 		list.Match(ip)
@@ -147,10 +147,10 @@ func BenchDomainMatcher(f string) error {
 	}
 	start := time.Now()
 
-	var n int = 1e6
+	var n int = 1e4
 
 	for i := 0; i < n; i++ {
-		matcher.Match("com.")
+		matcher.Match("www.goooooooooogle.com.")
 	}
 	timeCost := time.Since(start)
 
@@ -160,18 +160,17 @@ func BenchDomainMatcher(f string) error {
 
 func ConvertDomainDat(v string) error {
 	s := strings.SplitN(v, ":", 2)
-	datFile := s[0]
+	datFileName := s[0]
 	var wantTag string
 	if len(s) == 2 {
-		wantTag = s[1]
+		wantTag = strings.ToLower(s[1])
 	}
 
-	geoSiteList, err := domain.LoadGeoSiteList(datFile)
+	geoSiteList, err := domain.LoadGeoSiteList(datFileName)
 	if err != nil {
 		return err
 	}
 
-	wantTag = strings.ToLower(wantTag)
 	for _, geoSite := range geoSiteList.GetEntry() {
 		tag := strings.ToLower(geoSite.GetCountryCode())
 
@@ -179,7 +178,7 @@ func ConvertDomainDat(v string) error {
 			continue
 		}
 
-		file := fmt.Sprintf("%s_domain.list", tag)
+		file := fmt.Sprintf("%s_%s.txt", trimExt(datFileName), tag)
 		mlog.S().Infof("saving %s domain to %s", tag, file)
 		err := convertV2DomainToTextFile(geoSite.GetDomain(), file)
 		if err != nil {
@@ -187,6 +186,14 @@ func ConvertDomainDat(v string) error {
 		}
 	}
 	return nil
+}
+
+func trimExt(f string) string {
+	if i := strings.LastIndexByte(f, '.'); i == -1 {
+		return f
+	} else {
+		return f[:i]
+	}
 }
 
 func convertV2DomainToTextFile(domain []*v2data.Domain, file string) error {
@@ -224,13 +231,13 @@ func convertV2DomainToText(domain []*v2data.Domain, w io.Writer) error {
 
 func ConvertIPDat(v string) error {
 	s := strings.SplitN(v, ":", 2)
-	file := s[0]
+	datFileName := s[0]
 	var wantTag string
 	if len(s) == 2 {
-		wantTag = s[1]
+		wantTag = strings.ToLower(s[1])
 	}
 
-	geoIPList, err := netlist.LoadGeoIPListFromDAT(file)
+	geoIPList, err := netlist.LoadGeoIPListFromDAT(datFileName)
 	if err != nil {
 		return err
 	}
@@ -241,7 +248,7 @@ func ConvertIPDat(v string) error {
 			continue
 		}
 
-		file := fmt.Sprintf("%s_ip.list", tag)
+		file := fmt.Sprintf("%s_%s.txt", trimExt(datFileName), tag)
 		mlog.S().Infof("saving %s ip to %s", tag, file)
 		err := convertV2CidrToTextFile(ipList.GetCidr(), file)
 		if err != nil {
