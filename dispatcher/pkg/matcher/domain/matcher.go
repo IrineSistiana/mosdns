@@ -23,6 +23,7 @@ import (
 	"github.com/miekg/dns"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 type FullMatcher struct {
@@ -97,7 +98,8 @@ func (m *KeywordMatcher) Len() int {
 }
 
 type RegexMatcher struct {
-	regs map[string]*regElem
+	regs  map[string]*regElem
+	cache *regCache
 }
 
 type regElem struct {
@@ -107,6 +109,10 @@ type regElem struct {
 
 func NewRegexMatcher() *RegexMatcher {
 	return &RegexMatcher{regs: make(map[string]*regElem)}
+}
+
+func NewRegexMatcherWithCache(cap int) *RegexMatcher {
+	return &RegexMatcher{regs: make(map[string]*regElem), cache: newRegCache(cap)}
 }
 
 func (m *RegexMatcher) Add(expr string, v interface{}) error {
@@ -132,16 +138,85 @@ func (m *RegexMatcher) Add(expr string, v interface{}) error {
 }
 
 func (m *RegexMatcher) Match(fqdn string) (v interface{}, ok bool) {
+	if m.cache != nil {
+		if e, ok := m.cache.lookup(fqdn); ok { // cache hit
+			if e != nil {
+				return e.v, true // matched
+			}
+			return nil, false // not matched
+		}
+	}
+
 	for _, e := range m.regs {
 		if e.reg.MatchString(fqdn) {
+			if m.cache != nil {
+				m.cache.cache(fqdn, e)
+			}
 			return e.v, true
 		}
+	}
+
+	if m.cache != nil { // cache the string
+		m.cache.cache(fqdn, nil)
 	}
 	return nil, false
 }
 
 func (m *RegexMatcher) Len() int {
 	return len(m.regs)
+}
+
+func (m *RegexMatcher) ResetCache() {
+	if m.cache != nil {
+		m.cache.reset()
+	}
+}
+
+type regCache struct {
+	cap int
+	sync.RWMutex
+	m map[string]*regElem
+}
+
+func newRegCache(cap int) *regCache {
+	return &regCache{
+		cap: cap,
+		m:   make(map[string]*regElem, cap),
+	}
+}
+
+func (c *regCache) cache(s string, res *regElem) {
+	c.Lock()
+	defer c.Unlock()
+
+	c.tryEvictUnderLock()
+	c.m[s] = res
+}
+
+func (c *regCache) lookup(s string) (res *regElem, ok bool) {
+	c.RLock()
+	defer c.RUnlock()
+	res, ok = c.m[s]
+	return
+}
+
+func (c *regCache) reset() {
+	c.Lock()
+	defer c.Unlock()
+	c.m = make(map[string]*regElem, c.cap)
+}
+
+func (c *regCache) tryEvictUnderLock() {
+	if len(c.m) >= c.cap {
+		i := c.cap / 8
+		for key := range c.m { // evict 1/8 cache
+			delete(c.m, key)
+			i--
+			if i < 0 {
+				return
+			}
+		}
+	}
 }
 
 type MixMatcherPatternType uint8
@@ -165,7 +240,7 @@ type MixMatcher struct {
 func NewMixMatcher() *MixMatcher {
 	return &MixMatcher{
 		keyword: NewKeywordMatcher(),
-		regex:   NewRegexMatcher(),
+		regex:   NewRegexMatcherWithCache(4096),
 		domain:  NewDomainMatcher(),
 		full:    NewFullMatcher(),
 	}

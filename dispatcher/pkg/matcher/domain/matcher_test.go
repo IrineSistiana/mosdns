@@ -19,6 +19,7 @@ package domain
 
 import (
 	"reflect"
+	"strconv"
 	"testing"
 )
 
@@ -158,4 +159,23 @@ func Test_RegexMatcher(t *testing.T) {
 
 	expr = "*"
 	add(expr, nil, true)
+}
+
+func Test_regCache(t *testing.T) {
+	c := newRegCache(128)
+	for i := 0; i < 1024; i++ {
+		s := strconv.Itoa(i)
+		res := new(regElem)
+		c.cache(s, res)
+		if len(c.m) > 128 {
+			t.Fatal("cache overflowed")
+		}
+		got, ok := c.lookup(s)
+		if !ok {
+			t.Fatal("cache lookup failed")
+		}
+		if got != res {
+			t.Fatal("cache item mismatched")
+		}
+	}
 }
