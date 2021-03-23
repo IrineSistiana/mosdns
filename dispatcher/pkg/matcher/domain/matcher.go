@@ -27,7 +27,7 @@ import (
 )
 
 type FullMatcher struct {
-	m map[string]interface{}
+	m map[string]interface{} // string must be a fqdn.
 }
 
 func NewFullMatcher() *FullMatcher {
@@ -37,12 +37,11 @@ func NewFullMatcher() *FullMatcher {
 }
 
 func (m *FullMatcher) Add(domain string, v interface{}) error {
-	m.add(domain, v)
+	m.add(dns.Fqdn(domain), v)
 	return nil
 }
 
-func (m *FullMatcher) add(domain string, v interface{}) {
-	fqdn := dns.Fqdn(domain)
+func (m *FullMatcher) add(fqdn string, v interface{}) {
 	oldV := m.m[fqdn]
 	if appendable, ok := oldV.(Appendable); ok {
 		appendable.Append(v)
@@ -52,7 +51,7 @@ func (m *FullMatcher) add(domain string, v interface{}) {
 }
 
 func (m *FullMatcher) Match(fqdn string) (v interface{}, ok bool) {
-	v, ok = m.m[fqdn]
+	v, ok = m.m[dns.Fqdn(fqdn)]
 	return
 }
 
@@ -138,8 +137,12 @@ func (m *RegexMatcher) Add(expr string, v interface{}) error {
 }
 
 func (m *RegexMatcher) Match(fqdn string) (v interface{}, ok bool) {
+	return m.match(trimDot(fqdn))
+}
+
+func (m *RegexMatcher) match(domain string) (v interface{}, ok bool) {
 	if m.cache != nil {
-		if e, ok := m.cache.lookup(fqdn); ok { // cache hit
+		if e, ok := m.cache.lookup(domain); ok { // cache hit
 			if e != nil {
 				return e.v, true // matched
 			}
@@ -148,16 +151,16 @@ func (m *RegexMatcher) Match(fqdn string) (v interface{}, ok bool) {
 	}
 
 	for _, e := range m.regs {
-		if e.reg.MatchString(fqdn) {
+		if e.reg.MatchString(domain) {
 			if m.cache != nil {
-				m.cache.cache(fqdn, e)
+				m.cache.cache(domain, e)
 			}
 			return e.v, true
 		}
 	}
 
 	if m.cache != nil { // cache the string
-		m.cache.cache(fqdn, nil)
+		m.cache.cache(domain, nil)
 	}
 	return nil, false
 }
@@ -229,29 +232,33 @@ const (
 )
 
 type MixMatcher struct {
-	typMap map[string]MixMatcherPatternType
+	typMap map[string]MixMatcherPatternType // Default is MixMatcherStrToPatternTypeDefaultDomain
 
-	keyword *KeywordMatcher
-	regex   *RegexMatcher
-	domain  *DomainMatcher
-	full    *FullMatcher
+	// lazy init by getSubMatcher
+	keyword Matcher
+	regex   Matcher
+	domain  Matcher
+	full    Matcher
 }
 
 func NewMixMatcher() *MixMatcher {
-	return &MixMatcher{
-		keyword: NewKeywordMatcher(),
-		regex:   NewRegexMatcherWithCache(4096),
-		domain:  NewDomainMatcher(),
-		full:    NewFullMatcher(),
-	}
+	return &MixMatcher{} // lazy init
 }
 
-var defaultStrToPatternType = map[string]MixMatcherPatternType{
+var MixMatcherStrToPatternTypeDefaultDomain = map[string]MixMatcherPatternType{
 	"":        MixMatcherPatternTypeDomain,
 	"domain":  MixMatcherPatternTypeDomain,
 	"keyword": MixMatcherPatternTypeKeyword,
 	"regexp":  MixMatcherPatternTypeRegexp,
 	"full":    MixMatcherPatternTypeFull,
+}
+
+var MixMatcherStrToPatternTypeDefaultFull = map[string]MixMatcherPatternType{
+	"domain":  MixMatcherPatternTypeDomain,
+	"keyword": MixMatcherPatternTypeKeyword,
+	"regexp":  MixMatcherPatternTypeRegexp,
+	"full":    MixMatcherPatternTypeFull,
+	"":        MixMatcherPatternTypeFull,
 }
 
 func (m *MixMatcher) SetPattenTypeMap(typMap map[string]MixMatcherPatternType) {
@@ -273,6 +280,9 @@ func (m *MixMatcher) AddElem(typ MixMatcherPatternType, pattern string, v interf
 func (m *MixMatcher) Match(fqdn string) (v interface{}, ok bool) {
 	// it seems v2ray match full matcher first, then domain, reg and keyword matcher.
 	for _, matcher := range [...]Matcher{m.full, m.domain, m.regex, m.keyword} {
+		if matcher == nil {
+			continue
+		}
 		if v, ok = matcher.Match(fqdn); ok {
 			return
 		}
@@ -282,8 +292,11 @@ func (m *MixMatcher) Match(fqdn string) (v interface{}, ok bool) {
 
 func (m *MixMatcher) Len() int {
 	sum := 0
-	for _, m := range [...]Matcher{m.domain, m.keyword, m.regex, m.full} {
-		sum += m.Len()
+	for _, matcher := range [...]Matcher{m.domain, m.keyword, m.regex, m.full} {
+		if matcher == nil {
+			continue
+		}
+		sum += matcher.Len()
 	}
 	return sum
 }
@@ -291,7 +304,7 @@ func (m *MixMatcher) Len() int {
 func (m *MixMatcher) splitTypeAndPattern(pattern string) (MixMatcherPatternType, string, error) {
 	typMap := m.typMap
 	if typMap == nil {
-		typMap = defaultStrToPatternType
+		typMap = MixMatcherStrToPatternTypeDefaultDomain
 	}
 
 	typStr, str, ok := utils.SplitString2(pattern, ":")
@@ -310,14 +323,33 @@ func (m *MixMatcher) splitTypeAndPattern(pattern string) (MixMatcherPatternType,
 func (m *MixMatcher) getSubMatcher(typ MixMatcherPatternType) Matcher {
 	switch typ {
 	case MixMatcherPatternTypeKeyword:
+		if m.keyword == nil {
+			m.keyword = NewKeywordMatcher()
+		}
 		return m.keyword
 	case MixMatcherPatternTypeRegexp:
+		if m.regex == nil {
+			m.regex = NewRegexMatcherWithCache(4096)
+		}
 		return m.regex
 	case MixMatcherPatternTypeDomain:
+		if m.domain == nil {
+			m.domain = NewDomainMatcher()
+		}
 		return m.domain
 	case MixMatcherPatternTypeFull:
+		if m.full == nil {
+			m.full = NewFullMatcher()
+		}
 		return m.full
 	default:
 		panic(fmt.Sprintf("MixMatcher: invalid type %d", typ))
 	}
+}
+
+func trimDot(s string) string {
+	if strings.HasSuffix(s, ".") {
+		return s[:len(s)-1]
+	}
+	return s
 }

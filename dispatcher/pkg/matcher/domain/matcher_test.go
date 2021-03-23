@@ -23,15 +23,15 @@ import (
 	"testing"
 )
 
-func assertFunc(t *testing.T, m Matcher) func(fqdn string, wantBool bool, wantV interface{}) {
-	return func(fqdn string, wantBool bool, wantV interface{}) {
-		v, ok := m.Match(fqdn)
+func assertFunc(t *testing.T, m Matcher) func(domain string, wantBool bool, wantV interface{}) {
+	return func(domain string, wantBool bool, wantV interface{}) {
+		v, ok := m.Match(domain)
 		if ok != wantBool {
-			t.Fatalf("%s, wantBool = %v, got = %v", fqdn, wantBool, ok)
+			t.Fatalf("%s, wantBool = %v, got = %v", domain, wantBool, ok)
 		}
 
 		if !reflect.DeepEqual(v, wantV) {
-			t.Fatalf("%s, wantV = %v, got = %v", fqdn, wantV, v)
+			t.Fatalf("%s, wantV = %v, got = %v", domain, wantV, v)
 		}
 	}
 }
@@ -51,67 +51,67 @@ func (a *aStr) Append(v interface{}) {
 func Test_FullMatcher(t *testing.T) {
 	m := NewFullMatcher()
 	assert := assertFunc(t, m)
-	add := func(fqdn string, v interface{}) {
-		m.Add(fqdn, v)
+	add := func(domain string, v interface{}) {
+		m.Add(domain, v)
 	}
 
-	add("cn.", nil)
-	assert("cn.", true, nil)
-	assert("a.cn.", false, nil)
-	add("test.test.", nil)
-	assert("test.test.", true, nil)
-	assert("test.a.test.", false, nil)
+	add("cn", nil)
+	assert("cn", true, nil)
+	assert("a.cn", false, nil)
+	add("test.test", nil)
+	assert("test.test", true, nil)
+	assert("test.a.test", false, nil)
 
 	// test replace
-	add("append.", 0)
-	assert("append.", true, 0)
-	add("append.", 1)
-	assert("append.", true, 1)
-	add("append.", nil)
-	assert("append.", true, nil)
+	add("append", 0)
+	assert("append", true, 0)
+	add("append", 1)
+	assert("append", true, 1)
+	add("append", nil)
+	assert("append", true, nil)
 
 	// test appendable
-	add("append.", nil)
-	assert("append.", true, nil)
-	add("append.", s("a"))
-	assert("append.", true, s("a"))
-	add("append.", s("b"))
-	assert("append.", true, s("ab"))
+	add("append", nil)
+	assert("append", true, nil)
+	add("append", s("a"))
+	assert("append", true, s("a"))
+	add("append", s("b"))
+	assert("append", true, s("ab"))
 
 	assertInt(t, m.Len(), 3)
 }
 
 func Test_KeywordMatcher(t *testing.T) {
 	m := NewKeywordMatcher()
-	add := func(fqdn string, v interface{}) {
-		m.Add(fqdn, v)
+	add := func(domain string, v interface{}) {
+		m.Add(domain, v)
 	}
 
 	assert := assertFunc(t, m)
 
 	add("123", s("a"))
-	assert("123456.cn.", true, s("a"))
-	assert("111123.com.", true, s("a"))
-	assert("111111.cn.", false, nil)
+	assert("123456.cn", true, s("a"))
+	assert("111123.com", true, s("a"))
+	assert("111111.cn", false, nil)
 	add("example.com", nil)
-	assert("sub.example.com.", true, nil)
-	assert("example_sub.com.", false, nil)
+	assert("sub.example.com", true, nil)
+	assert("example_sub.com", false, nil)
 
 	// test replace
-	add("append.", 0)
-	assert("append.", true, 0)
-	add("append.", 1)
-	assert("append.", true, 1)
-	add("append.", nil)
-	assert("append.", true, nil)
+	add("append", 0)
+	assert("append", true, 0)
+	add("append", 1)
+	assert("append", true, 1)
+	add("append", nil)
+	assert("append", true, nil)
 
 	// test appendable
-	add("append.", nil)
-	assert("a.append.", true, nil)
-	add("append.", s("a"))
-	assert("b.append.", true, s("a"))
-	add("append.", s("b"))
-	assert("c.append.", true, s("ab"))
+	add("append", nil)
+	assert("a.append", true, nil)
+	add("append", s("a"))
+	assert("b.append", true, s("a"))
+	add("append", s("b"))
+	assert("c.append", true, s("ab"))
 
 	assertInt(t, m.Len(), 3)
 }
@@ -141,21 +141,21 @@ func Test_RegexMatcher(t *testing.T) {
 	assert("sub.example.com", false, nil)
 
 	// test replace
-	add("append.", 0, false)
-	assert("append.", true, 0)
-	add("append.", 1, false)
-	assert("append.", true, 1)
-	add("append.", nil, false)
-	assert("append.", true, nil)
+	add("append", 0, false)
+	assert("append", true, 0)
+	add("append", 1, false)
+	assert("append", true, 1)
+	add("append", nil, false)
+	assert("append", true, nil)
 
 	// test appendable
-	expr = "append."
+	expr = "append"
 	add(expr, nil, false)
-	assert("append.", true, nil)
+	assert("append", true, nil)
 	add(expr, s("a"), false)
-	assert("a.append.", true, s("a"))
+	assert("a.append", true, s("a"))
 	add(expr, s("b"), false)
-	assert("b.append.", true, s("ab"))
+	assert("b.append", true, s("ab"))
 
 	expr = "*"
 	add(expr, nil, true)

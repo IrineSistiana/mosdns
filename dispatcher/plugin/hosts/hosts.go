@@ -49,17 +49,9 @@ func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
 	return newHostsContainer(bp, args.(*Args))
 }
 
-var patternTypeMap = map[string]domain.MixMatcherPatternType{
-	"domain":  domain.MixMatcherPatternTypeDomain,
-	"keyword": domain.MixMatcherPatternTypeKeyword,
-	"regexp":  domain.MixMatcherPatternTypeRegexp,
-	"":        domain.MixMatcherPatternTypeFull,
-	"full":    domain.MixMatcherPatternTypeFull,
-}
-
 func newHostsContainer(bp *handler.BP, args *Args) (*hostsContainer, error) {
 	mixMatcher := domain.NewMixMatcher()
-	mixMatcher.SetPattenTypeMap(patternTypeMap)
+	mixMatcher.SetPattenTypeMap(domain.MixMatcherStrToPatternTypeDefaultFull)
 	err := domain.BatchLoadMatcher(mixMatcher, args.Hosts, parseIP)
 	if err != nil {
 		return nil, err

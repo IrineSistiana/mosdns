@@ -45,9 +45,9 @@ func (d *dummyMatcher) Len() int {
 	panic("not implement")
 }
 
-func (d *dummyMatcher) Add(patten string, v interface{}) error {
-	if patten != d.wantPattern {
-		return fmt.Errorf("matcher Add(): want pattern %s, got %s", d.wantPattern, patten)
+func (d *dummyMatcher) Add(pattern string, v interface{}) error {
+	if pattern != d.wantPattern {
+		return fmt.Errorf("matcher Add(): want pattern %s, got %s", d.wantPattern, pattern)
 	}
 
 	if !reflect.DeepEqual(d.wantV, v) {
@@ -56,7 +56,7 @@ func (d *dummyMatcher) Add(patten string, v interface{}) error {
 	return nil
 }
 
-func (d *dummyMatcher) Del(patten string) {
+func (d *dummyMatcher) Del(pattern string) {
 	panic("not implement")
 }
 

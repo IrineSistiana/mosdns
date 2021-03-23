@@ -1,6 +1,24 @@
+//     Copyright (C) 2020-2021, IrineSistiana
+//
+//     This file is part of mosdns.
+//
+//     mosdns is free software: you can redistribute it and/or modify
+//     it under the terms of the GNU General Public License as published by
+//     the Free Software Foundation, either version 3 of the License, or
+//     (at your option) any later version.
+//
+//     mosdns is distributed in the hope that it will be useful,
+//     but WITHOUT ANY WARRANTY; without even the implied warranty of
+//     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//     GNU General Public License for more details.
+//
+//     You should have received a copy of the GNU General Public License
+//     along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 package domain
 
 import (
+	"github.com/miekg/dns"
 	"strings"
 )
 
@@ -12,31 +30,27 @@ func NewDomainMatcher() *DomainMatcher {
 	return &DomainMatcher{root: new(LabelNode)}
 }
 
-func PrevLabel(s string) (string, int) {
-	if len(s) == 0 {
-		return "", -1
+func SplitLatestLabel(s string) (label string, remain string) {
+	s = trimDot(s)
+	l := strings.LastIndexByte(s, '.')
+	if l == -1 {
+		return s, ""
 	}
-	if s[len(s)-1] == '.' {
-		s = s[:len(s)-1]
-	}
-
-	l := strings.LastIndexByte(s, '.') + 1
-	return s[l:], l
+	return s[l+1:], s[:l]
 }
 
 func (m *DomainMatcher) Match(fqdn string) (interface{}, bool) {
 	currentNode := m.root
-	offset := len(fqdn)
+	remain := fqdn
 	var label string
 	for {
 		if currentNode.IsEnd() {
 			return currentNode.GetValue(), true
 		}
-
-		label, offset = PrevLabel(fqdn[:offset])
-		if offset == -1 {
+		if len(remain) == 0 {
 			return nil, false // end of domain
 		}
+		label, remain = SplitLatestLabel(remain)
 		if currentNode = currentNode.GetChild(label); currentNode == nil {
 			return nil, false // end of tree
 		}
@@ -48,30 +62,30 @@ func (m *DomainMatcher) Len() int {
 }
 
 func (m *DomainMatcher) Add(domain string, v interface{}) error {
-	m.add(domain, v)
+	m.add(dns.Fqdn(domain), v)
 	return nil
 }
 
-func (m *DomainMatcher) add(domain string, v interface{}) {
+func (m *DomainMatcher) add(fqdn string, v interface{}) {
 	currentNode := m.root
-	offset := len(domain)
+	remain := fqdn
 	var label string
 	for {
-		label, offset = PrevLabel(domain[:offset])
-		if offset == -1 {
+		if len(remain) == 0 || remain == "." {
 			break // end of domain
 		}
-
 		if currentNode.IsEnd() {
 			return // end of tree. This domain is redundant.
 		}
 
+		label, remain = SplitLatestLabel(remain)
 		if child := currentNode.GetChild(label); child != nil {
 			currentNode = child
 		} else {
 			currentNode = currentNode.NewChild(label)
 		}
 	}
+
 	currentNode.MarkAsEndNode()
 	oldV := currentNode.GetValue()
 	if appendAble, ok := oldV.(Appendable); ok {

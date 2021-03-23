@@ -20,7 +20,7 @@ package domain
 type Matcher interface {
 	Match(fqdn string) (v interface{}, ok bool)
 	Len() int
-	Add(patten string, v interface{}) error
+	Add(pattern string, v interface{}) error
 }
 
 type Appendable interface {
