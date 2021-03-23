@@ -37,7 +37,7 @@ type MemCache struct {
 }
 
 type elem struct {
-	m              *dns.Msg
+	m              []byte
 	storedTime     time.Time
 	expirationTime time.Time
 }
@@ -68,14 +68,17 @@ func (c *MemCache) Close() error {
 	return nil
 }
 
-func (c *MemCache) Get(_ context.Context, key string) (v *dns.Msg, err error) {
+func (c *MemCache) Get(_ context.Context, key string) (*dns.Msg, error) {
 	e, ok := c.lru.Get(key)
 
 	if ok {
 		e := e.(*elem)
 		if time.Until(e.expirationTime) > 0 {
 			deltaTTL := uint32(time.Since(e.storedTime) / time.Second)
-			v = e.m.Copy()
+			v := new(dns.Msg)
+			if err := v.Unpack(e.m); err != nil {
+				return nil, err
+			}
 			dnsutils.SubtractTTL(v, deltaTTL)
 			return v, nil
 		} else {
@@ -94,9 +97,14 @@ func (c *MemCache) Store(_ context.Context, key string, v *dns.Msg, ttl time.Dur
 		return errors.New("nil v")
 	}
 
+	b, err := v.Pack()
+	if err != nil {
+		return err
+	}
+
 	now := time.Now()
 	e := &elem{
-		m:              v.Copy(),
+		m:              b,
 		storedTime:     now,
 		expirationTime: now.Add(ttl),
 	}
