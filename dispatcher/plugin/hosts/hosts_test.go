@@ -38,7 +38,7 @@ test.com 2.3.4.5
 
 func Test_hostsContainer_Match(t *testing.T) {
 	m := domain.NewMixMatcher()
-	m.SetPattenTypeMap(patternTypeMap)
+	m.SetPattenTypeMap(domain.MixMatcherStrToPatternTypeDefaultFull)
 	err := domain.LoadFromTextReader(m, bytes.NewBuffer([]byte(test_hosts)), parseIP)
 	if err != nil {
 		t.Fatal(err)
