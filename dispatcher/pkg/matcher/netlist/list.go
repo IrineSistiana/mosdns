@@ -14,6 +14,7 @@
 //
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 package netlist
 
 import (
@@ -24,21 +25,21 @@ import (
 //List is a list of Nets. All Nets will be in ipv6 format, even it's an
 //ipv4 addr. Because we use bin search.
 type List struct {
-	e      []Net
+	e      []*Net
 	sorted bool
 }
 
 //NewList returns a *List.
 func NewList() *List {
 	return &List{
-		e: make([]Net, 0),
+		e: make([]*Net, 0),
 	}
 }
 
 //Grow increases list's cap to n.
 func (list *List) Grow(n int) {
 	if cap(list.e) < n {
-		e2 := make([]Net, len(list.e), n)
+		e2 := make([]*Net, len(list.e), n)
 		copy(e2, list.e)
 		list.e = e2
 	}
@@ -46,7 +47,7 @@ func (list *List) Grow(n int) {
 
 //Append appends new Nets to the list.
 //This modified list. Caller must call List.Sort() before calling List.Contains()
-func (list *List) Append(newNet ...Net) {
+func (list *List) Append(newNet ...*Net) {
 	list.e = append(list.e, newNet...)
 	list.sorted = false
 }

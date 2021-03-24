@@ -48,19 +48,20 @@ type Net struct {
 
 //NewNet returns a new IPNet, mask should be an ipv6 mask,
 //which means you should +96 if you have an ipv4 mask.
-func NewNet(ipv6 IPv6, mask int) (n Net) {
+func NewNet(ipv6 IPv6, mask int) *Net {
+	n := new(Net)
 	n.ip = ipv6
 	n.mask = cidrMask(mask)
 	for i := 0; i < 2; i++ {
 		n.ip[i] &= n.mask[i]
 	}
-	return
+	return n
 }
 
 //Contains reports whether the net includes the ip.
-func (net Net) Contains(ip IPv6) bool {
+func (n *Net) Contains(ip IPv6) bool {
 	for i := 0; i < 2; i++ {
-		if ip[i]&net.mask[i] == net.ip[i] {
+		if ip[i]&n.mask[i] == n.ip[i] {
 			continue
 		}
 		return false
@@ -118,18 +119,18 @@ func ParseIP(s string) (IPv6, IPVersion, error) {
 
 //ParseCIDR parses s as a CIDR notation IP address and prefix length.
 //As defined in RFC 4632 and RFC 4291.
-func ParseCIDR(s string) (Net, error) {
+func ParseCIDR(s string) (*Net, error) {
 	ipStr, maskStr, ok := utils.SplitString2(s, "/")
 	if ok { //has "/"
 		//ip
 		ipv6, version, err := ParseIP(ipStr)
 		if err != nil {
-			return Net{}, err
+			return nil, err
 		}
 		//mask
 		maskLen, err := strconv.ParseUint(maskStr, 10, 0)
 		if err != nil {
-			return Net{}, fmt.Errorf("invalid cidr mask %s", s)
+			return nil, fmt.Errorf("invalid cidr mask %s", s)
 		}
 
 		//if string is a ipv4 addr, add 96
@@ -138,7 +139,7 @@ func ParseCIDR(s string) (Net, error) {
 		}
 
 		if maskLen > 128 {
-			return Net{}, fmt.Errorf("cidr mask %s overflow", s)
+			return nil, fmt.Errorf("cidr mask %s overflow", s)
 		}
 
 		return NewNet(ipv6, int(maskLen)), nil
@@ -146,7 +147,7 @@ func ParseCIDR(s string) (Net, error) {
 
 	ipv6, _, err := ParseIP(s)
 	if err != nil {
-		return Net{}, err
+		return nil, err
 	}
 	return NewNet(ipv6, 128), nil
 }
@@ -171,14 +172,14 @@ func uint64ToBytes(in [2]uint64, out []byte) {
 	binary.BigEndian.PutUint64(out[8:], in[1])
 }
 
-func (n Net) ToNetIPNet() *net.IPNet {
+func (n *Net) ToNetIPNet() *net.IPNet {
 	nn := new(net.IPNet)
 	nn.IP = n.ip.ToNetIP()
 	nn.Mask = n.mask.toNetMask()
 	return nn
 }
 
-func (n Net) String() string {
+func (n *Net) String() string {
 	return n.ToNetIPNet().String()
 }
 
