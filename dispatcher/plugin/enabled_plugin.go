@@ -20,6 +20,7 @@ package plugin
 import (
 	// import all plugins
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/cache"
+	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/arbitrary"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/blackhole"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/ecs"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/fallback"
