@@ -65,6 +65,7 @@ func Test_hostsContainer_Match(t *testing.T) {
 		{"matched regexp A", args{name: "123456789.test.", typ: dns.TypeA}, true, []string{"192.168.1.1"}},
 		{"not matched regexp A", args{name: "0123456789.test.", typ: dns.TypeA}, false, nil},
 		{"test appendable", args{name: "test.com.", typ: dns.TypeA}, true, []string{"1.2.3.4", "2.3.4.5"}},
+		{"test matched domain with mismatched type", args{name: "test.com.", typ: dns.TypeAAAA}, true, nil},
 	}
 	for _, tt := range tests {
 		q := new(dns.Msg)

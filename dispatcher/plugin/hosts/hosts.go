@@ -77,26 +77,24 @@ func (h *hostsContainer) matchAndSet(qCtx *handler.Context) (matched bool) {
 	if len(qCtx.Q().Question) != 1 {
 		return false
 	}
-	if qCtx.Q().Question[0].Qclass != dns.ClassINET {
-		return false
-	}
-	typ := qCtx.Q().Question[0].Qtype
-	if typ != dns.TypeA && typ != dns.TypeAAAA {
+	q := qCtx.Q().Question[0]
+	typ := q.Qtype
+	fqdn := q.Name
+	if q.Qclass != dns.ClassINET || (typ != dns.TypeA && typ != dns.TypeAAAA) {
 		return false
 	}
 
-	fqdn := qCtx.Q().Question[0].Name
 	v, ok := h.matcher.Match(fqdn)
 	if !ok {
-		return false
+		return false // no such host
 	}
-	record := v.(*ipRecord)
 
+	records := v.(*ipRecord)
 	switch {
-	case typ == dns.TypeA && len(record.ipv4) > 0:
+	case typ == dns.TypeA && len(records.ipv4) > 0:
 		r := new(dns.Msg)
 		r.SetReply(qCtx.Q())
-		for _, ip := range record.ipv4 {
+		for _, ip := range records.ipv4 {
 			ipCopy := make(net.IP, len(ip))
 			copy(ipCopy, ip)
 			rr := &dns.A{
@@ -111,12 +109,10 @@ func (h *hostsContainer) matchAndSet(qCtx *handler.Context) (matched bool) {
 			r.Answer = append(r.Answer, rr)
 		}
 		qCtx.SetResponse(r, handler.ContextStatusResponded)
-		return true
-
-	case typ == dns.TypeAAAA && len(record.ipv6) > 0:
+	case typ == dns.TypeAAAA && len(records.ipv6) > 0:
 		r := new(dns.Msg)
 		r.SetReply(qCtx.Q())
-		for _, ip := range record.ipv6 {
+		for _, ip := range records.ipv6 {
 			ipCopy := make(net.IP, len(ip))
 			copy(ipCopy, ip)
 			rr := &dns.AAAA{
@@ -131,9 +127,8 @@ func (h *hostsContainer) matchAndSet(qCtx *handler.Context) (matched bool) {
 			r.Answer = append(r.Answer, rr)
 		}
 		qCtx.SetResponse(r, handler.ContextStatusResponded)
-		return true
 	}
-	return false
+	return true
 }
 
 type ipRecord struct {
