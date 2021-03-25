@@ -13,7 +13,7 @@
 //     GNU General Public License for more details.
 //
 //     You should have received a copy of the GNU General Public License
-//     along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//     along with this program.  If not, see <https:// www.gnu.org/licenses/>.
 
 package netlist
 
@@ -22,45 +22,36 @@ import (
 	"sort"
 )
 
-//List is a list of Nets. All Nets will be in ipv6 format, even it's an
-//ipv4 addr. Because we use bin search.
+// List is a list of Nets. All Nets will be in ipv6 format, even it's an
+// ipv4 addr. Because we use bin search.
 type List struct {
 	e      []*Net
 	sorted bool
 }
 
-//NewList returns a *List.
+// NewList returns a *List.
 func NewList() *List {
 	return &List{
 		e: make([]*Net, 0),
 	}
 }
 
-//Grow increases list's cap to n.
-func (list *List) Grow(n int) {
-	if cap(list.e) < n {
-		e2 := make([]*Net, len(list.e), n)
-		copy(e2, list.e)
-		list.e = e2
-	}
-}
-
-//Append appends new Nets to the list.
-//This modified list. Caller must call List.Sort() before calling List.Contains()
+// Append appends new Nets to the list.
+// This modified list. Caller must call List.Sort() before calling List.Contains()
 func (list *List) Append(newNet ...*Net) {
 	list.e = append(list.e, newNet...)
 	list.sorted = false
 }
 
 // Merge merges srcList with list
-//This modified list. Caller must call List.Sort() before calling List.Contains()
+// This modified list. Caller must call List.Sort() before calling List.Contains()
 func (list *List) Merge(srcList *List) {
 	list.e = append(list.e, srcList.e...)
 	list.sorted = false
 }
 
-//Sort sorts the list, this must be called after
-//list was modified and before call List.Contains().
+// Sort sorts the list, this must be called after
+// list was modified and before call List.Contains().
 func (list *List) Sort() {
 	if list.sorted {
 		return
@@ -86,15 +77,17 @@ func (list *List) Sort() {
 	list.sorted = true
 }
 
-//implement sort Interface
+// Len implements sort Interface.
 func (list *List) Len() int {
 	return len(list.e)
 }
 
+// Less implements sort Interface.
 func (list *List) Less(i, j int) bool {
 	return smallOrEqual(list.e[i].ip, list.e[j].ip)
 }
 
+// Swap implements sort Interface.
 func (list *List) Swap(i, j int) {
 	list.e[i], list.e[j] = list.e[j], list.e[i]
 }
@@ -103,8 +96,8 @@ func (list *List) Match(ip net.IP) bool {
 	return list.Contains(ip)
 }
 
-//Contains reports whether the list includes given ip.
-//list must be sorted, or Contains will panic.
+// Contains reports whether the list includes given ip.
+// list must be sorted, or Contains will panic.
 func (list *List) Contains(ip net.IP) bool {
 	if !list.sorted {
 		panic("list is not sorted")
@@ -133,7 +126,7 @@ func (list *List) Contains(ip net.IP) bool {
 	return list.e[i-1].Contains(ipv6)
 }
 
-//smallOrEqual IP1 <= IP2 ?
+// smallOrEqual IP1 <= IP2 ?
 func smallOrEqual(IP1, IP2 IPv6) bool {
 	for k := 0; k < 2; k++ {
 		if IP1[k] == IP2[k] {

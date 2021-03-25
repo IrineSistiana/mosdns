@@ -62,32 +62,28 @@ func Load(l *List, entry string) error {
 func LoadFromReader(l *List, reader io.Reader) error {
 	scanner := bufio.NewScanner(reader)
 
-	//count how many lines we have read.
+	// count how many lines we have read.
 	lineCounter := 0
-
 	for scanner.Scan() {
 		lineCounter++
 		s := scanner.Text()
+		s = strings.TrimSpace(s)
+		s = utils.RemoveComment(s, "#")
+		s = utils.RemoveComment(s, " ")
+		if len(s) == 0 {
+			continue
+		}
 		err := LoadFromText(l, s)
 		if err != nil {
 			return fmt.Errorf("invalid data at line #%d: %w", lineCounter, err)
 		}
 	}
-
 	return scanner.Err()
 }
 
 // LoadFromText loads an IP from s.
 // It might modify the List and causes List unsorted.
 func LoadFromText(l *List, s string) error {
-	s = strings.TrimSpace(s)
-	s = utils.RemoveComment(s, "#")
-	s = utils.RemoveComment(s, " ") // remove other strings, e.g. 192.168.1.1 str1 str2
-
-	if len(s) == 0 {
-		return nil
-	}
-
 	ipNet, err := ParseCIDR(s)
 	if err != nil {
 		return err
@@ -131,8 +127,6 @@ func LoadFromDAT(l *List, file, tag string) error {
 // LoadFromV2CIDR loads ip from v2ray CIDR.
 // It might modify the List and causes List unsorted.
 func LoadFromV2CIDR(l *List, cidr []*v2data.CIDR) error {
-	l.Grow(l.Len() + len(cidr))
-
 	for i, e := range cidr {
 		ipv6, err := Conv(e.Ip)
 		if err != nil {

@@ -13,7 +13,7 @@
 //     GNU General Public License for more details.
 //
 //     You should have received a copy of the GNU General Public License
-//     along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//     along with this program.  If not, see <https:// www.gnu.org/licenses/>.
 
 package netlist
 
@@ -34,34 +34,60 @@ var (
 	ErrInvalidIP = errors.New("invalid ip")
 )
 
-//IPv6 represents a ipv6 addr
+// IPv6 represents a ipv6 addr
 type IPv6 [2]uint64
 
-//mask is ipv6 IP network mask
-type mask [2]uint64
+// mask is ipv6 IP network mask
+type mask uint8
 
-//Net represents a ip network
+var masks = initMasks()
+
+func initMasks() *[129][2]uint64 {
+	var masks [129][2]uint64
+	for i := 0; i < 129; i++ {
+		for j := 0; j < 2; j++ {
+			off := i - 64*j
+			switch {
+			case off >= 64:
+				masks[i][j] = maxUint64
+			case off <= 0:
+				masks[i][j] = 0
+			default:
+				masks[i][j] = ^(maxUint64 >> off)
+			}
+		}
+	}
+	return &masks
+}
+
+func getMask(m mask, offset uint8) uint64 {
+	return masks[m][offset]
+}
+
+// Net represents a ip network
 type Net struct {
 	ip   IPv6
 	mask mask
 }
 
-//NewNet returns a new IPNet, mask should be an ipv6 mask,
-//which means you should +96 if you have an ipv4 mask.
-func NewNet(ipv6 IPv6, mask int) *Net {
-	n := new(Net)
-	n.ip = ipv6
-	n.mask = cidrMask(mask)
-	for i := 0; i < 2; i++ {
-		n.ip[i] &= n.mask[i]
+// NewNet returns a new IPNet, mask should be an ipv6 mask,
+// which means you should +96 if you have an ipv4 mask.
+func NewNet(ipv6 IPv6, m int) *Net {
+	um := mask(m)
+	n := &Net{
+		ip:   ipv6,
+		mask: um,
+	}
+	for offset := uint8(0); offset < 2; offset++ {
+		n.ip[offset] &= getMask(um, offset)
 	}
 	return n
 }
 
-//Contains reports whether the net includes the ip.
+// Contains reports whether the net includes the ip.
 func (n *Net) Contains(ip IPv6) bool {
-	for i := 0; i < 2; i++ {
-		if ip[i]&n.mask[i] == n.ip[i] {
+	for offset := uint8(0); offset < 2; offset++ {
+		if ip[offset]&getMask(n.mask, offset) == n.ip[offset] {
 			continue
 		}
 		return false
@@ -71,9 +97,9 @@ func (n *Net) Contains(ip IPv6) bool {
 
 var v4InV6Prefix uint64 = 0xffff << 32
 
-//Conv converts ip to type IPv6.
-//ip should be an ipv4/6 address (with length 4 or 16)
-//Conv will return ErrInvalidIP if ip has an invalid length.
+// Conv converts ip to type IPv6.
+// ip should be an ipv4/6 address (with length 4 or 16)
+// Conv will return ErrInvalidIP if ip has an invalid length.
 func Conv(ip net.IP) (IPv6, error) {
 	switch len(ip) {
 	case 16:
@@ -117,23 +143,23 @@ func ParseIP(s string) (IPv6, IPVersion, error) {
 	return ipv6, v, nil
 }
 
-//ParseCIDR parses s as a CIDR notation IP address and prefix length.
-//As defined in RFC 4632 and RFC 4291.
+// ParseCIDR parses s as a CIDR notation IP address and prefix length.
+// As defined in RFC 4632 and RFC 4291.
 func ParseCIDR(s string) (*Net, error) {
 	ipStr, maskStr, ok := utils.SplitString2(s, "/")
-	if ok { //has "/"
-		//ip
+	if ok { // has "/"
+		// ip
 		ipv6, version, err := ParseIP(ipStr)
 		if err != nil {
 			return nil, err
 		}
-		//mask
+		// mask
 		maskLen, err := strconv.ParseUint(maskStr, 10, 0)
 		if err != nil {
 			return nil, fmt.Errorf("invalid cidr mask %s", s)
 		}
 
-		//if string is a ipv4 addr, add 96
+		// if string is a ipv4 addr, add 96
 		if version != Version6 {
 			maskLen = maskLen + 96
 		}
@@ -160,7 +186,7 @@ func (ip IPv6) ToNetIP() net.IP {
 
 func (m mask) toNetMask() net.IPMask {
 	nMask := make(net.IPMask, 16)
-	uint64ToBytes(m, nMask)
+	uint64ToBytes(masks[m], nMask)
 	return nMask
 }
 
@@ -181,12 +207,4 @@ func (n *Net) ToNetIPNet() *net.IPNet {
 
 func (n *Net) String() string {
 	return n.ToNetIPNet().String()
-}
-
-func cidrMask(n int) (m mask) {
-	m[0] = ^(maxUint64 >> n)
-	if n > 64 {
-		m[1] = ^(maxUint64 >> (n - 64))
-	}
-	return m
 }

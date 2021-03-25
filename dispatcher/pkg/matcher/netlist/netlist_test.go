@@ -19,8 +19,8 @@ package netlist
 
 import (
 	"bytes"
+	"math/bits"
 	"net"
-	"reflect"
 	"testing"
 )
 
@@ -69,24 +69,12 @@ func TestIPNetList_Sort_And_Merge(t *testing.T) {
 func TestIPNetList_New_And_Contains(t *testing.T) {
 	raw := `
 # comment line
-1.0.1.0/24 additional strings should be ignored 
-1.1.2.0/23 # comment
+1.0.0.0/24 additional strings should be ignored 
+2.0.0.0/23 # comment
+3.0.0.0
 
-1.1.4.0/22 
-1.1.8.0/24 
-1.0.2.0/23
-1.0.8.0/21
-1.0.32.0/19
-1.1.0.0/24
-2001:250::/35
-2001:250:2000::/35
-2001:250:4000::/34
-2001:250:8000::/33
-2001:251::/32
-
-2.2.2.2
-3.3.3.3
-2002:222::1
+2000:0000::/32
+2000:2000::1
 
 # issue https://github.com/IrineSistiana/mosdns/issues/76
 127.0.0.0/8
@@ -104,20 +92,20 @@ func TestIPNetList_New_And_Contains(t *testing.T) {
 		testIP net.IP
 		want   bool
 	}{
-		{"1", net.IPv4(1, 0, 1, 1), true},
-		{"2", net.IPv4(1, 0, 2, 2), true},
-		{"3", net.IPv4(1, 1, 1, 1), false},
-		{"4", net.IPv4(1, 0, 4, 4), false},
-		{"5", net.ParseIP("2001:250:2000::1"), true},
-		{"6", net.ParseIP("2002:250:2000::1"), false},
-		{"7", net.IPv4(2, 2, 2, 2), true},
-		{"8", net.IPv4(2, 2, 2, 3), false},
-		{"9", net.IPv4(3, 3, 3, 3), true},
-		{"10", net.IPv4(4, 4, 4, 4), false},
-		{"11", net.ParseIP("2002:222::1"), true},
-		{"12", net.ParseIP("2002:222::2"), false},
-		{"https://github.com/IrineSistiana/mosdns/issues/76 1", net.IPv4(127, 0, 0, 1), true},
-		{"https://github.com/IrineSistiana/mosdns/issues/76 2", net.IP{127, 0, 0, 1}, true},
+		{"", net.ParseIP("1.0.0.0"), true},
+		{"", net.ParseIP("1.0.0.1"), true},
+		{"", net.ParseIP("1.0.1.0"), false},
+		{"", net.ParseIP("2.0.0.0"), true},
+		{"", net.ParseIP("2.0.1.255"), true},
+		{"", net.ParseIP("2.0.2.0"), false},
+		{"", net.ParseIP("3.0.0.0"), true},
+		{"", net.ParseIP("2000:0000::"), true},
+		{"", net.ParseIP("2000:0000::1"), true},
+		{"", net.ParseIP("2000:0000:1::"), true},
+		{"", net.ParseIP("2000:0001::"), false},
+		{"", net.ParseIP("2000:2000::1"), true},
+		{"https://github.com/IrineSistiana/mosdns/issues/76", net.IPv4(127, 0, 0, 1), true},
+		{"https://github.com/IrineSistiana/mosdns/issues/76", net.IP{127, 0, 0, 1}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -128,23 +116,17 @@ func TestIPNetList_New_And_Contains(t *testing.T) {
 	}
 }
 
-func Test_cidrMask(t *testing.T) {
-	tests := []struct {
-		name  string
-		n     int
-		wantM mask
-	}{
-		{"0", 0, [2]uint64{0, 0}},
-		{"5", 5, [2]uint64{^(maxUint64 >> 5), 0}},
-		{"64", 64, [2]uint64{maxUint64, 0}},
-		{"120", 120, [2]uint64{maxUint64, ^(maxUint64 >> (120 - 64))}},
-		{"128", 128, [2]uint64{maxUint64, maxUint64}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if gotM := cidrMask(tt.n); !reflect.DeepEqual(gotM, tt.wantM) {
-				t.Errorf("cidrMask() = %v, want %v", gotM, tt.wantM)
-			}
-		})
+func Test_initMasks(t *testing.T) {
+	for i := 0; i < 129; i++ {
+		m := masks[i]
+		ones := 0
+		zeros := 0
+		for j := 0; j < 2; j++ {
+			ones += bits.OnesCount64(m[j])
+			zeros += bits.TrailingZeros64(m[j])
+		}
+		if ones != i || zeros != (128-ones) {
+			t.Fatalf("%v is not a /%d mask", m, i)
+		}
 	}
 }
