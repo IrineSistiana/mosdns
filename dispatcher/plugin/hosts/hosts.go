@@ -137,7 +137,10 @@ type ipRecord struct {
 }
 
 func (r *ipRecord) Append(v interface{}) {
-	n := v.(*ipRecord)
+	n, ok := v.(*ipRecord)
+	if !ok {
+		return
+	}
 	r.ipv4 = append(r.ipv4, n.ipv4...)
 	r.ipv6 = append(r.ipv6, n.ipv6...)
 }

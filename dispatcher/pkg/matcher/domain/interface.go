@@ -18,11 +18,13 @@
 package domain
 
 type Matcher interface {
-	Match(fqdn string) (v interface{}, ok bool)
+	Match(domain string) (v interface{}, ok bool)
 	Len() int
 	Add(pattern string, v interface{}) error
 }
 
 type Appendable interface {
+	// Append appends v to Appendable.
+	// v might be any type and nil.
 	Append(v interface{})
 }

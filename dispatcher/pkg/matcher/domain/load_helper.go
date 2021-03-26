@@ -110,7 +110,14 @@ func LoadFromTextReader(m Matcher, r io.Reader, processAttr ProcessAttrFunc) err
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		lineCounter++
-		err := LoadFromText(m, scanner.Text(), processAttr)
+		s := scanner.Text()
+		s = utils.RemoveComment(s, "#")
+		s = strings.TrimSpace(s)
+		if len(s) == 0 {
+			continue
+		}
+
+		err := LoadFromText(m, s, processAttr)
 		if err != nil {
 			return fmt.Errorf("line %d: %v", lineCounter, err)
 		}
@@ -119,23 +126,10 @@ func LoadFromTextReader(m Matcher, r io.Reader, processAttr ProcessAttrFunc) err
 }
 
 func LoadFromText(m Matcher, s string, processAttr ProcessAttrFunc) error {
-	s = utils.RemoveComment(s, "#")
-	s = strings.TrimSpace(s)
-	if len(s) == 0 {
-		return nil
-	}
-
 	if processAttr != nil {
-		var pattern string
-		var attr []string
-		if strings.ContainsRune(s, ' ') {
-			e := utils.SplitLine(s)
-			pattern = e[0]
-			attr = e[1:]
-		} else {
-			pattern = s
-		}
-
+		e := utils.SplitLine(s)
+		pattern := e[0]
+		attr := e[1:]
 		v, accept, err := processAttr(attr)
 		if err != nil {
 			return err

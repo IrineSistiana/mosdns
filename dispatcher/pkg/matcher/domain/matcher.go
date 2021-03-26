@@ -20,7 +20,6 @@ package domain
 import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
-	"github.com/miekg/dns"
 	"regexp"
 	"strings"
 	"sync"
@@ -37,21 +36,23 @@ func NewFullMatcher() *FullMatcher {
 }
 
 func (m *FullMatcher) Add(domain string, v interface{}) error {
-	m.add(dns.Fqdn(domain), v)
+	domain = trimDot(domain)
+	m.add(domain, v)
 	return nil
 }
 
-func (m *FullMatcher) add(fqdn string, v interface{}) {
-	oldV := m.m[fqdn]
+func (m *FullMatcher) add(domain string, v interface{}) {
+	oldV := m.m[domain]
 	if appendable, ok := oldV.(Appendable); ok {
 		appendable.Append(v)
 	} else {
-		m.m[fqdn] = v
+		m.m[domain] = v
 	}
 }
 
-func (m *FullMatcher) Match(fqdn string) (v interface{}, ok bool) {
-	v, ok = m.m[dns.Fqdn(fqdn)]
+func (m *FullMatcher) Match(domain string) (v interface{}, ok bool) {
+	domain = trimDot(domain)
+	v, ok = m.m[domain]
 	return
 }
 
@@ -83,9 +84,10 @@ func (m *KeywordMatcher) add(keyword string, v interface{}) {
 	}
 }
 
-func (m *KeywordMatcher) Match(fqdn string) (v interface{}, ok bool) {
+func (m *KeywordMatcher) Match(domain string) (v interface{}, ok bool) {
+	domain = trimDot(domain)
 	for k, v := range m.kws {
-		if strings.Contains(fqdn, k) {
+		if strings.Contains(domain, k) {
 			return v, true
 		}
 	}
@@ -136,8 +138,8 @@ func (m *RegexMatcher) Add(expr string, v interface{}) error {
 	return nil
 }
 
-func (m *RegexMatcher) Match(fqdn string) (v interface{}, ok bool) {
-	return m.match(trimDot(fqdn))
+func (m *RegexMatcher) Match(domain string) (v interface{}, ok bool) {
+	return m.match(trimDot(domain))
 }
 
 func (m *RegexMatcher) match(domain string) (v interface{}, ok bool) {
@@ -235,14 +237,56 @@ type MixMatcher struct {
 	typMap map[string]MixMatcherPatternType // Default is MixMatcherStrToPatternTypeDefaultDomain
 
 	// lazy init by getSubMatcher
+	full    Matcher
+	domain  Matcher
 	keyword Matcher
 	regex   Matcher
-	domain  Matcher
-	full    Matcher
 }
 
-func NewMixMatcher() *MixMatcher {
-	return &MixMatcher{} // lazy init
+// NewMixMatcher creates a MixMatcher.
+func NewMixMatcher(options ...MixMatcherOption) *MixMatcher {
+	m := &MixMatcher{} // lazy init
+	for _, f := range options {
+		f(m)
+	}
+	return m
+}
+
+type MixMatcherOption func(mm *MixMatcher)
+
+func WithFullMatcher(m Matcher) MixMatcherOption {
+	return func(mm *MixMatcher) {
+		mm.full = m
+	}
+}
+
+func WithKeywordMatcher(m Matcher) MixMatcherOption {
+	return func(mm *MixMatcher) {
+		mm.keyword = m
+	}
+}
+
+func WithDomainMatcher(m Matcher) MixMatcherOption {
+	return func(mm *MixMatcher) {
+		mm.domain = m
+	}
+}
+
+func WithRegexpMatcher(m Matcher) MixMatcherOption {
+	return func(mm *MixMatcher) {
+		mm.regex = m
+	}
+}
+
+// NewMixMatcherFrom creates a MixMatcher from those sub matcher.
+// It ok to pass nil Matcher here. MixMatcher can lazy init nil sub matcher.
+func NewMixMatcherFrom(full, domain, keyword, regex Matcher) *MixMatcher {
+	return &MixMatcher{
+		full:    full,
+		domain:  domain,
+		keyword: keyword,
+		regex:   regex,
+	}
 }
 
 var MixMatcherStrToPatternTypeDefaultDomain = map[string]MixMatcherPatternType{
@@ -277,13 +321,13 @@ func (m *MixMatcher) AddElem(typ MixMatcherPatternType, pattern string, v interf
 	return m.getSubMatcher(typ).Add(pattern, v)
 }
 
-func (m *MixMatcher) Match(fqdn string) (v interface{}, ok bool) {
-	// it seems v2ray match full matcher first, then domain, reg and keyword matcher.
+func (m *MixMatcher) Match(domain string) (v interface{}, ok bool) {
+	domain = trimDot(domain)
 	for _, matcher := range [...]Matcher{m.full, m.domain, m.regex, m.keyword} {
 		if matcher == nil {
 			continue
 		}
-		if v, ok = matcher.Match(fqdn); ok {
+		if v, ok = matcher.Match(domain); ok {
 			return
 		}
 	}
@@ -329,7 +373,7 @@ func (m *MixMatcher) getSubMatcher(typ MixMatcherPatternType) Matcher {
 		return m.keyword
 	case MixMatcherPatternTypeRegexp:
 		if m.regex == nil {
-			m.regex = NewRegexMatcherWithCache(4096)
+			m.regex = NewRegexMatcher()
 		}
 		return m.regex
 	case MixMatcherPatternTypeDomain:
@@ -348,8 +392,5 @@ func (m *MixMatcher) getSubMatcher(typ MixMatcherPatternType) Matcher {
 }
 
 func trimDot(s string) string {
-	if strings.HasSuffix(s, ".") {
-		return s[:len(s)-1]
-	}
-	return s
+	return strings.TrimSuffix(s, ".")
 }

@@ -197,7 +197,10 @@ var strToSection = map[string]Section{
 }
 
 func (a *appendableRR) Append(v interface{}) {
-	newRR := v.(*appendableRR)
+	newRR, ok := v.(*appendableRR)
+	if !ok {
+		return
+	}
 	a.rrs = append(a.rrs, newRR.rrs...)
 }
 
