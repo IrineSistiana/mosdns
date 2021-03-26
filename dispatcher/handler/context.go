@@ -20,6 +20,7 @@ package handler
 import (
 	"context"
 	"fmt"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/dnsutils"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"net"
@@ -101,7 +102,7 @@ func (ctx *Context) String() string {
 	q := ctx.q
 	if len(q.Question) == 1 {
 		q := q.Question[0]
-		return fmt.Sprintf("%s %d %d %d %d", q.Name, q.Qtype, q.Qclass, ctx.q.Id, ctx.id)
+		return fmt.Sprintf("%s %s %s %d %d", q.Name, dnsutils.QclassToString(q.Qclass), dnsutils.QtypeToString(q.Qtype), ctx.q.Id, ctx.id)
 	}
 	return fmt.Sprintf("%v %d %d", ctx.q.Question, ctx.id, ctx.q.Id)
 }
