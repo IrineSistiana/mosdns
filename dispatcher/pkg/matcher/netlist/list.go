@@ -25,20 +25,20 @@ import (
 // List is a list of Nets. All Nets will be in ipv6 format, even it's an
 // ipv4 addr. Because we use bin search.
 type List struct {
-	e      []*Net
+	e      []Net
 	sorted bool
 }
 
 // NewList returns a *List.
 func NewList() *List {
 	return &List{
-		e: make([]*Net, 0),
+		e: make([]Net, 0),
 	}
 }
 
 // Append appends new Nets to the list.
 // This modified list. Caller must call List.Sort() before calling List.Contains()
-func (list *List) Append(newNet ...*Net) {
+func (list *List) Append(newNet ...Net) {
 	list.e = append(list.e, newNet...)
 	list.sorted = false
 }
@@ -60,16 +60,11 @@ func (list *List) Sort() {
 	sort.Sort(list)
 
 	result := list.e[:0]
-	lastValid := 0
-	for i := range list.e {
-		if i == 0 { // first elem
-			result = append(result, list.e[i])
-			continue
-		}
-
-		if !list.e[lastValid].Contains(list.e[i].ip) {
-			result = append(result, list.e[i])
-			lastValid = i
+	var lastValid Net
+	for i, n := range list.e {
+		if i == 0 || !lastValid.Contains(n.ip) {
+			lastValid = n
+			result = append(result, lastValid)
 		}
 	}
 
