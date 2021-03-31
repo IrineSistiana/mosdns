@@ -89,11 +89,11 @@ func (h *hostsContainer) matchAndSet(qCtx *handler.Context) (matched bool) {
 		return false // no such host
 	}
 
+	r := new(dns.Msg)
+	r.SetReply(qCtx.Q())
 	records := v.(*ipRecord)
 	switch {
 	case typ == dns.TypeA && len(records.ipv4) > 0:
-		r := new(dns.Msg)
-		r.SetReply(qCtx.Q())
 		for _, ip := range records.ipv4 {
 			ipCopy := make(net.IP, len(ip))
 			copy(ipCopy, ip)
@@ -108,10 +108,7 @@ func (h *hostsContainer) matchAndSet(qCtx *handler.Context) (matched bool) {
 			}
 			r.Answer = append(r.Answer, rr)
 		}
-		qCtx.SetResponse(r, handler.ContextStatusResponded)
 	case typ == dns.TypeAAAA && len(records.ipv6) > 0:
-		r := new(dns.Msg)
-		r.SetReply(qCtx.Q())
 		for _, ip := range records.ipv6 {
 			ipCopy := make(net.IP, len(ip))
 			copy(ipCopy, ip)
@@ -126,8 +123,8 @@ func (h *hostsContainer) matchAndSet(qCtx *handler.Context) (matched bool) {
 			}
 			r.Answer = append(r.Answer, rr)
 		}
-		qCtx.SetResponse(r, handler.ContextStatusResponded)
 	}
+	qCtx.SetResponse(r, handler.ContextStatusResponded)
 	return true
 }
 
