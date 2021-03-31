@@ -35,8 +35,8 @@ func NewFullMatcher() *FullMatcher {
 	}
 }
 
-func (m *FullMatcher) Add(domain string, v interface{}) error {
-	domain = trimDot(domain)
+func (m *FullMatcher) Add(s string, v interface{}) error {
+	domain := UnifyDomain(s)
 	m.add(domain, v)
 	return nil
 }
@@ -50,8 +50,8 @@ func (m *FullMatcher) add(domain string, v interface{}) {
 	}
 }
 
-func (m *FullMatcher) Match(domain string) (v interface{}, ok bool) {
-	domain = trimDot(domain)
+func (m *FullMatcher) Match(s string) (v interface{}, ok bool) {
+	domain := UnifyDomain(s)
 	v, ok = m.m[domain]
 	return
 }
@@ -84,8 +84,8 @@ func (m *KeywordMatcher) add(keyword string, v interface{}) {
 	}
 }
 
-func (m *KeywordMatcher) Match(domain string) (v interface{}, ok bool) {
-	domain = trimDot(domain)
+func (m *KeywordMatcher) Match(s string) (v interface{}, ok bool) {
+	domain := UnifyDomain(s)
 	for k, v := range m.kws {
 		if strings.Contains(domain, k) {
 			return v, true
@@ -138,8 +138,8 @@ func (m *RegexMatcher) Add(expr string, v interface{}) error {
 	return nil
 }
 
-func (m *RegexMatcher) Match(domain string) (v interface{}, ok bool) {
-	return m.match(trimDot(domain))
+func (m *RegexMatcher) Match(s string) (v interface{}, ok bool) {
+	return m.match(TrimDot(s))
 }
 
 func (m *RegexMatcher) match(domain string) (v interface{}, ok bool) {
@@ -321,13 +321,12 @@ func (m *MixMatcher) AddElem(typ MixMatcherPatternType, pattern string, v interf
 	return m.getSubMatcher(typ).Add(pattern, v)
 }
 
-func (m *MixMatcher) Match(domain string) (v interface{}, ok bool) {
-	domain = trimDot(domain)
+func (m *MixMatcher) Match(s string) (v interface{}, ok bool) {
 	for _, matcher := range [...]Matcher{m.full, m.domain, m.regex, m.keyword} {
 		if matcher == nil {
 			continue
 		}
-		if v, ok = matcher.Match(domain); ok {
+		if v, ok = matcher.Match(s); ok {
 			return
 		}
 	}
@@ -391,6 +390,13 @@ func (m *MixMatcher) getSubMatcher(typ MixMatcherPatternType) Matcher {
 	}
 }
 
-func trimDot(s string) string {
+// TrimDot trims the suffix '.'.
+func TrimDot(s string) string {
 	return strings.TrimSuffix(s, ".")
+}
+
+// UnifyDomain unifies domain strings.
+// It remove the suffix "." and make sure the domain is in lower case.
+func UnifyDomain(s string) string {
+	return strings.ToLower(TrimDot(s))
 }

@@ -146,7 +146,7 @@ func NewSimpleDomainMatcher() *SimpleDomainMatcher {
 }
 
 func (m *SimpleDomainMatcher) Add(s string, _ interface{}) error {
-	domain := trimDot(s)
+	domain := UnifyDomain(s)
 	ds := NewDomainScanner(domain)
 	for ds.Scan() {
 		off := ds.PrevLabelOffset()
@@ -190,7 +190,7 @@ type DomainScanner struct {
 }
 
 func (m *SimpleDomainMatcher) match(s string) bool {
-	domain := trimDot(s)
+	domain := UnifyDomain(s)
 	ds := NewDomainScanner(domain)
 	for ds.Scan() {
 		off := ds.PrevLabelOffset()
@@ -229,7 +229,7 @@ func (m *SimpleDomainMatcher) Len() int {
 }
 
 func NewDomainScanner(s string) *DomainScanner {
-	domain := trimDot(s)
+	domain := UnifyDomain(s)
 	return &DomainScanner{
 		d: domain,
 		n: len(domain),
