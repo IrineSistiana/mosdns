@@ -19,7 +19,7 @@ github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da/go.mod h1:eHEWzANqSi
 github.com/aead/poly1305 v0.0.0-20180717145839-3fee0db0b635 h1:52m0LGchQBBVqJRyYYufQuIbVqRawmubW3OFGqK1ekw=
 github.com/aead/poly1305 v0.0.0-20180717145839-3fee0db0b635/go.mod h1:lmLxL+FV291OopO93Bwf9fQLQeLyt33VJRUg5VJ30us=
 github.com/ameshkov/dnscrypt/v2 v2.0.1/go.mod h1:nbZnxJt4edIPx2Haa8n2XtC2g5AWcsdQiSuXkNH8eDI=
-github.com/ameshkov/dnscrypt/v2 v2.1.0 h1:Qk0sWc5Qe93uAWL0KUjLnH3UpKuQhr/LnxtfcNrhLWs=
+github.com/ameshkov/dnscrypt/v2 v2.1.0 h1:kebi26kr5nFHbpy6JDCzLWQJ2Nqi5keaA5suR9H25hk=
 github.com/ameshkov/dnscrypt/v2 v2.1.0/go.mod h1:+8SbPbVXpxxcUsgGi8eodkqWPo1MyNHxKYC8hDpqLSo=
 github.com/ameshkov/dnsstamps v1.0.1/go.mod h1:Ii3eUu73dx4Vw5O4wjzmT5+lkCwovjzaEZZ4gKyIH5A=
 github.com/ameshkov/dnsstamps v1.0.3 h1:Srzik+J9mivH1alRACTbys2xOxs0lRH9qnTA7Y1OYVo=
