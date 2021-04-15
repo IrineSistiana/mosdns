@@ -47,30 +47,26 @@ type fastForward struct {
 }
 
 type Args struct {
-	Upstream    []*UpstreamConfig `yaml:"upstream"`
 	Deduplicate bool              `yaml:"deduplicate"`
-	CA          []string          `yaml:"ca"` // certificate paths, used by "dot", "doh" as ca root.
+	CA          []string          `yaml:"ca"`
+	Timeout     int               `yaml:"timeout"`
+	Upstream    []*UpstreamConfig `yaml:"upstream"`
 }
 
 type UpstreamConfig struct {
-	// Protocol: upstream protocol, can be:
-	// "", "udp" -> udp upstream
-	// "tcp" -> tcp upstream
-	// "dot", "tls" -> dns over tls upstream
-	// "doh", "https" -> dns over https (rfc 8844) upstream
-	Protocol string `yaml:"protocol"`
-
-	Addr       string `yaml:"addr"`
-	Trusted    bool   `yaml:"trusted"` // If an upstream is "trusted", it's err rcode response will be accepted.
-	Socks5     string `yaml:"socks5"`
-	ServerName string `yaml:"server_name"`
-	URL        string `yaml:"url"`
-
-	Timeout int `yaml:"timeout"`
+	Addr     string `yaml:"addr"` // required
+	DialAddr string `yaml:"dial_addr"`
+	Trusted  bool   `yaml:"trusted"`
+	Socks5   string `yaml:"socks5"`
 
 	IdleTimeout        int  `yaml:"idle_timeout"`
 	MaxConns           int  `yaml:"max_conns"`
 	InsecureSkipVerify bool `yaml:"insecure_skip_verify"`
+
+	Protocol   string `yaml:"protocol"`    // Deprecated
+	ServerName string `yaml:"server_name"` // Deprecated
+	URL        string `yaml:"url"`         // Deprecated
+	Timeout    int    `yaml:"timeout"`     // Deprecated
 }
 
 func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
@@ -88,44 +84,78 @@ func newFastForward(bp *handler.BP, args *Args) (*fastForward, error) {
 		upstream: make([]utils.Upstream, 0),
 	}
 
-	// rootCA
-	var rootCA *x509.CertPool
+	// rootCAs
+	var rootCAs *x509.CertPool
 	if len(args.CA) != 0 {
 		var err error
-		rootCA, err = utils.LoadCertPool(args.CA)
+		rootCAs, err = utils.LoadCertPool(args.CA)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load ca: %w", err)
 		}
 	}
 
 	for _, config := range args.Upstream {
-		u := new(upstream.FastUpstream)
-		u.Logger = bp.L()
-		u.Addr = config.Addr
-		switch config.Protocol {
-		case "", "udp":
-			u.Protocol = upstream.ProtocolUDP
-		case "tcp":
-			u.Protocol = upstream.ProtocolTCP
-		case "dot", "tls":
-			u.Protocol = upstream.ProtocolDoT
-		case "doh", "https":
-			u.Protocol = upstream.ProtocolDoH
-		default:
-			return nil, fmt.Errorf("invalid protocol %s", config.Protocol)
+		if len(config.Addr) == 0 {
+			return nil, errors.New("missing server addr")
 		}
-		u.Socks5 = config.Socks5
-		u.ServerName = config.ServerName
-		u.URL = config.URL
-		u.ReadTimeout = time.Duration(config.Timeout) * time.Second
-		u.IdleTimeout = time.Duration(config.IdleTimeout) * time.Second
-		u.MaxConns = config.MaxConns
-		u.InsecureSkipVerify = config.InsecureSkipVerify
-		u.RootCA = rootCA
+
+		var u *upstream.FastUpstream
+		var err error
+
+		// TODO: Remove this after v2.0
+		// compatible mode
+		if len(config.Protocol) != 0 {
+			var addr string
+			var dialAddr string
+			switch config.Protocol {
+			case "udp", "tcp":
+				addr = config.Protocol + "://" + config.Addr
+			case "dot":
+				if len(config.ServerName) == 0 {
+					return nil, errors.New("missing server name")
+				}
+				addr = "tls://" + config.ServerName
+				dialAddr = config.Addr
+			case "doh":
+				if len(config.URL) == 0 {
+					return nil, errors.New("missing server url")
+				}
+				addr = config.URL
+				dialAddr = config.Addr
+			default:
+				return nil, fmt.Errorf("invalid protocol %s", config.Protocol)
+			}
+			u, err = upstream.NewFastUpstream(
+				addr,
+				upstream.WithDialAddr(dialAddr),
+				upstream.WithSocks5(config.Socks5),
+				upstream.WithReadTimeout(time.Duration(args.Timeout)*time.Second),
+				upstream.WithIdleTimeout(time.Duration(config.IdleTimeout)*time.Second),
+				upstream.WithMaxConns(config.MaxConns),
+				upstream.WithInsecureSkipVerify(config.InsecureSkipVerify),
+				upstream.WithRootCAs(rootCAs),
+				upstream.WithLogger(bp.L()),
+			)
+		} else {
+			u, err = upstream.NewFastUpstream(
+				config.Addr,
+				upstream.WithDialAddr(config.DialAddr),
+				upstream.WithSocks5(config.Socks5),
+				upstream.WithReadTimeout(time.Duration(args.Timeout)*time.Second),
+				upstream.WithIdleTimeout(time.Duration(config.IdleTimeout)*time.Second),
+				upstream.WithMaxConns(config.MaxConns),
+				upstream.WithInsecureSkipVerify(config.InsecureSkipVerify),
+				upstream.WithRootCAs(rootCAs),
+				upstream.WithLogger(bp.L()),
+			)
+		}
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to init upstream: %w", err)
+		}
 
 		wu := &upstreamWrapper{
 			trusted: config.Trusted,
-			address: config.Addr,
 			u:       u,
 		}
 
@@ -137,7 +167,6 @@ func newFastForward(bp *handler.BP, args *Args) (*fastForward, error) {
 
 type upstreamWrapper struct {
 	trusted bool
-	address string
 	u       *upstream.FastUpstream
 }
 
@@ -149,7 +178,7 @@ func (u *upstreamWrapper) Exchange(qCtx *handler.Context) (*dns.Msg, error) {
 }
 
 func (u *upstreamWrapper) Address() string {
-	return u.address
+	return u.u.Address()
 }
 
 func (u *upstreamWrapper) Trusted() bool {

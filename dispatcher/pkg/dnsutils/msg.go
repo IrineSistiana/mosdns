@@ -20,6 +20,7 @@ package dnsutils
 import (
 	"github.com/miekg/dns"
 	"net"
+	"strconv"
 )
 
 func GetMsgECS(m *dns.Msg) (e *dns.EDNS0_SUBNET) {
@@ -98,4 +99,102 @@ func NewEDNS0Subnet(ip net.IP, mask uint8, v6 bool) *dns.EDNS0_SUBNET {
 	// https://tools.ietf.org/html/rfc7871
 	edns0Subnet.SourceScope = 0
 	return edns0Subnet
+}
+
+// GetMinimalTTL returns the minimal ttl of this msg.
+// If msg m has no record, it returns 0.
+func GetMinimalTTL(m *dns.Msg) uint32 {
+	minTTL := ^uint32(0)
+	hasRecord := false
+	for _, section := range [...][]dns.RR{m.Answer, m.Ns, m.Extra} {
+		for _, rr := range section {
+			if rr.Header().Rrtype == dns.TypeOPT {
+				continue // opt record ttl is not ttl.
+			}
+			hasRecord = true
+			ttl := rr.Header().Ttl
+			if ttl < minTTL {
+				minTTL = ttl
+			}
+		}
+	}
+
+	if !hasRecord { // no ttl applied
+		return 0
+	}
+	return minTTL
+}
+
+// SetTTL updates all records' ttl to ttl, except opt record.
+func SetTTL(m *dns.Msg, ttl uint32) {
+	for _, section := range [...][]dns.RR{m.Answer, m.Ns, m.Extra} {
+		for _, rr := range section {
+			if rr.Header().Rrtype == dns.TypeOPT {
+				continue // opt record ttl is not ttl.
+			}
+			rr.Header().Ttl = ttl
+		}
+	}
+}
+
+func ApplyMaximumTTL(m *dns.Msg, ttl uint32) {
+	applyTTL(m, ttl, true)
+}
+
+func ApplyMinimalTTL(m *dns.Msg, ttl uint32) {
+	applyTTL(m, ttl, false)
+}
+
+// SubtractTTL subtract delta from every m's RR.
+// If RR's TTL is smaller than delta, SubtractTTL
+// will return overflowed = true.
+func SubtractTTL(m *dns.Msg, delta uint32) (overflowed bool) {
+	for _, section := range [...][]dns.RR{m.Answer, m.Ns, m.Extra} {
+		for _, rr := range section {
+			if rr.Header().Rrtype == dns.TypeOPT {
+				continue // opt record ttl is not ttl.
+			}
+			if ttl := rr.Header().Ttl; ttl > delta {
+				rr.Header().Ttl = ttl - delta
+			} else {
+				rr.Header().Ttl = 1
+				overflowed = true
+			}
+		}
+	}
+	return
+}
+
+func applyTTL(m *dns.Msg, ttl uint32, maximum bool) {
+	for _, section := range [...][]dns.RR{m.Answer, m.Ns, m.Extra} {
+		for _, rr := range section {
+			if rr.Header().Rrtype == dns.TypeOPT {
+				continue // opt record ttl is not ttl.
+			}
+			if maximum {
+				if rr.Header().Ttl > ttl {
+					rr.Header().Ttl = ttl
+				}
+			} else {
+				if rr.Header().Ttl < ttl {
+					rr.Header().Ttl = ttl
+				}
+			}
+		}
+	}
+}
+
+func uint16Conv(u uint16, m map[uint16]string) string {
+	if s, ok := m[u]; ok {
+		return s
+	}
+	return strconv.Itoa(int(u))
+}
+
+func QclassToString(u uint16) string {
+	return uint16Conv(u, dns.ClassToString)
+}
+
+func QtypeToString(u uint16) string {
+	return uint16Conv(u, dns.TypeToString)
 }

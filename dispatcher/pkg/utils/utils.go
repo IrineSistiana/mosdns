@@ -332,3 +332,12 @@ func ExchangeParallel(ctx context.Context, qCtx *handler.Context, upstreams []Up
 	// all upstreams are failed
 	return nil, errors.New("no response")
 }
+
+// IsIPAddr returns true is s is a IP address. s can contain ":port".
+func IsIPAddr(s string) bool {
+	host, _, err := net.SplitHostPort(s)
+	if err != nil {
+		return net.ParseIP(s) != nil
+	}
+	return net.ParseIP(host) != nil
+}
