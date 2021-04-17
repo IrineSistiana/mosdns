@@ -50,13 +50,13 @@ type Server struct {
 
 	logger *zap.Logger
 
-	addr       string
+	addr string
+
+	mu         sync.Mutex
 	listener   net.Listener
 	packetConn net.PacketConn
-
-	mu      sync.Mutex
-	started bool
-	closed  bool
+	started    bool
+	closed     bool
 }
 
 func NewServer(protocol, addr string, options ...ServerOption) *Server {
@@ -143,6 +143,9 @@ func (s *Server) Start() error {
 }
 
 func (s *Server) initListener() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.listener != nil {
 		return nil
 	}
@@ -156,6 +159,9 @@ func (s *Server) initListener() error {
 }
 
 func (s *Server) initPacketConn() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.packetConn != nil {
 		return nil
 	}
@@ -192,4 +198,22 @@ func (s *Server) isClosed() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.closed
+}
+
+func (s *Server) isStarted() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.started
+}
+
+func (s *Server) getListener() net.Listener {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.listener
+}
+
+func (s *Server) getPacketConn() net.PacketConn {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.packetConn
 }

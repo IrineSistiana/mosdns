@@ -122,7 +122,7 @@ func TestUDPServer(t *testing.T) {
 			defer tt.server.Close()
 
 			time.Sleep(time.Millisecond * 50)
-			addr := tt.server.packetConn.LocalAddr().String()
+			addr := tt.server.getPacketConn().LocalAddr().String()
 			c, err := net.Dial("udp", addr)
 			if err != nil {
 				t.Fatal(err)
@@ -173,7 +173,7 @@ func TestTCPServer(t *testing.T) {
 			defer tt.server.Close()
 
 			time.Sleep(time.Millisecond * 50)
-			addr := tt.server.listener.Addr().String()
+			addr := tt.server.getListener().Addr().String()
 			c, err := net.Dial("tcp", addr)
 			if err != nil {
 				t.Fatal(err)
@@ -223,7 +223,7 @@ func TestDoHServer(t *testing.T) {
 			defer tt.server.Close()
 
 			time.Sleep(time.Millisecond * 50)
-			u, err := upstream.AddressToUpstream("https://"+tt.server.listener.Addr().String()+"/dns-query", opt)
+			u, err := upstream.AddressToUpstream("https://"+tt.server.getListener().Addr().String()+"/dns-query", opt)
 			if err != nil {
 				t.Fatal(err)
 			}
