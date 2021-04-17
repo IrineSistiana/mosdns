@@ -74,7 +74,7 @@ func TestDomainScanner(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := NewDomainScanner(tt.fqdn)
+			s := NewUnifiedDomainScanner(tt.fqdn)
 			gotOffsets := make([]int, 0)
 			for s.Scan() {
 				gotOffsets = append(gotOffsets, s.PrevLabelOffset())
@@ -83,19 +83,21 @@ func TestDomainScanner(t *testing.T) {
 				t.Errorf("PrevLabelOffset() = %v, want %v", gotOffsets, tt.wantOffsets)
 			}
 
-			s = NewDomainScanner(tt.fqdn)
+			s = NewUnifiedDomainScanner(tt.fqdn)
 			gotLabels := make([]string, 0)
 			for s.Scan() {
-				gotLabels = append(gotLabels, s.PrevLabel())
+				pl, _ := s.PrevLabel()
+				gotLabels = append(gotLabels, pl)
 			}
 			if !reflect.DeepEqual(gotLabels, tt.wantLabels) {
 				t.Errorf("PrevLabel() = %v, want %v", gotLabels, tt.wantLabels)
 			}
 
-			s = NewDomainScanner(tt.fqdn)
+			s = NewUnifiedDomainScanner(tt.fqdn)
 			gotSubDomains := make([]string, 0)
 			for s.Scan() {
-				gotSubDomains = append(gotSubDomains, s.PrevSubDomain())
+				sd, _ := s.PrevSubDomain()
+				gotSubDomains = append(gotSubDomains, sd)
 			}
 			if !reflect.DeepEqual(gotSubDomains, tt.wantSubDomains) {
 				t.Errorf("PrevLabel() = %v, want %v", gotSubDomains, tt.wantSubDomains)

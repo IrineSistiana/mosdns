@@ -51,8 +51,7 @@ func (m *FullMatcher) add(domain string, v interface{}) {
 }
 
 func (m *FullMatcher) Match(s string) (v interface{}, ok bool) {
-	domain := UnifyDomain(s)
-	v, ok = m.m[domain]
+	v, ok = m.m[UnifyDomain(s)]
 	return
 }
 

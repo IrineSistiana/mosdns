@@ -31,9 +31,9 @@ func NewDomainMatcher() *DomainMatcher {
 
 func (m *DomainMatcher) Match(s string) (interface{}, bool) {
 	currentNode := m.root
-	ds := NewDomainScanner(s)
+	ds := NewUnifiedDomainScanner(s)
 	for ds.Scan() {
-		label := ds.PrevLabel()
+		label, _ := ds.PrevLabel()
 		if currentNode = currentNode.GetChild(label); currentNode == nil {
 			return nil, false // end of tree, not matched
 		}
@@ -56,12 +56,12 @@ func (m *DomainMatcher) Add(s string, v interface{}) error {
 func (m *DomainMatcher) add(s string, v interface{}) {
 	// find the end node
 	currentNode := m.root
-	ds := NewDomainScanner(s)
+	ds := NewUnifiedDomainScanner(s)
 	for ds.Scan() {
 		if currentNode.IsEnd() { // reach a end node, the new domain is redundant.
 			return
 		}
-		label := ds.PrevLabel()
+		label, _ := ds.PrevLabel()
 		if child := currentNode.GetChild(label); child != nil {
 			currentNode = child
 		} else {
@@ -146,17 +146,14 @@ func NewSimpleDomainMatcher() *SimpleDomainMatcher {
 }
 
 func (m *SimpleDomainMatcher) Add(s string, _ interface{}) error {
-	domain := UnifyDomain(s)
-	ds := NewDomainScanner(domain)
+	ds := NewUnifiedDomainScanner(s)
 	for ds.Scan() {
-		off := ds.PrevLabelOffset()
-		sub := domain[off:]
-		isEnd := off == 0
+		sub, isEnd := ds.PrevSubDomain()
 		subEnd, ok := m.fullMatch(sub)
 		if subEnd {
-			return nil // redundant domain
+			return nil // s is redundant
 		}
-		if !ok || subEnd != isEnd {
+		if !ok || subEnd != isEnd { // update or add node
 			m.add(sub, isEnd)
 		}
 	}
@@ -190,11 +187,10 @@ type DomainScanner struct {
 }
 
 func (m *SimpleDomainMatcher) match(s string) bool {
-	domain := UnifyDomain(s)
-	ds := NewDomainScanner(domain)
+	ds := NewUnifiedDomainScanner(s)
 	for ds.Scan() {
-		off := ds.PrevLabelOffset()
-		isEnd, ok := m.fullMatch(domain[off:])
+		subDomain, _ := ds.PrevSubDomain()
+		isEnd, ok := m.fullMatch(subDomain)
 		if !ok { // no such sub domain
 			return false
 		}
@@ -228,7 +224,7 @@ func (m *SimpleDomainMatcher) Len() int {
 	return len(m.l) + len(m.m) + len(m.s)
 }
 
-func NewDomainScanner(s string) *DomainScanner {
+func NewUnifiedDomainScanner(s string) *DomainScanner {
 	domain := UnifyDomain(s)
 	return &DomainScanner{
 		d: domain,
@@ -245,16 +241,15 @@ func (s *DomainScanner) PrevLabelOffset() int {
 	return s.n + 1
 }
 
-func (s *DomainScanner) PrevLabel() string {
+func (s *DomainScanner) PrevLabel() (label string, end bool) {
 	n := strings.LastIndexByte(s.d[:s.n], '.')
 	l := s.d[n+1 : s.n]
 	s.n = n
-	return l
+	return l, n == -1
 }
 
-func (s *DomainScanner) PrevSubDomain() string {
+func (s *DomainScanner) PrevSubDomain() (sub string, end bool) {
 	n := strings.LastIndexByte(s.d[:s.n], '.')
-	l := s.d[n+1:]
 	s.n = n
-	return l
+	return s.d[n+1:], n == -1
 }
