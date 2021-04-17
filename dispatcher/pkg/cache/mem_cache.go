@@ -44,7 +44,6 @@ type elem struct {
 
 // NewMemCache returns a MemCache.
 // If cleanerInterval <= 0, MemCache cleaner is disabled.
-// If shardNum or maxSizePerShard <=0, NewMemCache will panic.
 func NewMemCache(shardNum, maxSizePerShard int, cleanerInterval time.Duration) *MemCache {
 	c := &MemCache{
 		cleanerInterval: cleanerInterval,

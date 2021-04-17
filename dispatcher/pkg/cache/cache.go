@@ -26,10 +26,6 @@ import (
 	"time"
 )
 
-const (
-	maxTTL uint32 = 3600 * 24 // one day
-)
-
 // DnsCache represents a DNS cache backend.
 type DnsCache interface {
 	// Get retrieves v from DnsCache. The returned v is a deepcopy of the original msg
@@ -43,6 +39,7 @@ type DnsCache interface {
 	io.Closer
 }
 
+// DeferCacheStore implements handler.Executable.
 type DeferCacheStore struct {
 	key     string
 	backend DnsCache

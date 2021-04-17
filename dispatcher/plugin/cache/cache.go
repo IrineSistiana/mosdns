@@ -29,8 +29,6 @@ import (
 
 const (
 	PluginType = "cache"
-
-	maxTTL uint32 = 3600 * 24 * 7 // one week
 )
 
 func init() {
@@ -67,20 +65,17 @@ func newCachePlugin(bp *handler.BP, args *Args) (*cachePlugin, error) {
 			return nil, err
 		}
 	} else {
-		if args.Size <= 0 {
+		if args.Size <= 1024 {
 			args.Size = 1024
 		}
 
-		maxSizePerShard := args.Size / 64
-		if maxSizePerShard == 0 {
-			maxSizePerShard = 1
-		}
+		sizePerShard := args.Size / 32
 
 		if args.CleanerInterval == 0 {
 			args.CleanerInterval = 120
 		}
 
-		c = cache.NewMemCache(64, maxSizePerShard, time.Duration(args.CleanerInterval)*time.Second)
+		c = cache.NewMemCache(32, sizePerShard, time.Duration(args.CleanerInterval)*time.Second)
 	}
 	return &cachePlugin{
 		BP:   bp,
