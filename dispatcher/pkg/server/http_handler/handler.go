@@ -15,7 +15,7 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package server
+package http_handler
 
 import (
 	"context"
@@ -25,78 +25,79 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/pool"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/server/dns_handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"io"
 	"net/http"
-	"sync"
 	"time"
 )
 
-type DoHHandler struct {
-	DNSHandler          DNSServerHandler // DNS handler for incoming requests. This cannot be nil.
-	URLPath             string           // If empty, DoHHandler will not check request's path.
-	GetUserIPFromHeader string           // Get client ip from http header, e.g. for nginx, X-Forwarded-For.
-	QueryTimeout        time.Duration    // Default is defaultQueryTimeout.
-	Logger              *zap.Logger      // Nil logger disables logging.
+const (
+	defaultTimeout = 5
+)
 
-	initLoggerOnce sync.Once
-	logger         *zap.Logger
+type Handler struct {
+	dnsHandler        dns_handler.Handler
+	path              string
+	clientSrcIPHeader string
+	timeout           time.Duration
+
+	logger *zap.Logger
 }
 
-func (h *DoHHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	h.initLoggerOnce.Do(func() {
-		if extLogger := h.Logger; extLogger != nil {
-			h.logger = extLogger
-		} else {
-			h.logger = zap.NewNop()
-		}
-	})
-
-	// check handler
-	if h.DNSHandler == nil {
-		h.logger.Error("nil dns handler")
-		w.WriteHeader(http.StatusInternalServerError)
+func NewHandler(dnsHandler dns_handler.Handler, options ...Option) *Handler {
+	h := new(Handler)
+	h.dnsHandler = dnsHandler
+	for _, op := range options {
+		op(h)
 	}
 
+	if h.logger == nil {
+		h.logger = zap.NewNop()
+	}
+	return h
+}
+
+func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// check url path
-	if len(h.URLPath) != 0 && req.URL.Path != h.URLPath {
+	if len(h.path) != 0 && req.URL.Path != h.path {
 		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-
-	// read msg
-	q, err := GetMsgFromReq(req)
-	if err != nil {
-		h.logger.Warn("invalid request", zap.String("from", req.RemoteAddr), zap.String("url", req.RequestURI), zap.String("method", req.Method), zap.Error(err))
-		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
 	// read remote addr
 	remoteAddr := req.RemoteAddr
-	if len(h.GetUserIPFromHeader) != 0 {
-		if ip := req.Header.Get(h.GetUserIPFromHeader); len(ip) != 0 {
+	if len(h.clientSrcIPHeader) != 0 {
+		if ip := req.Header.Get(h.clientSrcIPHeader); len(ip) != 0 {
 			remoteAddr = ip + ":0"
 		}
 	}
 
+	// read msg
+	q, err := ReadMsgFromReq(req)
+	if err != nil {
+		h.logger.Warn("invalid request", zap.String("from", remoteAddr), zap.String("url", req.RequestURI), zap.String("method", req.Method), zap.Error(err))
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
 	qCtx := handler.NewContext(q, utils.NewNetAddr(remoteAddr, req.URL.Scheme))
 	qCtx.SetTCPClient(true)
-	ctx, cancel := context.WithTimeout(req.Context(), h.queryTimeout())
+	ctx, cancel := context.WithTimeout(req.Context(), h.getTimeout())
 	defer cancel()
-	h.DNSHandler.ServeDNS(ctx, qCtx, &httpDnsRespWriter{httpRespWriter: w})
+	h.dnsHandler.ServeDNS(ctx, qCtx, &httpDnsRespWriter{httpRespWriter: w})
 }
 
-func (h *DoHHandler) queryTimeout() time.Duration {
-	if t := h.QueryTimeout; t > 0 {
+func (h *Handler) getTimeout() time.Duration {
+	if t := h.timeout; t > 0 {
 		return t
 	}
-	return defaultQueryTimeout
+	return defaultTimeout
 }
 
-func GetMsgFromReq(req *http.Request) (*dns.Msg, error) {
+func ReadMsgFromReq(req *http.Request) (*dns.Msg, error) {
 	var b []byte
 	var err error
 	switch req.Method {

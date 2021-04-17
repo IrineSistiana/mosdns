@@ -23,8 +23,10 @@ import (
 	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/server/dns_handler"
 	"go.uber.org/zap"
 	"net"
+	"net/http"
 	"sync"
 	"time"
 )
@@ -33,58 +35,53 @@ import (
 var (
 	ErrServerClosed  = errors.New("server closed")
 	ErrServerStarted = errors.New("server has been started")
-	errServerExited  = errors.New("server exited without err")
-)
-
-type Protocol uint8
-
-// DNS protocols
-const (
-	ProtocolUDP Protocol = iota
-	ProtocolTCP
-	ProtocolDoT
-	ProtocolDoH
-	ProtocolHttp
-)
-
-const (
-	defaultQueryTimeout = time.Second * 5
-	defaultIdleTimeout  = time.Second * 10
 )
 
 type Server struct {
-	Handler  DNSServerHandler
-	Protocol Protocol
+	protocol    string
+	handler     dns_handler.Handler // UDP, TCP, DoT
+	httpHandler http.Handler        // DoH, HTTP
 
-	Listener   net.Listener
-	PacketConn net.PacketConn
+	tlsConfig *tls.Config
+	key, cert string
 
-	TLSConfig *tls.Config // Used by dot, doh in tls.NewListener.
+	queryTimeout time.Duration // default is defaultQueryTimeout.
+	idleTimeout  time.Duration // default is defaultIdleTimeout.
 
-	URLPath             string // Used by doh, http. If it's emtpy, any path will be handled.
-	GetUserIPFromHeader string // Used by doh, http. Get user ip address from http header.
+	logger *zap.Logger
 
-	QueryTimeout time.Duration // Used by all protocol as query timeout, default is defaultQueryTimeout.
-	IdleTimeout  time.Duration // Used by tcp, dot, doh as connection idle timeout, default is defaultIdleTimeout.
-
-	Logger *zap.Logger // Nil logger disables logging.
+	addr       string
+	listener   net.Listener
+	packetConn net.PacketConn
 
 	mu      sync.Mutex
 	started bool
 	closed  bool
-
-	logger *zap.Logger // non-nil logger.
 }
 
-func (s *Server) queryTimeout() time.Duration {
-	if t := s.QueryTimeout; t > 0 {
+func NewServer(protocol, addr string, options ...ServerOption) *Server {
+	s := new(Server)
+	s.protocol = protocol
+	s.addr = addr
+	for _, op := range options {
+		op(s)
+	}
+
+	if s.logger == nil {
+		s.logger = zap.NewNop()
+	}
+	return s
+}
+
+func (s *Server) getQueryTimeout() time.Duration {
+	if t := s.queryTimeout; t > 0 {
 		return t
 	}
 	return defaultQueryTimeout
 }
 
-func (s *Server) idleTimeout() time.Duration {
-	if t := s.IdleTimeout; t > 0 {
+func (s *Server) getIdleTimeout() time.Duration {
+	if t := s.idleTimeout; t > 0 {
 		return t
 	}
 	return defaultIdleTimeout
@@ -92,7 +89,7 @@ func (s *Server) idleTimeout() time.Duration {
 
 // Start starts the udp server.
 // Start always returns an non-nil err.
-// If server was closed, an ErrServerClosed will be returned.
+// After Close(), an ErrServerClosed will be returned.
 func (s *Server) Start() error {
 	s.mu.Lock()
 	if s.closed {
@@ -108,90 +105,91 @@ func (s *Server) Start() error {
 
 	defer s.Close()
 
-	if s.Handler == nil {
-		return errors.New("nil handler")
-	}
-
-	if logger := s.Logger; logger != nil {
-		s.logger = logger
-	} else {
-		s.logger = zap.NewNop()
-	}
-
-	err := s.startServer()
-	if err != nil {
-		if s.isClosed() {
-			return ErrServerClosed
+	var serverErr error
+	switch s.protocol {
+	case "udp":
+		if err := s.initPacketConn(); err != nil {
+			return err
 		}
-		return err
+		serverErr = s.startUDP()
+	case "tcp":
+		if err := s.initListener(); err != nil {
+			return err
+		}
+		serverErr = s.startTCP()
+	case "dot", "tls":
+		if err := s.initListener(); err != nil {
+			return err
+		}
+		serverErr = s.startDoT()
+	case "doh", "https":
+		if err := s.initListener(); err != nil {
+			return err
+		}
+		serverErr = s.startDoH()
+	case "http":
+		if err := s.initListener(); err != nil {
+			return err
+		}
+		serverErr = s.startHttp()
+	default:
+		return fmt.Errorf("unknown protocol %s", s.protocol)
 	}
-	return errServerExited
+
+	if s.isClosed() {
+		return ErrServerClosed
+	}
+	return serverErr
 }
 
-func (s *Server) startServer() error {
-	switch s.Protocol {
-	case ProtocolUDP:
-		return s.startUDP()
-	case ProtocolTCP, ProtocolDoT:
-		return s.startTCP()
-	case ProtocolDoH, ProtocolHttp:
-		return s.startDoH()
-	default:
-		return fmt.Errorf("unknown protocol %d", s.Protocol)
+func (s *Server) initListener() error {
+	if s.listener != nil {
+		return nil
 	}
+
+	l, err := net.Listen("tcp", s.addr)
+	if err != nil {
+		return err
+	}
+	s.listener = l
+	return nil
+}
+
+func (s *Server) initPacketConn() error {
+	if s.packetConn != nil {
+		return nil
+	}
+
+	c, err := net.ListenPacket("udp", s.addr)
+	if err != nil {
+		return err
+	}
+	s.packetConn = c
+	return nil
 }
 
 func (s *Server) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	if s.Listener != nil {
-		s.Listener.Close()
-	}
-	if s.PacketConn != nil {
-		s.PacketConn.Close()
-	}
-
 	s.closed = true
+
+	if s.listener != nil {
+		s.listener.Close()
+	}
+	if s.packetConn != nil {
+		s.packetConn.Close()
+	}
 	return nil
 }
 
-func (s *Server) handleQueryTimeout(ctx context.Context, qCtx *handler.Context, w ResponseWriter) {
-	queryCtx, cancel := context.WithTimeout(ctx, s.queryTimeout())
+func (s *Server) handleQuery(ctx context.Context, qCtx *handler.Context, w dns_handler.ResponseWriter) {
+	queryCtx, cancel := context.WithTimeout(ctx, s.getQueryTimeout())
 	defer cancel()
-	s.Handler.ServeDNS(queryCtx, qCtx, w)
+	s.handler.ServeDNS(queryCtx, qCtx, w)
 }
 
 func (s *Server) isClosed() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.closed
-}
-
-func checkTLSConfig(c *tls.Config) error {
-	if c == nil {
-		return errors.New("nil tls config")
-	}
-	if len(c.Certificates) == 0 && c.GetCertificate == nil {
-		return errors.New("no certificate")
-	}
-	return nil
-}
-
-func ParseProtocol(s string) (p Protocol, err error) {
-	switch s {
-	case "", "udp":
-		p = ProtocolUDP
-	case "tcp":
-		p = ProtocolTCP
-	case "dot", "tls":
-		p = ProtocolDoT
-	case "doh", "https":
-		p = ProtocolDoT
-	case "http":
-		p = ProtocolHttp
-	default:
-		err = fmt.Errorf("unsupported protocol: %s", s)
-	}
-	return p, err
 }

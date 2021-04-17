@@ -18,13 +18,13 @@
 package server
 
 import (
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/executable_seq"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/server"
-	"net"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/server/dns_handler"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/server/http_handler"
 	"sync"
 	"time"
 )
@@ -91,7 +91,7 @@ func newServerPlugin(bp *handler.BP, args *Args) (*serverPlugin, error) {
 		return nil, err
 	}
 
-	sh := &server.DefaultServerHandler{
+	sh := &dns_handler.DefaultHandler{
 		Logger:          bp.L(),
 		Entry:           ecs,
 		ConcurrentLimit: args.MaxConcurrentQueries,
@@ -106,49 +106,20 @@ func newServerPlugin(bp *handler.BP, args *Args) (*serverPlugin, error) {
 	}
 
 	for _, sc := range args.Server {
-		s := new(server.Server)
-		s.Handler = sh
-		s.QueryTimeout = time.Duration(sc.Timeout) * time.Second
-		s.IdleTimeout = time.Duration(sc.IdleTimeout) * time.Second
-		s.GetUserIPFromHeader = sc.GetUserIPFromHeader
-
-		var err error
-		s.Protocol, err = server.ParseProtocol(sc.Protocol)
-		if err != nil {
-			return nil, err
-		}
-
-		if len(sc.Addr) == 0 {
-			return nil, errors.New("empty server address")
-		}
-
-		if s.Protocol == server.ProtocolUDP {
-			c, err := net.ListenPacket("udp", sc.Addr)
-			if err != nil {
-				return nil, err
-			}
-			s.PacketConn = c
-		} else {
-			c, err := net.Listen("tcp", sc.Addr)
-			if err != nil {
-				return nil, err
-			}
-			s.Listener = c
-		}
-
-		switch s.Protocol {
-		case server.ProtocolDoT, server.ProtocolDoH:
-			if len(sc.Key) == 0 || len(sc.Cert) == 0 {
-				return nil, errors.New("no certificate")
-			}
-			cert, err := tls.LoadX509KeyPair(sc.Cert, sc.Key)
-			if err != nil {
-				return nil, fmt.Errorf("failed to load certificate: %w", err)
-			}
-			tlsConfig := new(tls.Config)
-			tlsConfig.Certificates = append(tlsConfig.Certificates, cert)
-			s.TLSConfig = tlsConfig
-		}
+		s := server.NewServer(
+			sc.Protocol,
+			sc.Addr,
+			server.WithHandler(sh),
+			server.WithHttpHandler(http_handler.NewHandler(
+				sh,
+				http_handler.WithPath(sc.URLPath),
+				http_handler.WithClientSrcIPHeader(sc.GetUserIPFromHeader),
+				http_handler.WithTimeout(time.Duration(sc.Timeout)*time.Second),
+			)),
+			server.WithCertificate(sc.Cert, sc.Key),
+			server.WithQueryTimeout(time.Duration(sc.Timeout)*time.Second),
+			server.WithIdleTimeout(time.Duration(sc.IdleTimeout)*time.Second),
+		)
 
 		sg.mu.Lock()
 		sg.servers[s] = struct{}{}
@@ -186,7 +157,6 @@ func (sg *serverPlugin) Shutdown() error {
 	return nil
 }
 
-//
 func (sg *serverPlugin) waitErr() error {
 	select {
 	case err := <-sg.errChan:

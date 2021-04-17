@@ -48,12 +48,12 @@ func (u *udpResponseWriter) Write(m *dns.Msg) (n int, err error) {
 	return dnsutils.WriteUDPMsgTo(m, u.c, u.to)
 }
 
-// startUDP starts a udp server.
+// startUDP always returns a non-nil error.
 func (s *Server) startUDP() error {
-	if s.PacketConn == nil {
+	if s.packetConn == nil {
 		return errors.New("udp server has a nil packet conn")
 	}
-	c := s.PacketConn
+	c := s.packetConn
 
 	listenerCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -82,7 +82,7 @@ func (s *Server) startUDP() error {
 				maxSize: getMaxSizeFromQuery(q),
 			}
 			qCtx := handler.NewContext(q, from)
-			s.handleQueryTimeout(listenerCtx, qCtx, w)
+			s.handleQuery(listenerCtx, qCtx, w)
 		}()
 	}
 }

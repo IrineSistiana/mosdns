@@ -114,8 +114,6 @@ func NewFastUpstream(addr string, options ...Option) (*FastUpstream, error) {
 	case protocolDoH:
 		u.dialAddr = tryAddDefaultPort(addrURL.Host, 443)
 		u.url = addrURL.String()
-	default:
-		panic(fmt.Sprintf("unexpected protocol %d", protocol))
 	}
 
 	// apply options

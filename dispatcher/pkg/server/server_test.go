@@ -22,9 +22,12 @@ import (
 	"crypto/tls"
 	"github.com/AdguardTeam/dnsproxy/upstream"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/server/dns_handler"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/server/http_handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
 	"net"
+	"sync"
 	"testing"
 	"time"
 )
@@ -55,48 +58,35 @@ func getTLSConfig(tb testing.TB) *tls.Config {
 	return tlsConfig
 }
 
-func wantErrTest(tb testing.TB, f func() error) {
-	errChan := make(chan error, 1)
-	go func() {
-		errChan <- f()
-	}()
-
-	select {
-	case err := <-errChan:
-		if err == nil {
-			tb.Fatal("want f() returns an error, but got nil")
-		}
-	case <-time.After(time.Second):
-		tb.Fatal("f() timeout")
-	}
-	return
-}
-
-func writeJunkDataTest(tb testing.TB, c net.Conn) {
+func writeJunkData(c net.Conn) {
 	junk := make([]byte, dnsutils.IPv4UdpMaxPayload)
-	_, err := rand.Read(junk)
-	if err != nil {
-		tb.Fatal(err)
-	}
-	_, err = c.Write(junk)
-	if err != nil {
-		tb.Fatal(err)
-	}
+	rand.Read(junk)
+	c.Write(junk)
 }
 
 func exchangeTest(tb testing.TB, u upstream.Upstream) {
-	for i := 0; i < 50; i++ {
-		echoMsg := new(dns.Msg)
-		echoMsg.SetQuestion("example.com.", dns.TypeA)
-		r, err := u.Exchange(echoMsg)
-		if err != nil {
-			tb.Fatal(err)
-		}
+	wg := new(sync.WaitGroup)
+	for g := 0; g < 10; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 50; i++ {
+				echoMsg := new(dns.Msg)
+				echoMsg.SetQuestion("example.com.", dns.TypeA)
+				r, err := u.Exchange(echoMsg)
+				if err != nil {
+					tb.Error(err)
+					return
+				}
 
-		if r.Id != echoMsg.Id {
-			tb.Fatal("echoed msg id mismatched")
-		}
+				if r.Id != echoMsg.Id {
+					tb.Error(err)
+					return
+				}
+			}
+		}()
 	}
+	wg.Wait()
 }
 
 var (
@@ -107,48 +97,23 @@ var (
 )
 
 func TestUDPServer(t *testing.T) {
-	dnsHandler := &DummyServerHandler{T: t}
+	dnsHandler := &dns_handler.DummyServerHandler{T: t}
 	tests := []struct {
-		name         string
-		server       *Server
-		wantStartErr bool
+		name   string
+		server *Server
 	}{
 		{
-			name: "udp",
-			server: &Server{
-				Handler:    dnsHandler,
-				Protocol:   ProtocolUDP,
-				PacketConn: getUDPListener(t),
-			},
-			wantStartErr: false,
+			name:   "with PacketConn",
+			server: NewServer("udp", "", WithHandler(dnsHandler), WithPacketConn(getUDPListener(t))),
 		},
 		{
-			name: "nil handler",
-			server: &Server{
-				Handler:    nil,
-				Protocol:   ProtocolUDP,
-				PacketConn: getUDPListener(t),
-			},
-			wantStartErr: true,
-		},
-		{
-			name: "nil packet conn",
-			server: &Server{
-				Handler:    dnsHandler,
-				Protocol:   ProtocolUDP,
-				PacketConn: nil,
-			},
-			wantStartErr: true,
+			name:   "with addr",
+			server: NewServer("udp", "127.0.0.1:0", WithHandler(dnsHandler)),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.wantStartErr {
-				wantErrTest(t, tt.server.Start)
-				return
-			}
-
 			go func() {
 				if err := tt.server.Start(); err != ErrServerClosed {
 					t.Error(err)
@@ -156,13 +121,14 @@ func TestUDPServer(t *testing.T) {
 			}()
 			defer tt.server.Close()
 
-			addr := tt.server.PacketConn.LocalAddr().String()
+			time.Sleep(time.Millisecond * 50)
+			addr := tt.server.packetConn.LocalAddr().String()
 			c, err := net.Dial("udp", addr)
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer c.Close()
-			writeJunkDataTest(t, c)
+			writeJunkData(c)
 
 			u, err := upstream.AddressToUpstream(addr, opt)
 			if err != nil {
@@ -174,59 +140,31 @@ func TestUDPServer(t *testing.T) {
 }
 
 func TestTCPServer(t *testing.T) {
-	dnsHandler := &DummyServerHandler{T: t}
+	dnsHandler := &dns_handler.DummyServerHandler{T: t}
 	tests := []struct {
-		name         string
-		server       *Server
-		wantStartErr bool
+		name   string
+		server *Server
 	}{
 		{
-			name: "tcp",
-			server: &Server{
-				Handler:  dnsHandler,
-				Protocol: ProtocolTCP,
-				Listener: getListener(t),
-			},
-			wantStartErr: false,
+			name:   "tcp with listener",
+			server: NewServer("tcp", "", WithHandler(dnsHandler), WithListener(getListener(t))),
 		},
 		{
-			name: "nil listener",
-			server: &Server{
-				Handler:  dnsHandler,
-				Protocol: ProtocolTCP,
-				Listener: nil,
-			},
-			wantStartErr: true,
+			name:   "tcp with addr",
+			server: NewServer("tcp", "127.0.0.1:0", WithHandler(dnsHandler)),
 		},
 		{
-			name: "dot",
-			server: &Server{
-				Handler:   dnsHandler,
-				Protocol:  ProtocolDoT,
-				Listener:  getListener(t),
-				TLSConfig: getTLSConfig(t),
-			},
-			wantStartErr: false,
+			name:   "dot with listener",
+			server: NewServer("dot", "", WithHandler(dnsHandler), WithListener(getListener(t)), WithTLSConfig(getTLSConfig(t))),
 		},
 		{
-			name: "dot no tls config",
-			server: &Server{
-				Handler:   dnsHandler,
-				Protocol:  ProtocolDoT,
-				Listener:  getListener(t),
-				TLSConfig: nil,
-			},
-			wantStartErr: true,
+			name:   "dot with addr",
+			server: NewServer("dot", "127.0.0.1:0", WithHandler(dnsHandler), WithTLSConfig(getTLSConfig(t))),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.wantStartErr {
-				wantErrTest(t, tt.server.Start)
-				return
-			}
-
 			go func() {
 				if err := tt.server.Start(); err != ErrServerClosed {
 					t.Error(err)
@@ -234,16 +172,17 @@ func TestTCPServer(t *testing.T) {
 			}()
 			defer tt.server.Close()
 
-			addr := tt.server.Listener.Addr().String()
-			c, err := net.Dial("udp", addr)
+			time.Sleep(time.Millisecond * 50)
+			addr := tt.server.listener.Addr().String()
+			c, err := net.Dial("tcp", addr)
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer c.Close()
-			writeJunkDataTest(t, c)
+			writeJunkData(c)
 
 			prefix := "tcp"
-			if tt.server.Protocol == ProtocolDoT {
+			if tt.server.protocol == "dot" {
 				prefix = "tls"
 			}
 			u, err := upstream.AddressToUpstream(prefix+"://"+addr, opt)
@@ -256,53 +195,26 @@ func TestTCPServer(t *testing.T) {
 }
 
 func TestDoHServer(t *testing.T) {
-	dnsHandler := &DummyServerHandler{T: t}
+	dnsHandler := &dns_handler.DummyServerHandler{T: t}
 	tests := []struct {
-		name         string
-		server       *Server
-		wantStartErr bool
+		name   string
+		server *Server
 	}{
 		{
 			name: "doh",
-			server: &Server{
-				Handler:   dnsHandler,
-				Protocol:  ProtocolDoH,
-				Listener:  getListener(t),
-				URLPath:   "/dns-query",
-				TLSConfig: getTLSConfig(t),
-			},
-			wantStartErr: false,
-		},
-		{
-			name: "nil listener",
-			server: &Server{
-				Handler:   dnsHandler,
-				Protocol:  ProtocolDoH,
-				Listener:  nil,
-				TLSConfig: getTLSConfig(t),
-			},
-			wantStartErr: true,
-		},
-		{
-			name: "nil tls config",
-			server: &Server{
-				Handler:   dnsHandler,
-				Protocol:  ProtocolDoH,
-				Listener:  getListener(t),
-				TLSConfig: nil,
-			},
-			wantStartErr: true,
+			server: NewServer(
+				"doh",
+				"",
+				WithHttpHandler(http_handler.NewHandler(dnsHandler, http_handler.WithPath("/dns-query"))),
+				WithListener(getListener(t)),
+				WithTLSConfig(getTLSConfig(t)),
+			),
 		},
 		// TODO: Add http test.
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.wantStartErr {
-				wantErrTest(t, tt.server.Start)
-				return
-			}
-
 			go func() {
 				if err := tt.server.Start(); err != ErrServerClosed {
 					t.Error(err)
@@ -310,7 +222,8 @@ func TestDoHServer(t *testing.T) {
 			}()
 			defer tt.server.Close()
 
-			u, err := upstream.AddressToUpstream("https://"+tt.server.Listener.Addr().String()+tt.server.URLPath, opt)
+			time.Sleep(time.Millisecond * 50)
+			u, err := upstream.AddressToUpstream("https://"+tt.server.listener.Addr().String()+"/dns-query", opt)
 			if err != nil {
 				t.Fatal(err)
 			}

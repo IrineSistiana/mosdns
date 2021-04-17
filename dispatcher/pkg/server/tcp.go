@@ -20,7 +20,6 @@ package server
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/dnsutils"
@@ -43,20 +42,30 @@ func (t *tcpResponseWriter) Write(m *dns.Msg) (n int, err error) {
 	return dnsutils.WriteMsgToTCP(t.c, m)
 }
 
+// startTCP always returns a non-nil error.
 func (s *Server) startTCP() error {
-	if s.Listener == nil {
-		return errors.New("tcp server has a nil listener")
+	return s.serveTCP(s.listener)
+}
+
+// startDoT always returns a non-nil error.
+func (s *Server) startDoT() error {
+	tlsConfig := s.tlsConfig
+	if tlsConfig == nil {
+		tlsConfig = new(tls.Config)
 	}
 
-	l := s.Listener
-	isDoT := s.Protocol == ProtocolDoT
-	if isDoT {
-		if err := checkTLSConfig(s.TLSConfig); err != nil {
+	if len(s.key)+len(s.cert) != 0 {
+		cert, err := tls.LoadX509KeyPair(s.cert, s.key)
+		if err != nil {
 			return err
 		}
-		l = tls.NewListener(l, s.TLSConfig)
+		tlsConfig.Certificates = append(tlsConfig.Certificates, cert)
 	}
 
+	return s.serveTCP(tls.NewListener(s.listener, s.tlsConfig))
+}
+
+func (s *Server) serveTCP(l net.Listener) error {
 	listenerCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -79,7 +88,7 @@ func (s *Server) startTCP() error {
 			defer cancelConn()
 
 			for {
-				c.SetReadDeadline(time.Now().Add(s.idleTimeout()))
+				c.SetReadDeadline(time.Now().Add(s.getIdleTimeout()))
 				q, _, err := dnsutils.ReadMsgFromTCP(c)
 				if err != nil {
 					return // read err, close the connection
@@ -88,7 +97,7 @@ func (s *Server) startTCP() error {
 				go func() {
 					qCtx := handler.NewContext(q, c.RemoteAddr())
 					qCtx.SetTCPClient(true)
-					s.handleQueryTimeout(tcpConnCtx, qCtx, &tcpResponseWriter{c: c})
+					s.handleQuery(tcpConnCtx, qCtx, &tcpResponseWriter{c: c})
 				}()
 			}
 		}()

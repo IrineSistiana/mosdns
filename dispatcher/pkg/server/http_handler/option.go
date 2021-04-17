@@ -15,30 +15,33 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package server
+package http_handler
 
-import (
-	"net/http"
-	"time"
-)
+import "time"
 
-// startDoH always returns a non-nil error.
-func (s *Server) startDoH() error {
-	return s.buildHttpServer().ServeTLS(s.listener, s.cert, s.key)
+type Option func(h *Handler)
+
+// WithPath sets the server entry point url path.
+// If empty, Handler will not check the request path.
+func WithPath(s string) Option {
+	return func(h *Handler) {
+		h.path = s
+	}
 }
 
-// startHttp always returns a non-nil error.
-func (s *Server) startHttp() error {
-	return s.buildHttpServer().Serve(s.listener)
+// WithClientSrcIPHeader sets the header that Handler can read client's
+// source IP when server is behind a proxy.
+// e.g. "X-Forwarded-For" (nginx).
+func WithClientSrcIPHeader(s string) Option {
+	return func(h *Handler) {
+		h.clientSrcIPHeader = s
+	}
 }
 
-func (s *Server) buildHttpServer() *http.Server {
-	return &http.Server{
-		Handler:        s.httpHandler,
-		TLSConfig:      s.tlsConfig,
-		ReadTimeout:    time.Second * 5,
-		WriteTimeout:   time.Second * 5,
-		IdleTimeout:    s.getIdleTimeout(),
-		MaxHeaderBytes: 2048,
+// WithTimeout sets the query maximum executing time.
+// Default is defaultTimeout.
+func WithTimeout(d time.Duration) Option {
+	return func(h *Handler) {
+		h.timeout = d
 	}
 }

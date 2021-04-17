@@ -15,7 +15,7 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package server
+package dns_handler
 
 import (
 	"context"
@@ -28,7 +28,7 @@ import (
 	"testing"
 )
 
-type DNSServerHandler interface {
+type Handler interface {
 	// ServeDNS uses ctx to control deadline, exchanges qCtx, and writes response to w.
 	ServeDNS(ctx context.Context, qCtx *handler.Context, w ResponseWriter)
 }
@@ -38,16 +38,16 @@ type ResponseWriter interface {
 	Write(m *dns.Msg) (n int, err error)
 }
 
-type DefaultServerHandler struct {
+type DefaultHandler struct {
 	// Logger is used for logging. A nil value will disable logging.
 	Logger *zap.Logger
 
 	// Entry is the entry ExecutablePlugin's tag. This cannot be nil.
 	Entry executable_seq.ExecutableCmd
 
-	// ConcurrentLimit controls the max concurrent queries for the DefaultServerHandler.
+	// ConcurrentLimit controls the max concurrent queries for the DefaultHandler.
 	// If ConcurrentLimit <= 0, means no limit.
-	// When calling DefaultServerHandler.ServeDNS(), if a query exceeds the limit, it will wait on a FIFO queue until
+	// When calling DefaultHandler.ServeDNS(), if a query exceeds the limit, it will wait on a FIFO queue until
 	// - its ctx is done -> The query will be dropped silently.
 	// - it can be proceeded -> Normal procedure.
 	ConcurrentLimit int
@@ -60,7 +60,7 @@ type DefaultServerHandler struct {
 // ServeDNS
 // If entry returns an err, a SERVFAIL response will be sent back to client.
 // If concurrentLimit is reached, the query will block and wait available token until ctx is done.
-func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *handler.Context, w ResponseWriter) {
+func (h *DefaultHandler) ServeDNS(ctx context.Context, qCtx *handler.Context, w ResponseWriter) {
 	h.initOnce.Do(func() {
 		if h.Logger != nil {
 			h.logger = h.Logger
@@ -106,7 +106,7 @@ func (h *DefaultServerHandler) ServeDNS(ctx context.Context, qCtx *handler.Conte
 	}
 }
 
-func (h *DefaultServerHandler) execEntry(ctx context.Context, qCtx *handler.Context) error {
+func (h *DefaultHandler) execEntry(ctx context.Context, qCtx *handler.Context) error {
 	return executable_seq.ExecRoot(ctx, qCtx, h.logger, h.Entry)
 }
 
