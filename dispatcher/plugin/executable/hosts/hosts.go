@@ -33,7 +33,6 @@ func init() {
 }
 
 var _ handler.ESExecutablePlugin = (*hostsContainer)(nil)
-var _ handler.ContextPlugin = (*hostsContainer)(nil)
 
 type Args struct {
 	Hosts []string `yaml:"hosts"`
@@ -64,13 +63,6 @@ func newHostsContainer(bp *handler.BP, args *Args) (*hostsContainer, error) {
 
 func (h *hostsContainer) ExecES(ctx context.Context, qCtx *handler.Context) (earlyStop bool, err error) {
 	return h.matchAndSet(qCtx), nil
-}
-
-func (h *hostsContainer) Connect(ctx context.Context, qCtx *handler.Context, pipeCtx *handler.PipeContext) (err error) {
-	if h.matchAndSet(qCtx) {
-		return nil
-	}
-	return pipeCtx.ExecNextPlugin(ctx, qCtx)
 }
 
 func (h *hostsContainer) matchAndSet(qCtx *handler.Context) (matched bool) {
