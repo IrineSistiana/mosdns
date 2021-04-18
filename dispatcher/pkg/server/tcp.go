@@ -49,8 +49,10 @@ func (s *Server) startTCP() error {
 
 // startDoT always returns a non-nil error.
 func (s *Server) startDoT() error {
-	tlsConfig := s.tlsConfig
-	if tlsConfig == nil {
+	var tlsConfig *tls.Config
+	if s.tlsConfig != nil {
+		tlsConfig = s.tlsConfig.Clone()
+	} else {
 		tlsConfig = new(tls.Config)
 	}
 
@@ -62,7 +64,7 @@ func (s *Server) startDoT() error {
 		tlsConfig.Certificates = append(tlsConfig.Certificates, cert)
 	}
 
-	return s.serveTCP(tls.NewListener(s.listener, s.tlsConfig))
+	return s.serveTCP(tls.NewListener(s.listener, tlsConfig))
 }
 
 func (s *Server) serveTCP(l net.Listener) error {
