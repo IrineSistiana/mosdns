@@ -19,7 +19,6 @@ package server
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/dnsutils"
@@ -50,9 +49,6 @@ func (u *udpResponseWriter) Write(m *dns.Msg) (n int, err error) {
 
 // startUDP always returns a non-nil error.
 func (s *Server) startUDP() error {
-	if s.packetConn == nil {
-		return errors.New("udp server has a nil packet conn")
-	}
 	c := s.packetConn
 
 	listenerCtx, cancel := context.WithCancel(context.Background())

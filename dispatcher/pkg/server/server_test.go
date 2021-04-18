@@ -146,20 +146,50 @@ func TestTCPServer(t *testing.T) {
 		server *Server
 	}{
 		{
-			name:   "tcp with listener",
-			server: NewServer("tcp", "", WithHandler(dnsHandler), WithListener(getListener(t))),
+			name: "tcp with listener",
+			server: NewServer(
+				"tcp",
+				"",
+				WithHandler(dnsHandler),
+				WithListener(getListener(t)),
+			),
 		},
 		{
-			name:   "tcp with addr",
-			server: NewServer("tcp", "127.0.0.1:0", WithHandler(dnsHandler)),
+			name: "tcp with addr",
+			server: NewServer(
+				"tcp",
+				"127.0.0.1:0",
+				WithHandler(dnsHandler),
+			),
 		},
 		{
-			name:   "dot with listener",
-			server: NewServer("dot", "", WithHandler(dnsHandler), WithListener(getListener(t)), WithTLSConfig(getTLSConfig(t))),
+			name: "dot with listener",
+			server: NewServer(
+				"dot",
+				"",
+				WithHandler(dnsHandler),
+				WithListener(getListener(t)),
+				WithTLSConfig(getTLSConfig(t)),
+			),
 		},
 		{
-			name:   "dot with addr",
-			server: NewServer("dot", "127.0.0.1:0", WithHandler(dnsHandler), WithTLSConfig(getTLSConfig(t))),
+			name: "dot with cert and key",
+			server: NewServer(
+				"dot",
+				"",
+				WithHandler(dnsHandler),
+				WithListener(getListener(t)),
+				WithCertificate("./testdata/test.test.cert", "./testdata/test.test.key"),
+			),
+		},
+		{
+			name: "dot with addr",
+			server: NewServer(
+				"dot",
+				"127.0.0.1:0",
+				WithHandler(dnsHandler),
+				WithTLSConfig(getTLSConfig(t)),
+			),
 		},
 	}
 
@@ -201,13 +231,42 @@ func TestDoHServer(t *testing.T) {
 		server *Server
 	}{
 		{
-			name: "doh",
+			name: "doh with listener",
 			server: NewServer(
 				"doh",
 				"",
 				WithHttpHandler(http_handler.NewHandler(dnsHandler, http_handler.WithPath("/dns-query"))),
 				WithListener(getListener(t)),
 				WithTLSConfig(getTLSConfig(t)),
+			),
+		},
+		{
+			name: "doh with address",
+			server: NewServer(
+				"doh",
+				"127.0.0.1:0",
+				WithHttpHandler(http_handler.NewHandler(dnsHandler, http_handler.WithPath("/dns-query"))),
+				WithTLSConfig(getTLSConfig(t)),
+			),
+		},
+		{
+			name: "doh with cert and key",
+			server: NewServer(
+				"doh",
+				"",
+				WithHttpHandler(http_handler.NewHandler(dnsHandler, http_handler.WithPath("/dns-query"))),
+				WithListener(getListener(t)),
+				WithCertificate("./testdata/test.test.cert", "./testdata/test.test.key"),
+			),
+		},
+		{
+			name: "doh without url path",
+			server: NewServer(
+				"doh",
+				"",
+				WithHttpHandler(http_handler.NewHandler(dnsHandler)),
+				WithListener(getListener(t)),
+				WithCertificate("./testdata/test.test.cert", "./testdata/test.test.key"),
 			),
 		},
 		// TODO: Add http test.
