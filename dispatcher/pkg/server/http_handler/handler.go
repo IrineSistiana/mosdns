@@ -35,7 +35,7 @@ import (
 )
 
 const (
-	defaultTimeout = 5
+	defaultTimeout = time.Second * 5
 )
 
 type Handler struct {
