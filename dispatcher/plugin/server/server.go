@@ -119,6 +119,7 @@ func newServerPlugin(bp *handler.BP, args *Args) (*serverPlugin, error) {
 			server.WithCertificate(sc.Cert, sc.Key),
 			server.WithQueryTimeout(time.Duration(sc.Timeout)*time.Second),
 			server.WithIdleTimeout(time.Duration(sc.IdleTimeout)*time.Second),
+			server.WithLogger(bp.L()),
 		)
 
 		sg.mu.Lock()
@@ -150,9 +151,9 @@ func (sg *serverPlugin) Shutdown() error {
 	sg.mu.Lock()
 	defer sg.mu.Unlock()
 
-	for server := range sg.servers {
-		server.Close()
-		delete(sg.servers, server)
+	for s := range sg.servers {
+		s.Close()
+		delete(sg.servers, s)
 	}
 	return nil
 }

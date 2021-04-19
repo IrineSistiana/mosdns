@@ -71,12 +71,15 @@ func (w *PluginWrapper) GetPlugin() Plugin {
 	return w.p
 }
 
-func (w *PluginWrapper) logDebug(qCtx *Context) {
-	mlog.L().Debug("exec plugin", qCtx.InfoField(), zap.String("exec", w.p.Tag()))
+func (w *PluginWrapper) Connect(ctx context.Context, qCtx *Context, pipeCtx *PipeContext) (err error) {
+	mlog.L().Debug("connecting plugin", qCtx.InfoField(), zap.String("tag", w.p.Tag()))
+	if err := w.connect(ctx, qCtx, pipeCtx); err != nil {
+		return NewPluginError(w.p.Tag(), err)
+	}
+	return nil
 }
 
-func (w *PluginWrapper) Connect(ctx context.Context, qCtx *Context, pipeCtx *PipeContext) (err error) {
-	w.logDebug(qCtx)
+func (w *PluginWrapper) connect(ctx context.Context, qCtx *Context, pipeCtx *PipeContext) (err error) {
 	if err = ctx.Err(); err != nil {
 		return err
 	}
@@ -85,14 +88,19 @@ func (w *PluginWrapper) Connect(ctx context.Context, qCtx *Context, pipeCtx *Pip
 		return fmt.Errorf("plugin tag: %s, type: %s is not a ContextConnector", w.p.Tag(), w.p.Type())
 	}
 
-	err = w.cc.Connect(ctx, qCtx, pipeCtx)
-	if err != nil {
-		return NewPluginError(w.p.Tag(), err)
-	}
-	return nil
+	return w.cc.Connect(ctx, qCtx, pipeCtx)
 }
 
 func (w *PluginWrapper) Match(ctx context.Context, qCtx *Context) (matched bool, err error) {
+	matched, err = w.match(ctx, qCtx)
+	if err != nil {
+		return false, NewPluginError(w.p.Tag(), err)
+	}
+	mlog.L().Debug("matching query context", qCtx.InfoField(), zap.String("tag", w.p.Tag()), zap.Bool("result", matched))
+	return matched, nil
+}
+
+func (w *PluginWrapper) match(ctx context.Context, qCtx *Context) (matched bool, err error) {
 	if err = ctx.Err(); err != nil {
 		return false, err
 	}
@@ -101,41 +109,44 @@ func (w *PluginWrapper) Match(ctx context.Context, qCtx *Context) (matched bool,
 		return false, fmt.Errorf("plugin tag: %s, type: %s is not a Matcher", w.p.Tag(), w.p.Type())
 	}
 
-	matched, err = w.m.Match(ctx, qCtx)
-	if err != nil {
-		return false, NewPluginError(w.p.Tag(), err)
-	}
-	mlog.L().Debug("exec matcher", qCtx.InfoField(), zap.String("exec", w.p.Tag()), zap.Bool("res", matched))
-	return matched, nil
+	return w.m.Match(ctx, qCtx)
 }
 
 func (w *PluginWrapper) ExecES(ctx context.Context, qCtx *Context) (earlyStop bool, err error) {
-	w.logDebug(qCtx)
-	if err = ctx.Err(); err != nil {
-		return false, err
-	}
-
-	switch {
-	case w.se != nil:
-		earlyStop, err = w.se.ExecES(ctx, qCtx)
-	case w.e != nil:
-		err = w.e.Exec(ctx, qCtx)
-	default:
-		err = fmt.Errorf("plugin tag: %s, type: %s is not an ESExecutable nor Executable", w.p.Tag(), w.p.Type())
-	}
-
+	mlog.L().Debug("executing plugin", qCtx.InfoField(), zap.String("tag", w.p.Tag()))
+	earlyStop, err = w.execES(ctx, qCtx)
 	if err != nil {
 		return false, NewPluginError(w.p.Tag(), err)
 	}
 	return earlyStop, nil
 }
 
+func (w *PluginWrapper) execES(ctx context.Context, qCtx *Context) (earlyStop bool, err error) {
+	if err = ctx.Err(); err != nil {
+		return false, err
+	}
+
+	switch {
+	case w.se != nil:
+		return w.se.ExecES(ctx, qCtx)
+	case w.e != nil:
+		return false, w.e.Exec(ctx, qCtx)
+	default:
+		return false, fmt.Errorf("plugin tag: %s, type: %s is not an ESExecutable nor Executable", w.p.Tag(), w.p.Type())
+	}
+}
+
 func (w *PluginWrapper) Shutdown() error {
+	mlog.L().Debug("shutting down service", zap.String("tag", w.p.Tag()))
+
 	if w.s == nil {
 		return fmt.Errorf("plugin tag: %s, type: %s is not a Service", w.p.Tag(), w.p.Type())
 	}
-
-	return w.s.Shutdown()
+	err := w.s.Shutdown()
+	if err != nil {
+		return NewPluginError(w.p.Tag(), err)
+	}
+	return nil
 }
 
 type PluginInterfaceType uint8
