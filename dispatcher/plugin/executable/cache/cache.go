@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/cache"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/cache/mem_cache"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/cache/redis_cache"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 	"go.uber.org/zap"
 	"time"
@@ -60,7 +62,7 @@ func newCachePlugin(bp *handler.BP, args *Args) (*cachePlugin, error) {
 	var c cache.DnsCache
 	var err error
 	if len(args.Redis) != 0 {
-		c, err = cache.NewRedisCache(args.Redis)
+		c, err = redis_cache.NewRedisCache(args.Redis)
 		if err != nil {
 			return nil, err
 		}
@@ -75,7 +77,7 @@ func newCachePlugin(bp *handler.BP, args *Args) (*cachePlugin, error) {
 			args.CleanerInterval = 120
 		}
 
-		c = cache.NewMemCache(32, sizePerShard, time.Duration(args.CleanerInterval)*time.Second)
+		c = mem_cache.NewMemCache(32, sizePerShard, time.Duration(args.CleanerInterval)*time.Second)
 	}
 	return &cachePlugin{
 		BP:   bp,

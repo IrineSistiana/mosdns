@@ -15,7 +15,7 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package cache
+package redis_cache
 
 import (
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/pool"

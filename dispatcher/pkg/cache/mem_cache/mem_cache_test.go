@@ -1,4 +1,4 @@
-package cache
+package mem_cache
 
 import (
 	"context"
