@@ -36,11 +36,16 @@ func NewAAAAAIPMatcher(ipMatcher netlist.Matcher) *AAAAAIPMatcher {
 }
 
 func (m *AAAAAIPMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, _ error) {
-	if qCtx.R() == nil {
+	r := qCtx.R()
+	if r == nil {
 		return false, nil
 	}
 
-	for _, rr := range qCtx.R().Answer {
+	return m.MatchMsg(r), nil
+}
+
+func (m *AAAAAIPMatcher) MatchMsg(msg *dns.Msg) (matched bool) {
+	for _, rr := range msg.Answer {
 		var ip net.IP
 		switch rr := rr.(type) {
 		case *dns.A:
@@ -51,10 +56,10 @@ func (m *AAAAAIPMatcher) Match(_ context.Context, qCtx *handler.Context) (matche
 			continue
 		}
 		if m.ipMatcher.Match(ip) {
-			return true, nil
+			return true
 		}
 	}
-	return false, nil
+	return false
 }
 
 type CNameMatcher struct {
@@ -66,18 +71,23 @@ func NewCNameMatcher(domainMatcher domain.Matcher) *CNameMatcher {
 }
 
 func (m *CNameMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, _ error) {
-	if qCtx.R() == nil {
+	r := qCtx.R()
+	if r == nil {
 		return false, nil
 	}
 
-	for _, rr := range qCtx.R().Answer {
+	return m.MatchMsg(r), nil
+}
+
+func (m *CNameMatcher) MatchMsg(msg *dns.Msg) bool {
+	for _, rr := range msg.Answer {
 		if cname, ok := rr.(*dns.CNAME); ok {
 			if _, ok := m.domainMatcher.Match(cname.Target); ok {
-				return true, nil
+				return true
 			}
 		}
 	}
-	return false, nil
+	return false
 }
 
 type RCodeMatcher struct {
@@ -89,11 +99,13 @@ func NewRCodeMatcher(elemMatcher *elem.IntMatcher) *RCodeMatcher {
 }
 
 func (m *RCodeMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, _ error) {
-	if qCtx.R() == nil {
+	r := qCtx.R()
+	if r == nil {
 		return false, nil
 	}
-	if m.elemMatcher.Match(qCtx.R().Rcode) {
-		return true, nil
-	}
-	return false, nil
+	return m.MatchMsg(r), nil
+}
+
+func (m *RCodeMatcher) MatchMsg(msg *dns.Msg) bool {
+	return m.elemMatcher.Match(msg.Rcode)
 }

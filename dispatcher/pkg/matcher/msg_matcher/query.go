@@ -25,6 +25,7 @@ import (
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/elem"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/netlist"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
+	"github.com/miekg/dns"
 )
 
 type ClientIPMatcher struct {
@@ -58,13 +59,17 @@ func NewQNameMatcher(domainMatcher domain.Matcher) *QNameMatcher {
 }
 
 func (m *QNameMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, _ error) {
-	for i := range qCtx.Q().Question {
-		_, matched = m.domainMatcher.Match(qCtx.Q().Question[i].Name)
-		if matched {
-			return true, nil
+	return m.MatchMsg(qCtx.Q()), nil
+}
+
+func (m *QNameMatcher) MatchMsg(msg *dns.Msg) bool {
+	for i := range msg.Question {
+		_, ok := m.domainMatcher.Match(msg.Question[i].Name)
+		if ok {
+			return true
 		}
 	}
-	return false, nil
+	return false
 }
 
 type QTypeMatcher struct {
@@ -76,12 +81,16 @@ func NewQTypeMatcher(elemMatcher *elem.IntMatcher) *QTypeMatcher {
 }
 
 func (m *QTypeMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, _ error) {
-	for i := range qCtx.Q().Question {
-		if m.elemMatcher.Match(int(qCtx.Q().Question[i].Qtype)) {
-			return true, nil
+	return m.MatchMsg(qCtx.Q()), nil
+}
+
+func (m *QTypeMatcher) MatchMsg(msg *dns.Msg) bool {
+	for i := range msg.Question {
+		if m.elemMatcher.Match(int(msg.Question[i].Qtype)) {
+			return true
 		}
 	}
-	return false, nil
+	return false
 }
 
 type QClassMatcher struct {
@@ -93,10 +102,14 @@ func NewQClassMatcher(elemMatcher *elem.IntMatcher) *QClassMatcher {
 }
 
 func (m *QClassMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, _ error) {
-	for i := range qCtx.Q().Question {
-		if m.elemMatcher.Match(int(qCtx.Q().Question[i].Qclass)) {
-			return true, nil
+	return m.MatchMsg(qCtx.Q()), nil
+}
+
+func (m *QClassMatcher) MatchMsg(msg *dns.Msg) bool {
+	for i := range msg.Question {
+		if m.elemMatcher.Match(int(msg.Question[i].Qclass)) {
+			return true
 		}
 	}
-	return false, nil
+	return false
 }
