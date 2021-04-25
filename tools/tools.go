@@ -43,7 +43,7 @@ func ProbServerTimeout(addr string) error {
 	switch protocol {
 	case "tcp":
 		isTLS = false
-	case "dot":
+	case "dot", "tls":
 		isTLS = true
 	default:
 		return fmt.Errorf("invalid protocol %s", protocol)
@@ -87,7 +87,7 @@ func ProbServerTimeout(addr string) error {
 	mlog.S().Info("server connected")
 	mlog.S().Info("starting rfc 7766 tcp connection reuse test")
 
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 3; i++ {
 		conn.SetDeadline(time.Now().Add(time.Second * 3))
 		dc := dns.Conn{Conn: conn}
 		err = dc.WriteMsg(q)
@@ -100,7 +100,7 @@ func ProbServerTimeout(addr string) error {
 		}
 	}
 
-	mlog.S().Info("test passed")
+	mlog.S().Info("test passed, this server supports RFC 7766 and connection reuse")
 	mlog.S().Info("testing server idle timeout. this may take a while...")
 	mlog.S().Info("if you think its long enough, to cancel the test, press Ctrl + C")
 	conn.SetDeadline(time.Now().Add(time.Minute * 60))
@@ -111,8 +111,7 @@ func ProbServerTimeout(addr string) error {
 	if err == nil {
 		return fmt.Errorf("recieved unexpected data from peer: %v", buf[:n])
 	}
-
-	mlog.S().Infof("server idle timeout: %.2f sec", time.Since(start).Seconds())
+	mlog.S().Infof("connection closed by the server, its idle timeout is %.2f sec", time.Since(start).Seconds())
 	return nil
 }
 
@@ -166,7 +165,7 @@ func ConvertDomainDat(v string) error {
 		wantTag = strings.ToLower(s[1])
 	}
 
-	geoSiteList, err := domain.LoadGeoSiteList(datFileName)
+	geoSiteList, err := v2data.LoadGeoSiteList(datFileName)
 	if err != nil {
 		return err
 	}
@@ -237,7 +236,7 @@ func ConvertIPDat(v string) error {
 		wantTag = strings.ToLower(s[1])
 	}
 
-	geoIPList, err := netlist.LoadGeoIPListFromDAT(datFileName)
+	geoIPList, err := v2data.LoadGeoIPListFromDAT(datFileName)
 	if err != nil {
 		return err
 	}
