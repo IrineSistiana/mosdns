@@ -36,4 +36,7 @@ import (
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/query_matcher"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/response_matcher"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/server"
+
+	// v2ray proto data support
+	_ "github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/v2data"
 )

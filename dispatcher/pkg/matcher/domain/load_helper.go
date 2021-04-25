@@ -22,19 +22,20 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/load_cache"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/v2data"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 	"io"
 	"io/ioutil"
-	"os"
 	"strings"
-	"time"
-
-	"github.com/golang/protobuf/proto"
 )
 
-var matcherCache = load_cache.GetCache().NewNamespace()
+var LoadFromDATFunc func(m *MixMatcher, file, countryCode string, processAttr ProcessAttrFunc) error
+
+func LoadFromDAT(m *MixMatcher, file, countryCode string, processAttr ProcessAttrFunc) error {
+	if LoadFromDATFunc == nil {
+		return errors.New("can not load data from v2ray proto, function is not registered")
+	}
+	return LoadFromDATFunc(m, file, countryCode, processAttr)
+}
 
 // ProcessAttrFunc processes the additional attributions. The given []string could have a 0 length or is nil.
 type ProcessAttrFunc func([]string) (v interface{}, accept bool, err error)
@@ -85,7 +86,7 @@ func LoadFromFile(m Matcher, file string, processAttr ProcessAttrFunc) error {
 			}
 			return nil, false, nil
 		}
-		err = mixMatcher.LoadFromDAT(filePath, countryCode, v2ProcessAttr)
+		err = LoadFromDAT(mixMatcher, filePath, countryCode, v2ProcessAttr)
 	} else { // is a text file
 		err = LoadFromTextFile(m, file, processAttr)
 	}
@@ -144,53 +145,6 @@ func LoadFromText(m Matcher, s string, processAttr ProcessAttrFunc) error {
 	return m.Add(pattern, nil)
 }
 
-func (m *MixMatcher) LoadFromDAT(file, countryCode string, processAttr ProcessAttrFunc) error {
-	geoSite, err := LoadGeoSiteFromDAT(file, countryCode)
-	if err != nil {
-		return err
-	}
-
-	for _, d := range geoSite.GetDomain() {
-		attr := make([]string, 0, len(d.Attribute))
-		for _, a := range d.Attribute {
-			attr = append(attr, a.Key)
-		}
-
-		var v interface{}
-		if processAttr != nil {
-			var accept bool
-			var err error
-			v, accept, err = processAttr(attr)
-			if err != nil {
-				return err
-			}
-			if !accept {
-				return nil
-			}
-		}
-
-		var typ MixMatcherPatternType
-		switch d.Type {
-		case v2data.Domain_Plain:
-			typ = MixMatcherPatternTypeKeyword
-		case v2data.Domain_Regex:
-			typ = MixMatcherPatternTypeRegexp
-		case v2data.Domain_Domain:
-			typ = MixMatcherPatternTypeDomain
-		case v2data.Domain_Full:
-			typ = MixMatcherPatternTypeFull
-		default:
-			return fmt.Errorf("invalid v2ray Domain_Type %d", d.Type)
-		}
-
-		err = m.AddElem(typ, d.Value, v)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // mustHaveAttr checks if attr has all wanted attrs.
 func mustHaveAttr(attr, wanted []string) bool {
 	if len(wanted) == 0 {
@@ -213,46 +167,4 @@ func mustHaveAttr(attr, wanted []string) bool {
 		}
 	}
 	return true
-}
-
-func LoadGeoSiteFromDAT(file, countryCode string) (*v2data.GeoSite, error) {
-	geoSiteList, err := LoadGeoSiteList(file)
-	if err != nil {
-		return nil, err
-	}
-
-	countryCode = strings.ToUpper(countryCode)
-	entry := geoSiteList.GetEntry()
-	for i := range entry {
-		if strings.ToUpper(entry[i].CountryCode) == countryCode {
-			return entry[i], nil
-		}
-	}
-
-	return nil, fmt.Errorf("can not find category %s in %s", countryCode, file)
-}
-
-func LoadGeoSiteList(file string) (*v2data.GeoSiteList, error) {
-	// load from cache
-	v, _ := matcherCache.Get(file)
-	if geoSiteList, ok := v.(*v2data.GeoSiteList); ok {
-		return geoSiteList, nil
-	}
-
-	// load from disk
-	raw, err := os.ReadFile(file)
-	if err != nil {
-		return nil, err
-	}
-	geoSiteList := new(v2data.GeoSiteList)
-	if err := proto.Unmarshal(raw, geoSiteList); err != nil {
-		return nil, err
-	}
-
-	// cache the file
-	matcherCache.Store(file, geoSiteList)
-	time.AfterFunc(time.Second*15, func() { // remove it after 15s
-		matcherCache.Remove(file)
-	})
-	return geoSiteList, nil
 }
