@@ -52,7 +52,7 @@ func Test_ParallelECS(t *testing.T) {
 	}
 
 	parallelECS, err := ParseParallelECS(&ParallelECSConfig{
-		Parallel: [][]interface{}{{"p1"}, {"p2"}},
+		Parallel: []interface{}{"p1", "p2"},
 	})
 	if err != nil {
 		t.Fatal(err)

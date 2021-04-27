@@ -37,11 +37,11 @@ var _ handler.ExecutablePlugin = (*sequenceRouter)(nil)
 type sequenceRouter struct {
 	*handler.BP
 
-	ecs *executable_seq.ExecutableCmdSequence
+	ecs executable_seq.ExecutableCmd
 }
 
 type Args struct {
-	Exec []interface{} `yaml:"exec"`
+	Exec interface{} `yaml:"exec"`
 }
 
 func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
@@ -49,7 +49,7 @@ func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
 }
 
 func newSequencePlugin(bp *handler.BP, args *Args) (*sequenceRouter, error) {
-	ecs, err := executable_seq.ParseExecutableCmdSequence(args.Exec)
+	ecs, err := executable_seq.ParseExecutableCmd(args.Exec)
 	if err != nil {
 		return nil, fmt.Errorf("invalid exec squence: %w", err)
 	}

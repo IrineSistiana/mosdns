@@ -27,13 +27,13 @@ import (
 )
 
 type ParallelECS struct {
-	s       []*ExecutableCmdSequence
+	s       []ExecutableCmd
 	timeout time.Duration
 }
 
 type ParallelECSConfig struct {
-	Parallel [][]interface{} `yaml:"parallel"`
-	Timeout  uint            `yaml:"timeout"`
+	Parallel []interface{} `yaml:"parallel"`
+	Timeout  uint          `yaml:"timeout"`
 }
 
 func ParseParallelECS(c *ParallelECSConfig) (*ParallelECS, error) {
@@ -41,11 +41,11 @@ func ParseParallelECS(c *ParallelECSConfig) (*ParallelECS, error) {
 		return nil, fmt.Errorf("parallel needs at least 2 cmd sequences, but got %d", len(c.Parallel))
 	}
 
-	ps := make([]*ExecutableCmdSequence, 0, len(c.Parallel))
+	ps := make([]ExecutableCmd, 0, len(c.Parallel))
 	for i, subSequence := range c.Parallel {
-		es, err := ParseExecutableCmdSequence(subSequence)
+		es, err := ParseExecutableCmd(subSequence)
 		if err != nil {
-			return nil, fmt.Errorf("invalid parallel sequence at index %d: %w", i, err)
+			return nil, fmt.Errorf("invalid parallel command at index %d: %w", i, err)
 		}
 		ps = append(ps, es)
 	}

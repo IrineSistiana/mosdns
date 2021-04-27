@@ -65,26 +65,6 @@ func (ref RefMatcherPlugin) Match(ctx context.Context, qCtx *handler.Context) (m
 	return p.Match(ctx, qCtx)
 }
 
-// IfBlockConfig can build a IfBlock from human input.
-type IfBlockConfig struct {
-	If    []string      `yaml:"if"`
-	IfAnd []string      `yaml:"if_and"`
-	Exec  []interface{} `yaml:"exec"`
-	Goto  string        `yaml:"goto"` // Deprecated, use Exec + EarlyStop instead.
-}
-
-func paresRefMatcher(s []string) []handler.Matcher {
-	m := make([]handler.Matcher, 0, len(s))
-	for _, tag := range s {
-		if strings.HasPrefix(tag, "!") {
-			m = append(m, NagateMatcher(RefMatcherPlugin(strings.TrimPrefix(tag, "!"))))
-		} else {
-			m = append(m, RefMatcherPlugin(tag))
-		}
-	}
-	return m
-}
-
 type NagativeMatcher struct {
 	m handler.Matcher
 }
@@ -104,36 +84,146 @@ func (n *NagativeMatcher) Match(ctx context.Context, qCtx *handler.Context) (mat
 	return !matched, nil
 }
 
+// IfBlockConfig is a config to build a IfBlock.
+type IfBlockConfig struct {
+	// Available type are string and handler.Matcher, or a slice of them.
+	If interface{} `yaml:"if"`
+	// Available type are string and handler.Matcher, or a slice of them.
+	IfAnd interface{} `yaml:"if_and"`
+	// See ParseExecutableCmd.
+	Exec interface{} `yaml:"exec"`
+}
+
 type IfBlock struct {
-	IfMatcher     []handler.Matcher
-	IfAndMatcher  []handler.Matcher
+	IfMatcher     handler.Matcher
+	IfAndMatcher  handler.Matcher
 	ExecutableCmd ExecutableCmd
 }
 
-func (b *IfBlock) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (earlyStop bool, err error) {
-	if len(b.IfMatcher) > 0 {
-		If, err := utils.BoolLogic(ctx, qCtx, b.IfMatcher, false)
+func ParseIfBlock(c *IfBlockConfig) (*IfBlock, error) {
+	b := new(IfBlock)
+	var err error
+
+	if c.If != nil {
+		b.IfMatcher, err = parseMatcher(c.If, batchLogicOr)
 		if err != nil {
-			return false, err
-		}
-		if If == false {
-			return false, nil // if case returns false, skip this block.
+			return nil, fmt.Errorf("failed to parse if condition: %w", err)
 		}
 	}
 
-	if len(b.IfAndMatcher) > 0 {
-		If, err := utils.BoolLogic(ctx, qCtx, b.IfAndMatcher, true)
+	if c.IfAnd != nil {
+		b.IfAndMatcher, err = parseMatcher(c.IfAnd, batchLogicAnd)
 		if err != nil {
-			return false, err
+			return nil, fmt.Errorf("failed to parse ifAnd condition: %w", err)
 		}
-		if If == false {
-			return false, nil
+	}
+
+	if c.Exec != nil {
+		b.ExecutableCmd, err = ParseExecutableCmd(c.Exec)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse exec command: %w", err)
+		}
+	}
+
+	return b, nil
+}
+
+const (
+	batchLogicNoBatch int = iota
+	batchLogicAnd
+	batchLogicOr
+)
+
+func parseMatcher(in interface{}, batchLogic int) (handler.Matcher, error) {
+	switch v := in.(type) {
+	case handler.Matcher:
+		return v, nil
+	case []interface{}:
+		if batchLogic == batchLogicNoBatch {
+			return nil, errors.New("input should not be multiple matchers")
+		}
+
+		ms := make([]handler.Matcher, 0)
+		for i, leaf := range v {
+			m, err := parseMatcher(leaf, batchLogicNoBatch)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse leaf #%d: %w", i, err)
+			}
+			ms = append(ms, m)
+		}
+
+		if batchLogic == batchLogicAnd {
+			return BatchMatherAnd(ms), nil
+		}
+		return BatchMatherOr(ms), nil
+	case string:
+		if strings.HasPrefix(v, "!") {
+			return NagateMatcher(RefMatcherPlugin(strings.TrimPrefix(v, "!"))), nil
+		} else {
+			return RefMatcherPlugin(v), nil
+		}
+	default:
+		return nil, fmt.Errorf("unsupported matcher type: %s", reflect.TypeOf(v).String())
+	}
+}
+
+type BatchMatherOr []handler.Matcher
+
+func (bm BatchMatherOr) Match(ctx context.Context, qCtx *handler.Context) (bool, error) {
+	return utils.BoolLogic(ctx, qCtx, bm, false)
+}
+
+type BatchMatherAnd []handler.Matcher
+
+func (bm BatchMatherAnd) Match(ctx context.Context, qCtx *handler.Context) (bool, error) {
+	return utils.BoolLogic(ctx, qCtx, bm, true)
+}
+
+func (b *IfBlock) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (earlyStop bool, err error) {
+	for _, matcher := range [...]handler.Matcher{b.IfMatcher, b.IfAndMatcher} {
+		if matcher != nil {
+			ok, err := matcher.Match(ctx, qCtx)
+			if err != nil {
+				return false, fmt.Errorf("matcher failed: %w", err)
+			}
+			if !ok {
+				return false, nil
+			}
 		}
 	}
 
 	// exec
 	if b.ExecutableCmd != nil {
 		earlyStop, err = b.ExecutableCmd.ExecCmd(ctx, qCtx, logger)
+		if err != nil {
+			return false, fmt.Errorf("exec command failed: %w", err)
+		}
+		if earlyStop {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+type ExecutableCmdSequence []ExecutableCmd
+
+func ParseExecutableCmdSequence(in []interface{}) (ExecutableCmdSequence, error) {
+	ecs := make([]ExecutableCmd, 0, len(in))
+	for i, v := range in {
+		ec, err := ParseExecutableCmd(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid cmd #%d: %w", i, err)
+		}
+		ecs = append(ecs, ec)
+	}
+	return ecs, nil
+}
+
+// ExecCmd executes the sequence.
+func (es ExecutableCmdSequence) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (earlyStop bool, err error) {
+	for _, cmd := range es {
+		earlyStop, err = cmd.ExecCmd(ctx, qCtx, logger)
 		if err != nil {
 			return false, err
 		}
@@ -145,48 +235,16 @@ func (b *IfBlock) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *za
 	return false, nil
 }
 
-func ParseIfBlock(c *IfBlockConfig) (*IfBlock, error) {
-	b := &IfBlock{
-		IfMatcher:    paresRefMatcher(c.If),
-		IfAndMatcher: paresRefMatcher(c.IfAnd),
-	}
-
-	exec := c.Exec
-	if len(c.Goto) != 0 {
-		exec = append(exec[0:len(exec):len(exec)], c.Goto, EarlyStop)
-	}
-
-	if len(exec) != 0 {
-		ecs, err := ParseExecutableCmdSequence(exec)
-		if err != nil {
-			return nil, err
-		}
-		b.ExecutableCmd = ecs
-	}
-
-	return b, nil
-}
-
-type ExecutableCmdSequence struct {
-	c []ExecutableCmd
-}
-
-func ParseExecutableCmdSequence(in []interface{}) (*ExecutableCmdSequence, error) {
-	es := &ExecutableCmdSequence{c: make([]ExecutableCmd, 0, len(in))}
-	for i, v := range in {
-		ec, err := ParseExecutableCmd(v)
-		if err != nil {
-			return nil, fmt.Errorf("invalid cmd #%d: %w", i, err)
-		}
-		es.c = append(es.c, ec)
-	}
-	return es, nil
-}
-
+// ParseExecutableCmd parses in into a ExecutableCmd.
+// in can be: a handler.Executable or a handler.ESExecutable or a string
+// or a map[string]interface{}, which can be parsed to FallbackConfig, ParallelECSConfig or IfBlockConfig,
+// or a slice of all of above.
 func ParseExecutableCmd(in interface{}) (ExecutableCmd, error) {
 	switch v := in.(type) {
 	case ExecutableCmd:
 		return v, nil
+	case []interface{}:
+		return ParseExecutableCmdSequence(v)
 	case handler.Executable:
 		return &warpExec{e: v}, nil
 	case handler.ESExecutable:
@@ -252,25 +310,6 @@ func parseFallbackECS(m map[string]interface{}) (ec ExecutableCmd, err error) {
 func hasKey(m map[string]interface{}, key string) bool {
 	_, ok := m[key]
 	return ok
-}
-
-// ExecCmd executes the sequence.
-func (es *ExecutableCmdSequence) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (earlyStop bool, err error) {
-	for _, cmd := range es.c {
-		earlyStop, err = cmd.ExecCmd(ctx, qCtx, logger)
-		if err != nil {
-			return false, err
-		}
-		if earlyStop {
-			return true, nil
-		}
-	}
-
-	return false, nil
-}
-
-func (es *ExecutableCmdSequence) Len() int {
-	return len(es.c)
 }
 
 type warpExec struct {

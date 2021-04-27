@@ -29,12 +29,12 @@ import (
 )
 
 type FallbackConfig struct {
-	// Primary exec sequence, must have at least one element.
-	Primary []interface{} `yaml:"primary"`
-	// Secondary exec sequence, must have at least one element.
-	Secondary []interface{} `yaml:"secondary"`
+	// Primary exec sequence.
+	Primary interface{} `yaml:"primary"`
+	// Secondary exec sequence.
+	Secondary interface{} `yaml:"secondary"`
 
-	StatLength int `yaml:"stat_length"` // An Zero value disables the (normal) fallback.
+	StatLength int `yaml:"stat_length"` // An Zero value disables the normal fallback.
 	Threshold  int `yaml:"threshold"`
 
 	// FastFallback threshold in milliseconds. Zero means fast fallback is disabled.
@@ -45,8 +45,8 @@ type FallbackConfig struct {
 }
 
 type FallbackECS struct {
-	primary              *ExecutableCmdSequence
-	secondary            *ExecutableCmdSequence
+	primary              ExecutableCmd
+	secondary            ExecutableCmd
 	fastFallbackDuration time.Duration
 	alwaysStandby        bool
 
@@ -101,19 +101,19 @@ func (t *statusTracker) update(s uint8) {
 }
 
 func ParseFallbackECS(c *FallbackConfig) (*FallbackECS, error) {
-	if len(c.Primary) == 0 {
-		return nil, errors.New("primary sequence is empty")
+	if c.Primary == nil {
+		return nil, errors.New("primary is empty")
 	}
-	if len(c.Secondary) == 0 {
-		return nil, errors.New("secondary sequence is empty")
+	if c.Secondary == nil {
+		return nil, errors.New("secondary is empty")
 	}
 
-	primaryECS, err := ParseExecutableCmdSequence(c.Primary)
+	primaryECS, err := ParseExecutableCmd(c.Primary)
 	if err != nil {
 		return nil, fmt.Errorf("invalid primary sequence: %w", err)
 	}
 
-	secondaryECS, err := ParseExecutableCmdSequence(c.Secondary)
+	secondaryECS, err := ParseExecutableCmd(c.Secondary)
 	if err != nil {
 		return nil, fmt.Errorf("invalid secondary sequence: %w", err)
 	}

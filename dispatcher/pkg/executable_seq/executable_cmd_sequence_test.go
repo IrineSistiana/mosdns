@@ -26,17 +26,6 @@ func Test_ECS(t *testing.T) {
 		wantES     bool
 		wantErr    error
 	}{
-		{name: "test empty input", yamlStr: `
-exec:
-`,
-			wantTarget: false, wantErr: nil},
-		{name: "test empty end", yamlStr: `
-exec:
-- if: ["!matched",not_matched] # not matched
-  exec: [exec_err]
-`,
-			wantTarget: false, wantErr: nil},
-
 		{name: "test if_and", yamlStr: `
 exec:
 - if_and: [matched, not_matched] # not matched
@@ -66,14 +55,6 @@ exec:
 
 `,
 			wantTarget: true, wantErr: nil},
-		{name: "test if goto", yamlStr: `
-exec:
-- if: [matched] # matched
-  exec: []
-  goto: exec_target # reached here
-
-`,
-			wantTarget: true, wantErr: nil, wantES: true},
 
 		{name: "test if err", yamlStr: `
 exec:
@@ -158,8 +139,8 @@ exec:
 			if err != nil {
 				t.Fatal(err)
 			}
-			in, _ := args["exec"].([]interface{})
-			ecs, err := ParseExecutableCmdSequence(in)
+
+			ecs, err := ParseExecutableCmd(args["exec"])
 			if err != nil {
 				t.Fatal(err)
 			}
