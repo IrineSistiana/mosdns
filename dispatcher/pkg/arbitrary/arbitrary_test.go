@@ -43,12 +43,12 @@ func TestArbitrary(t *testing.T) {
 	mustLoad("one.test IN A ANSWER one.test. IN A 192.0.1.1")
 	mustLoad("one.test IN A ANSWER one.test. IN A 192.0.1.2")
 	mustLoad("one.test IN AAAA ANSWER one.test. IN AAAA ::1")
-	q := &dns.Question{
+	q := dns.Question{
 		Name:   "one.test.",
 		Qtype:  dns.TypeA,
 		Qclass: dns.ClassINET,
 	}
-	rrs := a.Match(q)
+	rrs := a.Lookup(q)
 	if len(rrs) != 2 {
 		t.Fatal("invalid rrs length")
 	}
@@ -59,12 +59,12 @@ func TestArbitrary(t *testing.T) {
 		t.Fatal("invalid rrs")
 	}
 
-	q = &dns.Question{
+	q = dns.Question{
 		Name:   "one.test.",
 		Qtype:  dns.TypeAAAA,
 		Qclass: dns.ClassINET,
 	}
-	rrs = a.Match(q)
+	rrs = a.Lookup(q)
 	if len(rrs) != 1 {
 		t.Fatal("invalid rrs length")
 	}

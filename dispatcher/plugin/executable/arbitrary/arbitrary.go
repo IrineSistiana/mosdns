@@ -29,44 +29,36 @@ func init() {
 	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 }
 
-var _ handler.ESExecutablePlugin = (*arbitrary)(nil)
+var _ handler.ESExecutablePlugin = (*arbitraryPlugin)(nil)
 
 type Args struct {
 	RR []string `yaml:"rr"`
 }
 
-type arbitrary struct {
+type arbitraryPlugin struct {
 	*handler.BP
-	*arb.Arbitrary
+	arbitrary *arb.Arbitrary
 }
 
 func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
 	return newArb(bp, args.(*Args))
 }
 
-func newArb(bp *handler.BP, args *Args) (*arbitrary, error) {
+func newArb(bp *handler.BP, args *Args) (*arbitraryPlugin, error) {
 	a := arb.NewArbitrary()
 	if err := a.BatchLoad(args.RR); err != nil {
 		return nil, err
 	}
-	return &arbitrary{
+	return &arbitraryPlugin{
 		BP:        bp,
-		Arbitrary: a,
+		arbitrary: a,
 	}, nil
 }
 
-func (a *arbitrary) ExecES(_ context.Context, qCtx *handler.Context) (earlyStop bool, err error) {
-	q := qCtx.Q()
-	if len(q.Question) != 1 {
-		return false, nil
+func (a *arbitraryPlugin) ExecES(_ context.Context, qCtx *handler.Context) (earlyStop bool, err error) {
+	if r := a.arbitrary.LookupMsg(qCtx.Q()); r != nil {
+		qCtx.SetResponse(r, handler.ContextStatusResponded)
+		return true, nil
 	}
-	rrs := a.Match(&q.Question[0])
-	if len(rrs) == 0 {
-		return false, nil
-	}
-
-	r := arb.NewMsgFromRR(rrs)
-	r.SetReply(q)
-	qCtx.SetResponse(r, handler.ContextStatusResponded)
-	return true, nil
+	return false, nil
 }

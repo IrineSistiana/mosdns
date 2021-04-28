@@ -44,7 +44,7 @@ func NewArbitrary() *Arbitrary {
 	return &Arbitrary{tcMatcher: make(map[tc]*domain.MixMatcher)}
 }
 
-func (a *Arbitrary) Match(q *dns.Question) []RR {
+func (a *Arbitrary) Lookup(q dns.Question) []RR {
 	domainMatcher := a.tcMatcher[tc{t: q.Qtype, c: q.Qclass}]
 	if domainMatcher == nil {
 		return nil
@@ -57,16 +57,33 @@ func (a *Arbitrary) Match(q *dns.Question) []RR {
 	return v.(*appendableRR).rrs
 }
 
+func (a *Arbitrary) LookupMsg(m *dns.Msg) *dns.Msg {
+	if len(m.Question) != 1 {
+		return nil
+	}
+	rr := a.Lookup(m.Question[0])
+	if len(rr) != 0 {
+		r := new(dns.Msg)
+		r.SetReply(m)
+		SetRR(r, rr)
+		return r
+	}
+	return nil
+}
+
 var errInvalidRecordLength = errors.New("invalid record length")
 
-func (a *Arbitrary) BatchLoad(ss []string) error {
-	for _, s := range ss {
-		if strings.HasPrefix(s, "ext:") {
-			if err := a.LoadFromFile(s[4:]); err != nil {
+// BatchLoad loads records from multiple entries.
+// If a entry has prefix "ext:", BatchLoad loads it as a file using LoadFromFile.
+// Otherwise, BatchLoad loads it as a text using LoadFromText.
+func (a *Arbitrary) BatchLoad(entries []string) error {
+	for _, e := range entries {
+		if strings.HasPrefix(e, "ext:") {
+			if err := a.LoadFromFile(e[4:]); err != nil {
 				return err
 			}
 		} else {
-			if err := a.LoadFromText(s); err != nil {
+			if err := a.LoadFromText(e); err != nil {
 				return err
 			}
 		}
@@ -74,6 +91,17 @@ func (a *Arbitrary) BatchLoad(ss []string) error {
 	return nil
 }
 
+// BatchLoadFiles loads records from multiple files.
+func (a *Arbitrary) BatchLoadFiles(files []string) error {
+	for _, f := range files {
+		if err := a.LoadFromFile(f); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// LoadFromFile loads records from a file.
 func (a *Arbitrary) LoadFromFile(path string) error {
 	f, err := os.Open(path)
 	if err != nil {
@@ -88,6 +116,7 @@ func (a *Arbitrary) LoadFromFile(path string) error {
 	return nil
 }
 
+// LoadFromReader loads records from a textual io.Reader.
 func (a *Arbitrary) LoadFromReader(r io.Reader) error {
 	scanner := bufio.NewScanner(r)
 	line := 0
@@ -106,8 +135,12 @@ func (a *Arbitrary) LoadFromReader(r io.Reader) error {
 	return scanner.Err()
 }
 
-// LoadFromText
-// Text format: pattern qclass qtype section rr...
+// LoadFromText loads records from a string.
+// Text format: [pattern] [qclass] [qtype] [section] [RFC 1035 resource record]
+// [qclass] and [qtype] can be numerical.
+// e.g.
+// dns.google  IN        A       ANSWER    dns.google. IN A 8.8.8.8
+// example.com IN        A       NA        example.com.  IN  SOA   ns.example.com. username.example.com. ( 2020091025 7200 3600 1209600 3600 )
 func (a *Arbitrary) LoadFromText(s string) error {
 	ss := utils.SplitLine(s)
 	if len(ss) < 4 {
@@ -174,8 +207,8 @@ type RR struct {
 	RR dns.RR
 }
 
-func NewMsgFromRR(rrs []RR) *dns.Msg {
-	m := new(dns.Msg)
+// SetRR appends rrs to m.
+func SetRR(m *dns.Msg, rrs []RR) {
 	for _, rr := range rrs {
 		cp := dns.Copy(rr.RR)
 		switch rr.Section {
@@ -187,7 +220,6 @@ func NewMsgFromRR(rrs []RR) *dns.Msg {
 			m.Extra = append(m.Extra, cp)
 		}
 	}
-	return m
 }
 
 var strToSection = map[string]Section{
