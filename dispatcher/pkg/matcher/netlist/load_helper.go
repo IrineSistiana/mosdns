@@ -43,6 +43,16 @@ func BatchLoad(l *List, entries []string) error {
 	for _, file := range entries {
 		err := Load(l, file)
 		if err != nil {
+			return fmt.Errorf("failed to load ip entry %s: %w", file, err)
+		}
+	}
+	return nil
+}
+
+func BatchLoadFromFiles(l *List, files []string) error {
+	for _, file := range files {
+		err := LoadFromFile(l, file)
+		if err != nil {
 			return fmt.Errorf("failed to load ip file %s: %w", file, err)
 		}
 	}

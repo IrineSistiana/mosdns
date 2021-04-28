@@ -51,12 +51,23 @@ func Load(m Matcher, entry string, processAttr ProcessAttrFunc) error {
 	return LoadFromText(m, entry, processAttr)
 }
 
-// BatchLoadMatcher loads multiple files using Load.
-func BatchLoadMatcher(m Matcher, f []string, processAttr ProcessAttrFunc) error {
-	for _, file := range f {
-		err := Load(m, file, processAttr)
+// BatchLoadMatcher loads multiple files or entries using Load.
+func BatchLoadMatcher(m Matcher, entries []string, processAttr ProcessAttrFunc) error {
+	for _, e := range entries {
+		err := Load(m, e, processAttr)
 		if err != nil {
-			return fmt.Errorf("failed to load file %s: %w", file, err)
+			return fmt.Errorf("failed to load entry %s: %w", e, err)
+		}
+	}
+	return nil
+}
+
+// BatchLoadMatcherFromFiles loads multiple files using LoadFromFile.
+func BatchLoadMatcherFromFiles(m Matcher, fs []string, processAttr ProcessAttrFunc) error {
+	for _, f := range fs {
+		err := LoadFromFile(m, f, processAttr)
+		if err != nil {
+			return fmt.Errorf("failed to load file %s: %w", f, err)
 		}
 	}
 	return nil
