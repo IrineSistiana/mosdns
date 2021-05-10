@@ -31,6 +31,7 @@ import (
 	"go.uber.org/zap"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -97,9 +98,16 @@ func (h *Handler) getTimeout() time.Duration {
 	return defaultTimeout
 }
 
+var errInvalidMediaType = errors.New("missing or invalid header media type")
+
 func ReadMsgFromReq(req *http.Request) (*dns.Msg, error) {
 	var b []byte
 	var err error
+
+	if req.Header.Get("Accept") != "application/dns-message" {
+		return nil, errInvalidMediaType
+	}
+
 	switch req.Method {
 	case http.MethodGet:
 		s := req.URL.Query().Get("dns")
@@ -123,6 +131,10 @@ func ReadMsgFromReq(req *http.Request) (*dns.Msg, error) {
 		b = msgBuf[:n]
 
 	case http.MethodPost:
+		if req.Header.Get("Content-Type") != "application/dns-message" {
+			return nil, errInvalidMediaType
+		}
+
 		buf := readBufPool.Get()
 		defer readBufPool.Release(buf)
 
@@ -145,9 +157,13 @@ func ReadMsgFromReq(req *http.Request) (*dns.Msg, error) {
 var readBufPool = pool.NewBytesBufPool(512)
 
 type httpDnsRespWriter struct {
-	httpRespWriter http.ResponseWriter
+	setMediaTypeOnce sync.Once
+	httpRespWriter   http.ResponseWriter
 }
 
 func (h *httpDnsRespWriter) Write(m *dns.Msg) (n int, err error) {
+	h.setMediaTypeOnce.Do(func() {
+		h.httpRespWriter.Header().Set("Content-Type", "application/dns-message")
+	})
 	return dnsutils.WriteMsgToUDP(h.httpRespWriter, m)
 }
