@@ -28,6 +28,7 @@ import (
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/forward"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/hosts"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/ipset"
+	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/nftset"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/parallel"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/pipeline"
 	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/sequence"

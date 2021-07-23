@@ -7,12 +7,12 @@ require (
 	github.com/AdguardTeam/golibs v0.4.5 // indirect
 	github.com/go-redis/redis/v8 v8.8.2
 	github.com/golang/protobuf v1.5.2
-	github.com/jessevdk/go-flags v1.5.0 // indirect
+	github.com/google/nftables v0.0.0-20210514154851-a285acebcad3
 	github.com/kardianos/service v1.2.0
 	github.com/miekg/dns v1.1.42
 	github.com/mitchellh/mapstructure v1.4.1
 	github.com/vishvananda/netlink v1.1.1-0.20201029203352-d40f9887b852
-	github.com/vishvananda/netns v0.0.0-20210104183010-2eb08e3e575f // indirect
+	github.com/vishvananda/netns v0.0.0-20210104183010-2eb08e3e575f
 	go.opentelemetry.io/otel v0.20.0 // indirect
 	go.uber.org/multierr v1.7.0 // indirect
 	go.uber.org/zap v1.16.0
