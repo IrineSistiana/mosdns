@@ -157,6 +157,11 @@ func main() {
 		mlog.S().Infof("current working directory: %s", wd)
 	}
 
+	if len(*serviceAct) == 0 { // no command, run as a simple program
+		run()
+		os.Exit(0)
+	}
+
 	svcConfig := &service.Config{
 		Name:        "mosdns",
 		DisplayName: "mosdns",
@@ -170,17 +175,16 @@ func main() {
 	}
 
 	switch *serviceAct {
-	case "", "run":
-		mlog.S().Infof("mosdns ver: %s", version)
-		mlog.S().Infof("arch: %s, os: %s, go: %s", runtime.GOARCH, runtime.GOOS, runtime.Version())
-
+	case "run":
+		mlog.S().Info("mosdns is running as a service")
 		if err := s.Run(); err != nil {
 			mlog.S().Fatalf("failed to run service: %v", err)
 		}
 		os.Exit(0)
 	case "install":
+		svcConfig.Arguments = append(svcConfig.Arguments, "-s", "run")
 		if len(*configPath) != 0 {
-			svcConfig.Arguments = append(svcConfig.Arguments, "-c", *configPath, "-s", "run")
+			svcConfig.Arguments = append(svcConfig.Arguments, "-c", *configPath)
 		}
 		if len(*dir) == 0 {
 			svcConfig.Arguments = append(svcConfig.Arguments, "-dir2exe")
@@ -214,11 +218,17 @@ func main() {
 
 type mosdns struct{}
 
-func (m *mosdns) Start(s service.Service) error {
-	go coremain.Run(*configPath)
+func run() {
+	mlog.S().Infof("mosdns ver: %s", version)
+	mlog.S().Infof("arch: %s, os: %s, go: %s", runtime.GOARCH, runtime.GOOS, runtime.Version())
+	coremain.Run(*configPath)
+}
+
+func (m *mosdns) Start(_ service.Service) error {
+	go run()
 	return nil
 }
 
-func (m *mosdns) Stop(s service.Service) error {
+func (m *mosdns) Stop(_ service.Service) error {
 	return nil
 }
