@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/load_cache"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/netlist"
-	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 	"os"
 	"strings"
 	"time"

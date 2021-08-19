@@ -98,7 +98,7 @@ func newForwarder(bp *handler.BP, args *Args) (*forwarder, error) {
 			serverIPAddrs = append(serverIPAddrs, ip)
 		}
 
-		opt := upstream.Options{}
+		opt := &upstream.Options{}
 		opt.Bootstrap = args.Bootstrap
 		opt.ServerIPAddrs = serverIPAddrs
 
