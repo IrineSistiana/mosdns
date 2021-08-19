@@ -23,19 +23,14 @@ import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
-	"math/rand"
 	"net"
 	"sync"
 	"testing"
 	"time"
 )
 
-func randLocalAddr() string {
-	return fmt.Sprintf("127.%d.%d.%d:0", rand.Intn(255), rand.Intn(255), rand.Intn(255))
-}
-
 func newUDPTCPTestServer(t testing.TB, handler dns.Handler) (addr string, shutdownFunc func()) {
-	udpConn, err := net.ListenPacket("udp", randLocalAddr())
+	udpConn, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +59,7 @@ func newUDPTCPTestServer(t testing.TB, handler dns.Handler) (addr string, shutdo
 }
 
 func newTCPTestServer(t testing.TB, handler dns.Handler) (addr string, shutdownFunc func()) {
-	l, err := net.Listen("tcp", randLocalAddr())
+	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +80,7 @@ func newDoTTestServer(t testing.TB, handler dns.Handler) (addr string, shutdownF
 	cert, err := utils.GenerateCertificate(serverName)
 	tlsConfig := new(tls.Config)
 	tlsConfig.Certificates = []tls.Certificate{cert}
-	tlsListener, err := tls.Listen("tcp", randLocalAddr(), tlsConfig)
+	tlsListener, err := tls.Listen("tcp", "127.0.0.1:0", tlsConfig)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -90,7 +90,7 @@ func exchangeTest(tb testing.TB, u upstream.Upstream) {
 }
 
 var (
-	opt = upstream.Options{
+	opt = &upstream.Options{
 		Timeout:            time.Second * 2,
 		InsecureSkipVerify: true,
 	}
