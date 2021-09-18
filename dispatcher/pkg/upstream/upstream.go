@@ -83,7 +83,7 @@ type FastUpstream struct {
 
 	logger       *zap.Logger
 	udpTransport *Transport   // used by udp
-	tcpTransport *Transport   // used by udp(when falling back to tcp), tcp, dot.
+	tcpTransport *Transport   // used by tcp, dot.
 	httpClient   *http.Client // used by doh.
 }
 
@@ -123,7 +123,7 @@ func NewFastUpstream(addr string, options ...Option) (*FastUpstream, error) {
 		}
 	}
 
-	// logger can not be nil
+	// logger cannot be nil
 	if u.logger == nil {
 		u.logger = zap.NewNop()
 	}
@@ -146,7 +146,7 @@ func NewFastUpstream(addr string, options ...Option) (*FastUpstream, error) {
 	}
 
 	// tcpTransport
-	if u.protocol == protocolUDP || u.protocol == protocolTCP || u.protocol == protocolDoT {
+	if u.protocol == protocolTCP || u.protocol == protocolDoT {
 		var dialFunc func() (net.Conn, error)
 		if u.protocol == protocolDoT {
 			tlsConfig := new(tls.Config)
@@ -273,19 +273,15 @@ func (u *FastUpstream) Address() string {
 }
 
 func (u *FastUpstream) Exchange(q *dns.Msg) (r *dns.Msg, err error) {
-	return u.exchange(q, false)
+	return u.exchange(q)
 }
 
-func (u *FastUpstream) ExchangeNoTruncated(q *dns.Msg) (r *dns.Msg, err error) {
-	return u.exchange(q, true)
-}
-
-func (u *FastUpstream) exchange(q *dns.Msg, noTruncated bool) (*dns.Msg, error) {
+func (u *FastUpstream) exchange(q *dns.Msg) (*dns.Msg, error) {
 	var r *dns.Msg
 	var err error
 	switch u.protocol {
 	case protocolUDP:
-		r, err = u.exchangeUDP(q, noTruncated)
+		r, err = u.exchangeUDP(q)
 	case protocolTCP, protocolDoT:
 		r, err = u.exchangeTCP(q)
 	case protocolDoH:
@@ -337,13 +333,6 @@ func (u *FastUpstream) exchangeTCP(q *dns.Msg) (r *dns.Msg, err error) {
 	return u.tcpTransport.Exchange(q)
 }
 
-func (u *FastUpstream) exchangeUDP(q *dns.Msg, noTruncated bool) (r *dns.Msg, err error) {
-	r, err = u.udpTransport.Exchange(q)
-	if err != nil {
-		return nil, err
-	}
-	if r.Truncated && noTruncated { // fallback to tcp
-		return u.exchangeTCP(q)
-	}
-	return r, nil
+func (u *FastUpstream) exchangeUDP(q *dns.Msg) (r *dns.Msg, err error) {
+	return u.udpTransport.Exchange(q)
 }

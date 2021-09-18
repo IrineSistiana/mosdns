@@ -29,7 +29,7 @@ import (
 	"time"
 )
 
-func newUDPTCPTestServer(t testing.TB, handler dns.Handler) (addr string, shutdownFunc func()) {
+func newUDPTestServer(t testing.TB, handler dns.Handler) (addr string, shutdownFunc func()) {
 	udpConn, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -40,21 +40,8 @@ func newUDPTCPTestServer(t testing.TB, handler dns.Handler) (addr string, shutdo
 		Handler:    handler,
 	}
 	go udpServer.ActivateAndServe()
-
-	l, err := net.Listen("tcp", udpAddr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tcpServer := dns.Server{
-		Listener:      l,
-		Handler:       handler,
-		MaxTCPQueries: -1,
-	}
-	go tcpServer.ActivateAndServe()
-
 	return udpAddr, func() {
 		udpServer.Shutdown()
-		tcpServer.Shutdown()
 	}
 }
 
@@ -101,7 +88,7 @@ func newDoTTestServer(t testing.TB, handler dns.Handler) (addr string, shutdownF
 type newTestServerFunc func(t testing.TB, handler dns.Handler) (addr string, shutdownFunc func())
 
 var m = map[string]newTestServerFunc{
-	"udp": newUDPTCPTestServer,
+	"udp": newUDPTestServer,
 	"tcp": newTCPTestServer,
 	"tls": newDoTTestServer,
 }
@@ -118,38 +105,35 @@ func Test_fastUpstream(t *testing.T) {
 
 				// client specific
 				for _, idleTimeout := range [...]time.Duration{0, time.Second} {
-					for _, isTCPClient := range [...]bool{false, true} {
 
-						testName := fmt.Sprintf(
-							"test: protocol: %s, bigMsg: %v, latency: %s, getIdleTimeout: %s, isTCPClient: %v",
-							scheme,
-							bigMsg,
-							latency,
-							idleTimeout,
-							isTCPClient,
-						)
+					testName := fmt.Sprintf(
+						"test: protocol: %s, bigMsg: %v, latency: %s, getIdleTimeout: %s",
+						scheme,
+						bigMsg,
+						latency,
+						idleTimeout,
+					)
 
-						t.Run(testName, func(t *testing.T) {
-							addr, shutdownServer := f(t, &vServer{
-								latency: latency,
-								bigMsg:  bigMsg,
-							})
-							defer shutdownServer()
-							u, err := NewFastUpstream(
-								scheme+"://"+addr,
-								WithIdleTimeout(idleTimeout),
-								WithMaxConns(5),
-								WithInsecureSkipVerify(true),
-							)
-							if err != nil {
-								t.Fatal(err)
-							}
-
-							if err := testUpstream(u, isTCPClient); err != nil {
-								t.Fatal(err)
-							}
+					t.Run(testName, func(t *testing.T) {
+						addr, shutdownServer := f(t, &vServer{
+							latency: latency,
+							bigMsg:  bigMsg,
 						})
-					}
+						defer shutdownServer()
+						u, err := NewFastUpstream(
+							scheme+"://"+addr,
+							WithIdleTimeout(idleTimeout),
+							WithMaxConns(5),
+							WithInsecureSkipVerify(true),
+						)
+						if err != nil {
+							t.Fatal(err)
+						}
+
+						if err := testUpstream(u); err != nil {
+							t.Fatal(err)
+						}
+					})
 				}
 			}
 		}
@@ -157,7 +141,7 @@ func Test_fastUpstream(t *testing.T) {
 	}
 }
 
-func testUpstream(u *FastUpstream, isTCPClient bool) error {
+func testUpstream(u *FastUpstream) error {
 	wg := sync.WaitGroup{}
 	errs := make([]error, 0)
 	errsLock := sync.Mutex{}
@@ -187,11 +171,8 @@ func testUpstream(u *FastUpstream, isTCPClient bool) error {
 				err error
 			)
 
-			if isTCPClient {
-				r, err = u.ExchangeNoTruncated(q)
-			} else {
-				r, err = u.Exchange(q)
-			}
+			r, err = u.Exchange(q)
+
 			if err != nil {
 				logErr(err)
 				return
