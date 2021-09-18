@@ -104,12 +104,13 @@ func ReadMsgFromReq(req *http.Request) (*dns.Msg, error) {
 	var b []byte
 	var err error
 
-	if req.Header.Get("Accept") != "application/dns-message" {
-		return nil, errInvalidMediaType
-	}
-
 	switch req.Method {
 	case http.MethodGet:
+		// Check accept header
+		if req.Header.Get("Accept") != "application/dns-message" {
+			return nil, errInvalidMediaType
+		}
+
 		s := req.URL.Query().Get("dns")
 		if len(s) == 0 {
 			return nil, errors.New("no dns parameter")
@@ -131,6 +132,7 @@ func ReadMsgFromReq(req *http.Request) (*dns.Msg, error) {
 		b = msgBuf[:n]
 
 	case http.MethodPost:
+		// Check Content-Type header
 		if req.Header.Get("Content-Type") != "application/dns-message" {
 			return nil, errInvalidMediaType
 		}
