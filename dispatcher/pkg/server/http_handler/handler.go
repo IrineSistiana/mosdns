@@ -85,7 +85,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	qCtx := handler.NewContext(q, utils.NewNetAddr(remoteAddr, req.URL.Scheme))
-	qCtx.SetTCPClient(true)
 	ctx, cancel := context.WithTimeout(req.Context(), h.getTimeout())
 	defer cancel()
 	h.dnsHandler.ServeDNS(ctx, qCtx, &httpDnsRespWriter{httpRespWriter: w})

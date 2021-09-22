@@ -98,7 +98,6 @@ func (s *Server) serveTCP(l net.Listener) error {
 
 				go func() {
 					qCtx := handler.NewContext(q, c.RemoteAddr())
-					qCtx.SetTCPClient(true)
 					s.handleQuery(tcpConnCtx, qCtx, &tcpResponseWriter{c: c})
 				}()
 			}

@@ -36,12 +36,8 @@ type Context struct {
 	// init at beginning
 	q          *dns.Msg
 	clientAddr net.Addr
-	id         uint32 // additional uint to distinguish duplicated msg
-	startTime  time.Time
-
-	// tcpClient indicates that client is using a tcp-like protocol (tcp, dot etc...).
-	// It means the response can have an arbitrary length and will not be truncated.
-	tcpClient bool
+	id         uint32    // additional uint to distinguish duplicated msg
+	startTime  time.Time // when this Context was created
 
 	status ContextStatus
 	r      *dns.Msg
@@ -115,14 +111,6 @@ func (ctx *Context) Q() *dns.Msg {
 // From returns the client net.Addr. It might be nil.
 func (ctx *Context) From() net.Addr {
 	return ctx.clientAddr
-}
-
-func (ctx *Context) SetTCPClient(b bool) {
-	ctx.tcpClient = b
-}
-
-func (ctx *Context) IsTCPClient() bool {
-	return ctx.tcpClient
 }
 
 // R returns the response. It might be nil.
@@ -229,7 +217,6 @@ func (ctx *Context) CopyNoR() *Context {
 	newCtx.clientAddr = ctx.clientAddr
 	newCtx.id = ctx.id
 	newCtx.startTime = ctx.startTime
-	newCtx.tcpClient = ctx.tcpClient
 	newCtx.status = ctx.status
 
 	return newCtx
