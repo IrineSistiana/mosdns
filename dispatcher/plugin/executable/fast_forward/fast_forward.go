@@ -62,11 +62,6 @@ type UpstreamConfig struct {
 	IdleTimeout        int  `yaml:"idle_timeout"`
 	MaxConns           int  `yaml:"max_conns"`
 	InsecureSkipVerify bool `yaml:"insecure_skip_verify"`
-
-	Protocol   string `yaml:"protocol"`    // Deprecated
-	ServerName string `yaml:"server_name"` // Deprecated
-	URL        string `yaml:"url"`         // Deprecated
-	Timeout    int    `yaml:"timeout"`     // Deprecated
 }
 
 func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
@@ -99,56 +94,17 @@ func newFastForward(bp *handler.BP, args *Args) (*fastForward, error) {
 			return nil, errors.New("missing server addr")
 		}
 
-		var u *upstream.FastUpstream
-		var err error
-
-		// TODO: Remove this after v2.0
-		// compatible mode
-		if len(config.Protocol) != 0 {
-			var addr string
-			var dialAddr string
-			switch config.Protocol {
-			case "udp", "tcp":
-				addr = config.Protocol + "://" + config.Addr
-			case "dot":
-				if len(config.ServerName) == 0 {
-					return nil, errors.New("missing server name")
-				}
-				addr = "tls://" + config.ServerName
-				dialAddr = config.Addr
-			case "doh":
-				if len(config.URL) == 0 {
-					return nil, errors.New("missing server url")
-				}
-				addr = config.URL
-				dialAddr = config.Addr
-			default:
-				return nil, fmt.Errorf("invalid protocol %s", config.Protocol)
-			}
-			u, err = upstream.NewFastUpstream(
-				addr,
-				upstream.WithDialAddr(dialAddr),
-				upstream.WithSocks5(config.Socks5),
-				upstream.WithReadTimeout(time.Duration(args.Timeout)*time.Second),
-				upstream.WithIdleTimeout(time.Duration(config.IdleTimeout)*time.Second),
-				upstream.WithMaxConns(config.MaxConns),
-				upstream.WithInsecureSkipVerify(config.InsecureSkipVerify),
-				upstream.WithRootCAs(rootCAs),
-				upstream.WithLogger(bp.L()),
-			)
-		} else {
-			u, err = upstream.NewFastUpstream(
-				config.Addr,
-				upstream.WithDialAddr(config.DialAddr),
-				upstream.WithSocks5(config.Socks5),
-				upstream.WithReadTimeout(time.Duration(args.Timeout)*time.Second),
-				upstream.WithIdleTimeout(time.Duration(config.IdleTimeout)*time.Second),
-				upstream.WithMaxConns(config.MaxConns),
-				upstream.WithInsecureSkipVerify(config.InsecureSkipVerify),
-				upstream.WithRootCAs(rootCAs),
-				upstream.WithLogger(bp.L()),
-			)
-		}
+		u, err := upstream.NewFastUpstream(
+			config.Addr,
+			upstream.WithDialAddr(config.DialAddr),
+			upstream.WithSocks5(config.Socks5),
+			upstream.WithReadTimeout(time.Duration(args.Timeout)*time.Second),
+			upstream.WithIdleTimeout(time.Duration(config.IdleTimeout)*time.Second),
+			upstream.WithMaxConns(config.MaxConns),
+			upstream.WithInsecureSkipVerify(config.InsecureSkipVerify),
+			upstream.WithRootCAs(rootCAs),
+			upstream.WithLogger(bp.L()),
+		)
 
 		if err != nil {
 			return nil, fmt.Errorf("failed to init upstream: %w", err)
