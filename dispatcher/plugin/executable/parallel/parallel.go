@@ -29,7 +29,7 @@ func init() {
 	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 }
 
-var _ handler.ExecutablePlugin = (*parallel)(nil)
+var _ handler.ESExecutablePlugin = (*parallel)(nil)
 
 type parallel struct {
 	*handler.BP
@@ -55,7 +55,6 @@ func newParallel(bp *handler.BP, args *Args) (*parallel, error) {
 	}, nil
 }
 
-func (p *parallel) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
-	_, err = p.ps.ExecCmd(ctx, qCtx, p.L())
-	return err
+func (p *parallel) ExecES(ctx context.Context, qCtx *handler.Context) (earlyStop bool, err error) {
+	return p.ps.Exec(ctx, qCtx, p.L())
 }

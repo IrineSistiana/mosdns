@@ -25,21 +25,8 @@ type Plugin interface {
 	Type() string
 }
 
-// Executable can do some cool stuffs.
-type Executable interface {
-	Exec(ctx context.Context, qCtx *Context) (err error)
-}
-
-// ExecutablePlugin: See Executable.
-type ExecutablePlugin interface {
-	Plugin
-	Executable
-}
-
-// ESExecutable: Early Stoppable Executable.
+// ESExecutable represents Early Stoppable Executable.
 type ESExecutable interface {
-	// ExecES: Execute something. earlyStop indicates that it wants
-	// to stop the utils.ExecutableCmdSequence ASAP.
 	ExecES(ctx context.Context, qCtx *Context) (earlyStop bool, err error)
 }
 
@@ -49,7 +36,7 @@ type ESExecutablePlugin interface {
 	ESExecutable
 }
 
-// Matcher represents a matcher that can match certain patten in Context.
+// Matcher represents a matcher that can match a certain patten in Context.
 type Matcher interface {
 	Match(ctx context.Context, qCtx *Context) (matched bool, err error)
 }
@@ -58,18 +45,6 @@ type Matcher interface {
 type MatcherPlugin interface {
 	Plugin
 	Matcher
-}
-
-// ContextConnector can choose when and how to execute its successor.
-type ContextConnector interface {
-	// Connect connects this ContextPlugin to its predecessor.
-	Connect(ctx context.Context, qCtx *Context, pipeCtx *PipeContext) (err error)
-}
-
-// ContextPlugin: See ContextConnector.
-type ContextPlugin interface {
-	Plugin
-	ContextConnector
 }
 
 // Service represents a background service.

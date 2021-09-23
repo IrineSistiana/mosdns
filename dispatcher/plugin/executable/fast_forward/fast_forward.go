@@ -35,7 +35,7 @@ func init() {
 	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 }
 
-var _ handler.ExecutablePlugin = (*fastForward)(nil)
+var _ handler.ESExecutablePlugin = (*fastForward)(nil)
 
 type fastForward struct {
 	*handler.BP
@@ -182,12 +182,12 @@ func (u *upstreamWrapper) Trusted() bool {
 	return u.trusted
 }
 
-// Exec forwards qCtx.Q() to upstreams, and sets qCtx.R().
+// ExecES forwards qCtx.Q() to upstreams, and sets qCtx.R().
 // qCtx.Status() will be set as
 // - handler.ContextStatusResponded: if it received a response.
 // - handler.ContextStatusServerFailed: if all upstreams failed.
-func (f *fastForward) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
-	return f.exec(ctx, qCtx)
+func (f *fastForward) ExecES(ctx context.Context, qCtx *handler.Context) (earlyStop bool, err error) {
+	return false, f.exec(ctx, qCtx)
 }
 
 func (f *fastForward) exec(ctx context.Context, qCtx *handler.Context) (err error) {

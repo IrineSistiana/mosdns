@@ -19,9 +19,7 @@ package mem_cache
 
 import (
 	"context"
-	"errors"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/concurrent_lru"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/dnsutils"
 	"github.com/miekg/dns"
 	"sync"
 	"time"
@@ -67,33 +65,28 @@ func (c *MemCache) Close() error {
 	return nil
 }
 
-func (c *MemCache) Get(_ context.Context, key string) (*dns.Msg, error) {
-	e, ok := c.lru.Get(key)
-
-	if ok {
-		e := e.(*elem)
-		if time.Until(e.expirationTime) > 0 {
-			deltaTTL := uint32(time.Since(e.storedTime) / time.Second)
-			v := new(dns.Msg)
-			if err := v.Unpack(e.m); err != nil {
-				return nil, err
-			}
-			dnsutils.SubtractTTL(v, deltaTTL)
-			return v, nil
-		} else {
-			c.lru.Del(key) // expired
+func (c *MemCache) Get(_ context.Context, key string, allowExpired bool) (m *dns.Msg, storedTime, expirationTime time.Time, err error) {
+	if v, ok := c.lru.Get(key); ok {
+		e := v.(*elem)
+		if !allowExpired && e.expirationTime.Before(time.Now()) { // suppress expired result
+			return nil, time.Time{}, time.Time{}, nil
 		}
+
+		m := new(dns.Msg)
+		if err := m.Unpack(e.m); err != nil {
+			return nil, time.Time{}, time.Time{}, err
+		}
+		return m, e.storedTime, e.expirationTime, nil
 	}
-	return nil, nil
+
+	// no such key
+	return nil, time.Time{}, time.Time{}, nil
 }
 
-func (c *MemCache) Store(_ context.Context, key string, v *dns.Msg, ttl time.Duration) (err error) {
-	if ttl <= 0 {
+func (c *MemCache) Store(_ context.Context, key string, v *dns.Msg, storedTime, expirationTime time.Time) (err error) {
+	now := time.Now()
+	if now.After(expirationTime) {
 		return
-	}
-
-	if v == nil {
-		return errors.New("nil v")
 	}
 
 	b, err := v.Pack()
@@ -101,11 +94,10 @@ func (c *MemCache) Store(_ context.Context, key string, v *dns.Msg, ttl time.Dur
 		return err
 	}
 
-	now := time.Now()
 	e := &elem{
 		m:              b,
-		storedTime:     now,
-		expirationTime: now.Add(ttl),
+		storedTime:     storedTime,
+		expirationTime: expirationTime,
 	}
 	c.lru.Add(key, e)
 	return

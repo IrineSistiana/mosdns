@@ -19,42 +19,23 @@ package cache
 
 import (
 	"context"
-	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/dnsutils"
 	"github.com/miekg/dns"
 	"io"
 	"time"
 )
 
-// DnsCache represents a DNS cache backend.
-type DnsCache interface {
-	// Get retrieves v from DnsCache. The returned v is a deepcopy of the original msg
-	// that stored in the cache. The TTLs of v has already been modified properly.
-	// The only thing that call should modify is msg's id.
-	Get(ctx context.Context, key string) (v *dns.Msg, err error)
-	// Store stores the v into DnsCache. It stores the deepcopy of v.
-	Store(ctx context.Context, key string, v *dns.Msg, ttl time.Duration) (err error)
+// Backend represents a DNS cache backend.
+type Backend interface {
+	// Get retrieves v from Backend. The returned v is a deepcopy of the original msg
+	// if the key is stored in the cache. Otherwise, v is nil.
+	// If allowExpired, v might be expired as long as the key is in the cache.
+	// Note: The caller should change the TTLs and id of v.
+	Get(ctx context.Context, key string, allowExpired bool) (v *dns.Msg, storedTime, expirationTime time.Time, err error)
+
+	// Store stores a deepcopy of v into Backend. v cannot be nil.
+	// If expirationTime is already passed, Store is a noop.
+	Store(ctx context.Context, key string, v *dns.Msg, storedTime, expirationTime time.Time) (err error)
 
 	// Closer closes the cache backend.
 	io.Closer
-}
-
-// DeferCacheStore implements handler.Executable.
-type DeferCacheStore struct {
-	key     string
-	backend DnsCache
-}
-
-func NewDeferStore(key string, backend DnsCache) *DeferCacheStore {
-	return &DeferCacheStore{key: key, backend: backend}
-}
-
-// Exec caches the response.
-// It never returns an err, because a cache fault should not terminate the query process.
-func (d *DeferCacheStore) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
-	r := qCtx.R()
-	if r != nil && r.Rcode == dns.RcodeSuccess && r.Truncated == false && len(r.Answer) != 0 {
-		return d.backend.Store(ctx, d.key, r, time.Duration(dnsutils.GetMinimalTTL(r))*time.Second)
-	}
-	return nil
 }

@@ -29,17 +29,13 @@ func init() {
 	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 }
 
-var _ handler.ExecutablePlugin = (*ipsetPlugin)(nil)
+var _ handler.ESExecutablePlugin = (*ipsetPlugin)(nil)
 
 type Args struct {
 	SetName4 string `yaml:"set_name4"`
 	SetName6 string `yaml:"set_name6"`
 	Mask4    uint8  `yaml:"mask4"` // default 24
 	Mask6    uint8  `yaml:"mask6"` // default 32
-
-	// max A/AAAA record ttl value.
-	MaxTTL4 uint32 `yaml:"max_ttl4"`
-	MaxTTL6 uint32 `yaml:"max_ttl6"`
 }
 
 type ipsetPlugin struct {
@@ -65,17 +61,17 @@ func newIpsetPlugin(bp *handler.BP, args *Args) *ipsetPlugin {
 	}
 }
 
-// Exec tries to add all qCtx.R() IPs to system ipset.
+// ExecES tries to add all qCtx.R() IPs to system ipset.
 // If an error occurred, Exec will just log it.
-// Therefore, Exec will never return an err.
-func (p *ipsetPlugin) Exec(_ context.Context, qCtx *handler.Context) (_ error) {
+// Therefore, Exec will never return an error.
+func (p *ipsetPlugin) ExecES(_ context.Context, qCtx *handler.Context) (bool, error) {
 	if qCtx.R() == nil {
-		return nil
+		return false, nil
 	}
 
 	er := p.addIPSet(qCtx.R())
 	if er != nil {
 		p.L().Warn("failed to add response IP to ipset", qCtx.InfoField(), zap.Error(er))
 	}
-	return nil
+	return false, nil
 }

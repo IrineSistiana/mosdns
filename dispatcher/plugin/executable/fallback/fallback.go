@@ -29,7 +29,7 @@ func init() {
 	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 }
 
-var _ handler.ExecutablePlugin = (*fallback)(nil)
+var _ handler.ESExecutablePlugin = (*fallback)(nil)
 
 type fallback struct {
 	*handler.BP
@@ -54,7 +54,6 @@ func newFallback(bp *handler.BP, args *Args) (*fallback, error) {
 	}, nil
 }
 
-func (f *fallback) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
-	_, err = f.fallbackECS.ExecCmd(ctx, qCtx, f.L())
-	return err
+func (f *fallback) ExecES(ctx context.Context, qCtx *handler.Context) (earlyStop bool, err error) {
+	return f.fallbackECS.Exec(ctx, qCtx, f.L())
 }

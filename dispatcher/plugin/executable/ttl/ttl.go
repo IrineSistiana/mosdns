@@ -21,7 +21,6 @@ import (
 	"context"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/dnsutils"
-	"github.com/miekg/dns"
 )
 
 const (
@@ -32,7 +31,7 @@ func init() {
 	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 }
 
-var _ handler.ExecutablePlugin = (*ttl)(nil)
+var _ handler.ESExecutablePlugin = (*ttl)(nil)
 
 type Args struct {
 	MaximumTTL uint32 `yaml:"maximum_ttl"`
@@ -55,18 +54,15 @@ func newTTL(bp *handler.BP, args *Args) handler.Plugin {
 	}
 }
 
-func (t ttl) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
-	if r := qCtx.R(); r != nil {
-		t.exec(r)
+func (t *ttl) ExecES(_ context.Context, qCtx *handler.Context) (bool, error) {
+	r := qCtx.R()
+	if r != nil {
+		if t.args.MaximumTTL > 0 {
+			dnsutils.ApplyMaximumTTL(r, t.args.MaximumTTL)
+		}
+		if t.args.MinimalTTL > 0 {
+			dnsutils.ApplyMinimalTTL(r, t.args.MinimalTTL)
+		}
 	}
-	return nil
-}
-
-func (t ttl) exec(r *dns.Msg) {
-	if t.args.MaximumTTL > 0 {
-		dnsutils.ApplyMaximumTTL(r, t.args.MaximumTTL)
-	}
-	if t.args.MinimalTTL > 0 {
-		dnsutils.ApplyMinimalTTL(r, t.args.MinimalTTL)
-	}
+	return false, nil
 }

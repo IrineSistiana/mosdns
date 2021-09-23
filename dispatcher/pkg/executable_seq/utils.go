@@ -24,14 +24,24 @@ import (
 	"go.uber.org/zap"
 )
 
-// ExecRoot executes the ExecutableCmd and qCtx.ExecDefer().
-// This intends for root cmd node.
-func ExecRoot(ctx context.Context, qCtx *handler.Context, logger *zap.Logger, entry ExecutableCmd) error {
-	_, err := entry.ExecCmd(ctx, qCtx, logger)
-	if err == nil {
-		err = qCtx.ExecDefer(ctx)
+// ExecRoot executes the root ExecutableNode and its following nodes.
+func ExecRoot(ctx context.Context, qCtx *handler.Context, logger *zap.Logger, entry ExecutableNode) (earlyStop bool, err error) {
+	n := entry
+	for {
+		if n == nil {
+			return false, nil
+		}
+
+		earlyStop, err := n.Exec(ctx, qCtx, logger)
+		if err != nil {
+			return false, err
+		}
+		if earlyStop {
+			return true, nil
+		}
+
+		n = n.Next()
 	}
-	return err
 }
 
 func asyncWait(ctx context.Context, qCtx *handler.Context, logger *zap.Logger, c chan *parallelECSResult, total int) error {

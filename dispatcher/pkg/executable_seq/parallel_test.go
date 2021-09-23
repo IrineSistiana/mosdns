@@ -61,13 +61,13 @@ func Test_ParallelECS(t *testing.T) {
 	ctx := context.Background()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p1 := &handler.DummyExecutablePlugin{
+			p1 := &handler.DummyESExecutablePlugin{
 				BP:      handler.NewBP("p1", ""),
 				Sleep:   0,
 				WantR:   tt.r1,
 				WantErr: tt.e1,
 			}
-			p2 := &handler.DummyExecutablePlugin{
+			p2 := &handler.DummyESExecutablePlugin{
 				BP:      handler.NewBP("p2", ""),
 				Sleep:   0,
 				WantR:   tt.r2,
@@ -77,7 +77,7 @@ func Test_ParallelECS(t *testing.T) {
 			handler.MustRegPlugin(p2, false)
 
 			qCtx := handler.NewContext(new(dns.Msg), nil)
-			err := parallelECS.execCmd(ctx, qCtx, zap.NewNop())
+			err := parallelECS.exec(ctx, qCtx, zap.NewNop())
 			if tt.wantErr != (err != nil) {
 				t.Fatalf("execCmd() error = %v, wantErr %v", err, tt.wantErr)
 			}

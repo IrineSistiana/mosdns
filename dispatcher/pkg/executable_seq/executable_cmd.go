@@ -23,6 +23,47 @@ import (
 	"go.uber.org/zap"
 )
 
-type ExecutableCmd interface {
-	ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (earlyStop bool, err error)
+type Executable interface {
+	Exec(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (earlyStop bool, err error)
+}
+
+type ExecutableNode interface {
+	Executable
+	linkedList
+}
+
+type ExecutableNodeWrapper struct {
+	Executable
+	LinkedListElem
+}
+
+func WarpExecutable(e Executable) ExecutableNode {
+	return &ExecutableNodeWrapper{Executable: e}
+}
+
+type linkedList interface {
+	Previous() ExecutableNode
+	Next() ExecutableNode
+	LinkPrevious(n ExecutableNode)
+	LinkNext(n ExecutableNode)
+}
+
+type LinkedListElem struct {
+	prev, next ExecutableNode
+}
+
+func (l *LinkedListElem) Previous() ExecutableNode {
+	return l.prev
+}
+
+func (l *LinkedListElem) Next() ExecutableNode {
+	return l.next
+}
+
+func (l *LinkedListElem) LinkPrevious(n ExecutableNode) {
+	l.prev = n
+}
+
+func (l *LinkedListElem) LinkNext(n ExecutableNode) {
+	l.next = n
 }

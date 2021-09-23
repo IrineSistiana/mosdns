@@ -34,7 +34,7 @@ const (
 type ServerOption func(s *Server)
 
 // WithHandler sets the dns handler for UDP, TCP, DoT server.
-// It can not be omitted.
+// It cannot be omitted.
 func WithHandler(h dns_handler.Handler) ServerOption {
 	return func(s *Server) {
 		s.handler = h
@@ -42,7 +42,7 @@ func WithHandler(h dns_handler.Handler) ServerOption {
 }
 
 // WithHttpHandler sets the http handler for DoH, HTTP server.
-// It can not be omitted.
+// It cannot be omitted.
 func WithHttpHandler(h http.Handler) ServerOption {
 	return func(s *Server) {
 		s.httpHandler = h
@@ -50,7 +50,7 @@ func WithHttpHandler(h http.Handler) ServerOption {
 }
 
 // WithTLSConfig sets the tls config for DoT, DoH server.
-// WithTLSConfig and WithCertificate can not be omitted at the same time.
+// WithTLSConfig and WithCertificate cannot be omitted at the same time.
 func WithTLSConfig(c *tls.Config) ServerOption {
 	return func(s *Server) {
 		s.tlsConfig = c
@@ -58,7 +58,7 @@ func WithTLSConfig(c *tls.Config) ServerOption {
 }
 
 // WithCertificate sets the certificate for DoT, DoH server.
-// WithTLSConfig and WithCertificate can not be omitted at the same time.
+// WithTLSConfig and WithCertificate cannot be omitted at the same time.
 func WithCertificate(cert, key string) ServerOption {
 	return func(s *Server) {
 		s.cert = cert

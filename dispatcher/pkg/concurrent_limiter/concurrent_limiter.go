@@ -24,6 +24,8 @@ import (
 
 // ConcurrentLimiter is a soft limiter.
 type ConcurrentLimiter struct {
+	max int
+
 	running int32
 	bucket  chan struct{}
 }
@@ -35,7 +37,7 @@ func NewConcurrentLimiter(max int) *ConcurrentLimiter {
 	}
 
 	bucket := make(chan struct{}, max)
-	return &ConcurrentLimiter{bucket: bucket}
+	return &ConcurrentLimiter{max: max, bucket: bucket}
 }
 
 func (l *ConcurrentLimiter) Wait() chan<- struct{} {
@@ -64,4 +66,8 @@ func (l *ConcurrentLimiter) Available() int {
 
 func (l *ConcurrentLimiter) Running() int32 {
 	return atomic.LoadInt32(&l.running)
+}
+
+func (l *ConcurrentLimiter) Max() int {
+	return l.max
 }

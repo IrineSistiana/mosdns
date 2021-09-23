@@ -21,7 +21,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/dnsutils"
+	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/pool"
 	"github.com/go-redis/redis/v8"
 	"github.com/miekg/dns"
@@ -42,36 +42,39 @@ func NewRedisCache(url string) (*RedisCache, error) {
 	return &RedisCache{client: c}, nil
 }
 
-func (r *RedisCache) Get(ctx context.Context, key string) (v *dns.Msg, err error) {
+func (r *RedisCache) Get(ctx context.Context, key string, allowExpired bool) (v *dns.Msg, storedTime, expirationTime time.Time, err error) {
 	b, err := r.client.Get(ctx, key).Bytes()
 	if err != nil {
-		if err == redis.Nil {
-			return nil, nil
+		if err == redis.Nil { // no such key in redis, suppress redis.Nil err.
+			return nil, time.Time{}, time.Time{}, nil
 		}
-		return nil, err
+		return nil, time.Time{}, time.Time{}, err
 	}
 
-	storedTime, m, err := unpackRedisValue(b)
+	storedTime, expirationTime, m, err := unpackRedisValue(b)
 	if err != nil {
-		return nil, err
+		return nil, time.Time{}, time.Time{}, fmt.Errorf("failed to unpack redis data: %w", err)
 	}
 
-	dnsutils.SubtractTTL(m, uint32(time.Since(storedTime)/time.Second))
-	return m, nil
+	if !allowExpired && expirationTime.Before(time.Now()) { // suppress expired value
+		return nil, time.Time{}, time.Time{}, nil
+	}
+
+	return m, storedTime, expirationTime, nil
 }
 
-func (r *RedisCache) Store(ctx context.Context, key string, v *dns.Msg, ttl time.Duration) (err error) {
-	if ttl <= 0 {
+func (r *RedisCache) Store(ctx context.Context, key string, v *dns.Msg, storedTime, expirationTime time.Time) (err error) {
+	if time.Now().After(expirationTime) {
 		return nil
 	}
 
-	data, err := packRedisValue(time.Now(), v)
+	data, err := packRedisData(storedTime, expirationTime, v)
 	if err != nil {
 		return err
 	}
 	defer pool.ReleaseBuf(data)
 
-	return r.client.Set(ctx, key, data, ttl).Err()
+	return r.client.Set(ctx, key, data, expirationTime.Sub(time.Now())).Err()
 }
 
 // Close closes the redis client.
@@ -79,31 +82,33 @@ func (r *RedisCache) Close() error {
 	return r.client.Close()
 }
 
-// packRedisValue packs storedTime and msg m into one byte slice.
-// The returned []byte can be released pool.ReleaseBuf().
-func packRedisValue(storedTime time.Time, m *dns.Msg) ([]byte, error) {
-	wireMsg, bm, err := pool.PackBuffer(m)
+// packRedisData packs storedTime, expirationTime and msg m into one byte slice.
+// The returned []byte should be released by pool.ReleaseBuf().
+func packRedisData(storedTime, expirationTime time.Time, m *dns.Msg) ([]byte, error) {
+	wireMsg, mb, err := pool.PackBuffer(m)
 	if err != nil {
 		return nil, err
 	}
-	defer pool.ReleaseBuf(bm)
+	defer pool.ReleaseBuf(mb)
 
-	v := pool.GetBuf(8 + len(wireMsg))
+	v := pool.GetBuf(8 + 8 + len(wireMsg))
 	binary.BigEndian.PutUint64(v[:8], uint64(storedTime.Unix()))
-	copy(v[8:], wireMsg)
+	binary.BigEndian.PutUint64(v[8:16], uint64(expirationTime.Unix()))
+	copy(v[16:], wireMsg)
 	return v, nil
 }
 
-func unpackRedisValue(b []byte) (storedTime time.Time, m *dns.Msg, err error) {
-	if len(b) < 8 {
-		return time.Time{}, nil, errors.New("b is too short")
+func unpackRedisValue(b []byte) (storedTime, expirationTime time.Time, m *dns.Msg, err error) {
+	if len(b) < 16 {
+		return time.Time{}, time.Time{}, nil, errors.New("b is too short")
 	}
 	storedTime = time.Unix(int64(binary.BigEndian.Uint64(b[:8])), 0)
+	expirationTime = time.Unix(int64(binary.BigEndian.Uint64(b[8:16])), 0)
 
 	m = new(dns.Msg)
-	err = m.Unpack(b[8:])
+	err = m.Unpack(b[16:])
 	if err != nil {
-		return time.Time{}, nil, err
+		return time.Time{}, time.Time{}, nil, err
 	}
-	return storedTime, m, nil
+	return storedTime, expirationTime, m, nil
 }

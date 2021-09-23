@@ -36,7 +36,7 @@ func init() {
 	handler.MustRegPlugin(preset(handler.NewBP("_block_with_nxdomain", PluginType), &Args{RCode: dns.RcodeNameError}), true)
 }
 
-var _ handler.ExecutablePlugin = (*blackhole)(nil)
+var _ handler.ESExecutablePlugin = (*blackhole)(nil)
 
 type blackhole struct {
 	*handler.BP
@@ -75,12 +75,12 @@ func newBlackhole(bp *handler.BP, args *Args) (*blackhole, error) {
 	return b, nil
 }
 
-// Exec
+// ExecES
 // sets qCtx.R() with IP response if query type is A/AAAA and Args.IPv4 / Args.IPv6 is not empty.
 // sets qCtx.R() with empty response with rcode = Args.RCode.
 // drops qCtx.R() if Args.RCode < 0
-// It never returns an err.
-func (b *blackhole) Exec(_ context.Context, qCtx *handler.Context) (err error) {
+// It never returns an error.
+func (b *blackhole) ExecES(_ context.Context, qCtx *handler.Context) (bool, error) {
 	switch {
 	case b.ipv4 != nil && len(qCtx.Q().Question) == 1 && qCtx.Q().Question[0].Qtype == dns.TypeA:
 		r := new(dns.Msg)
@@ -122,7 +122,7 @@ func (b *blackhole) Exec(_ context.Context, qCtx *handler.Context) (err error) {
 		qCtx.SetResponse(nil, handler.ContextStatusDropped)
 	}
 
-	return nil
+	return false, nil
 }
 
 func preset(bp *handler.BP, args *Args) *blackhole {

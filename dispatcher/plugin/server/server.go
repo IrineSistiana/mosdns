@@ -21,6 +21,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/cache/mem_cache"
+	"github.com/IrineSistiana/mosdns/dispatcher/pkg/cache/redis_cache"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/executable_seq"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/server"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/server/dns_handler"
@@ -36,9 +38,15 @@ func init() {
 }
 
 type Args struct {
-	Server               []*ServerConfig `yaml:"server"`
-	Entry                []interface{}   `yaml:"entry"`
-	MaxConcurrentQueries int             `yaml:"max_concurrent_queries"`
+	Entry                []interface{} `yaml:"entry"`
+	MaxConcurrentQueries int           `yaml:"max_concurrent_queries"`
+	Cache                struct {
+		Size         int    `yaml:"size"`
+		Redis        string `yaml:"redis"`
+		LazyCacheTTL int    `yaml:"lazy_cache_ttl"`
+	} `yaml:"cache"`
+
+	Server []*ServerConfig `yaml:"server"`
 }
 
 // ServerConfig is not safe for concurrent use.
@@ -86,7 +94,7 @@ func newServerPlugin(bp *handler.BP, args *Args) (*serverPlugin, error) {
 		return nil, errors.New("empty entry")
 	}
 
-	ecs, err := executable_seq.ParseExecutableCmdSequence(args.Entry)
+	ecs, err := executable_seq.ParseExecutableNode(args.Entry)
 	if err != nil {
 		return nil, err
 	}
@@ -95,6 +103,21 @@ func newServerPlugin(bp *handler.BP, args *Args) (*serverPlugin, error) {
 		Logger:          bp.L(),
 		Entry:           ecs,
 		ConcurrentLimit: args.MaxConcurrentQueries,
+		LazyCacheTTL:    args.Cache.LazyCacheTTL,
+	}
+
+	if len(args.Cache.Redis) != 0 {
+		backend, err := redis_cache.NewRedisCache(args.Cache.Redis)
+		if err != nil {
+			return nil, err
+		}
+		sh.Cache = backend
+	} else {
+		size := args.Cache.Size
+		if size <= 1024 {
+			size = 1024
+		}
+		sh.Cache = mem_cache.NewMemCache(32, size/32, time.Second*120)
 	}
 
 	sg := &serverPlugin{

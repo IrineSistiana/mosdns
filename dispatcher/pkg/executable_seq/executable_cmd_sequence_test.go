@@ -96,12 +96,12 @@ exec:
 	}, true)
 
 	// do something
-	handler.MustRegPlugin(&handler.DummyExecutablePlugin{
+	handler.MustRegPlugin(&handler.DummyESExecutablePlugin{
 		BP:      handler.NewBP("exec", ""),
 		WantErr: nil,
 	}, true)
 
-	handler.MustRegPlugin(&handler.DummyExecutablePlugin{
+	handler.MustRegPlugin(&handler.DummyESExecutablePlugin{
 		BP:      handler.NewBP("exec_target", ""),
 		WantR:   target,
 		WantErr: nil,
@@ -127,7 +127,7 @@ exec:
 		WantErr: mErr,
 	}, true)
 
-	handler.MustRegPlugin(&handler.DummyExecutablePlugin{
+	handler.MustRegPlugin(&handler.DummyESExecutablePlugin{
 		BP:      handler.NewBP("exec_err", ""),
 		WantErr: eErr,
 	}, true)
@@ -140,25 +140,25 @@ exec:
 				t.Fatal(err)
 			}
 
-			ecs, err := ParseExecutableCmd(args["exec"])
+			ecs, err := ParseExecutableNode(args["exec"])
 			if err != nil {
 				t.Fatal(err)
 			}
 
 			qCtx := handler.NewContext(new(dns.Msg), nil)
-			gotEarlyStop, err := ecs.ExecCmd(context.Background(), qCtx, zap.NewNop())
+			gotEarlyStop, err := ExecRoot(context.Background(), qCtx, zap.NewNop(), ecs)
 			if (err != nil || tt.wantErr != nil) && !errors.Is(err, tt.wantErr) {
-				t.Errorf("ExecCmd() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("Exec() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 
 			var gotTarget = qCtx.R()
 			if tt.wantTarget && gotTarget.Id != target.Id {
-				t.Errorf("ExecCmd() gotTarget = %d, want %d", gotTarget.Id, target.Id)
+				t.Errorf("Exec() gotTarget = %d, want %d", gotTarget.Id, target.Id)
 			}
 
 			if gotEarlyStop != tt.wantES {
-				t.Errorf("ExecCmd() gotEarlyStop = %v, want %v", gotEarlyStop, tt.wantES)
+				t.Errorf("Exec() gotEarlyStop = %v, want %v", gotEarlyStop, tt.wantES)
 			}
 		})
 	}

@@ -17,11 +17,11 @@ func Test_memCache(t *testing.T) {
 		key := strconv.Itoa(i)
 		m := new(dns.Msg)
 		m.Id = uint16(i)
-		if err := c.Store(ctx, key, m, time.Millisecond*200); err != nil {
+		if err := c.Store(ctx, key, m, time.Now(), time.Now().Add(time.Millisecond*200)); err != nil {
 			t.Fatal(err)
 		}
 
-		v, err := c.Get(ctx, key)
+		v, _, _, err := c.Get(ctx, key, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -44,7 +44,7 @@ func Test_memCache_cleaner(t *testing.T) {
 		key := strconv.Itoa(i)
 		m := new(dns.Msg)
 		m.Id = uint16(i)
-		if err := c.Store(ctx, key, m, time.Millisecond*10); err != nil {
+		if err := c.Store(ctx, key, m, time.Now(), time.Now().Add(time.Millisecond*10)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -68,12 +68,12 @@ func Test_memCache_race(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for i := 0; i < 256; i++ {
-				err := c.Store(ctx, strconv.Itoa(i), m, time.Minute)
+				err := c.Store(ctx, strconv.Itoa(i), m, time.Now(), time.Now().Add(time.Minute))
 				if err != nil {
 					t.Log(err)
 					t.FailNow()
 				}
-				v, err := c.Get(ctx, strconv.Itoa(i))
+				v, _, _, err := c.Get(ctx, strconv.Itoa(i), false)
 				if err != nil {
 					t.Log(err)
 					t.FailNow()

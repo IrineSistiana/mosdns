@@ -27,7 +27,7 @@ import (
 )
 
 type ParallelECS struct {
-	s       []ExecutableCmd
+	s       []ExecutableNode
 	timeout time.Duration
 }
 
@@ -41,9 +41,9 @@ func ParseParallelECS(c *ParallelECSConfig) (*ParallelECS, error) {
 		return nil, fmt.Errorf("parallel needs at least 2 cmd sequences, but got %d", len(c.Parallel))
 	}
 
-	ps := make([]ExecutableCmd, 0, len(c.Parallel))
+	ps := make([]ExecutableNode, 0, len(c.Parallel))
 	for i, subSequence := range c.Parallel {
-		es, err := ParseExecutableCmd(subSequence)
+		es, err := ParseExecutableNode(subSequence)
 		if err != nil {
 			return nil, fmt.Errorf("invalid parallel command at index %d: %w", i, err)
 		}
@@ -59,11 +59,11 @@ type parallelECSResult struct {
 	from   int
 }
 
-func (p *ParallelECS) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (earlyStop bool, err error) {
-	return false, p.execCmd(ctx, qCtx, logger)
+func (p *ParallelECS) Exec(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (earlyStop bool, err error) {
+	return false, p.exec(ctx, qCtx, logger)
 }
 
-func (p *ParallelECS) execCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
+func (p *ParallelECS) exec(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
 
 	var pCtx context.Context // only valid if p.timeout == 0
 	var cancel func()
@@ -90,7 +90,7 @@ func (p *ParallelECS) execCmd(ctx context.Context, qCtx *handler.Context, logger
 				defer ecsCancel()
 			}
 
-			err := ExecRoot(ecsCtx, qCtxCopy, logger, sequence)
+			_, err := ExecRoot(ecsCtx, qCtxCopy, logger, sequence)
 			c <- &parallelECSResult{
 				r:      qCtxCopy.R(),
 				status: qCtxCopy.Status(),

@@ -18,7 +18,6 @@
 package handler
 
 import (
-	"context"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/dnsutils"
 	"github.com/miekg/dns"
@@ -34,16 +33,13 @@ import (
 // Context MUST be created by NewContext.
 type Context struct {
 	// init at beginning
-	q          *dns.Msg
-	clientAddr net.Addr
-	id         uint32    // additional uint to distinguish duplicated msg
 	startTime  time.Time // when this Context was created
+	q          *dns.Msg
+	id         uint32 // additional uint32 to distinguish duplicated msg
+	clientAddr net.Addr
 
 	status ContextStatus
 	r      *dns.Msg
-
-	deferrable  []Executable
-	deferAtomic uint32
 }
 
 type ContextStatus uint8
@@ -131,53 +127,6 @@ func (ctx *Context) SetResponse(r *dns.Msg, status ContextStatus) {
 	ctx.status = status
 }
 
-// CopyDeferFrom copies defer Executable from src.
-func (ctx *Context) CopyDeferFrom(src *Context) {
-	ctx.deferrable = make([]Executable, len(src.deferrable))
-	copy(ctx.deferrable, src.deferrable)
-}
-
-// DeferExec registers an deferred Executable at this Context.
-func (ctx *Context) DeferExec(e Executable) {
-	if i := atomic.LoadUint32(&ctx.deferAtomic); i == 1 {
-		panic("handler Context: concurrent ExecDefer or DeferExec")
-	}
-	ctx.deferrable = append(ctx.deferrable, &deferExecutable{e: e})
-}
-
-type deferExecutable struct {
-	e Executable
-}
-
-func (d *deferExecutable) Exec(ctx context.Context, qCtx *Context) (err error) {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	return d.e.Exec(ctx, qCtx)
-}
-
-// ExecDefer executes all deferred Executable registered by DeferExec.
-func (ctx *Context) ExecDefer(cCtx context.Context) error {
-	if len(ctx.deferrable) == 0 {
-		return nil
-	}
-
-	if ok := atomic.CompareAndSwapUint32(&ctx.deferAtomic, 0, 1); !ok {
-		panic("handler Context: concurrent ExecDefer or DeferExec")
-	}
-	defer atomic.CompareAndSwapUint32(&ctx.deferAtomic, 1, 0)
-
-	for i := range ctx.deferrable {
-		executable := ctx.deferrable[len(ctx.deferrable)-1]
-		ctx.deferrable[len(ctx.deferrable)-1] = nil
-		ctx.deferrable = ctx.deferrable[0 : len(ctx.deferrable)-1]
-		if err := executable.Exec(cCtx, ctx); err != nil {
-			return fmt.Errorf("defer exec #%d: %w", i, err)
-		}
-	}
-	return nil
-}
-
 // Id returns the Context id.
 // Note: This id is not the dns msg id.
 // It's a unique uint32 growing with the number of query.
@@ -220,38 +169,4 @@ func (ctx *Context) CopyNoR() *Context {
 	newCtx.status = ctx.status
 
 	return newCtx
-}
-
-type PipeContext struct {
-	logger *zap.Logger
-	s      []string
-
-	index int
-}
-
-func NewPipeContext(s []string, logger *zap.Logger) *PipeContext {
-	return &PipeContext{s: s, logger: logger}
-}
-
-func (c *PipeContext) ExecNextPlugin(ctx context.Context, qCtx *Context) error {
-	for c.index < len(c.s) {
-		tag := c.s[c.index]
-		p, err := GetPlugin(tag)
-		if err != nil {
-			return err
-		}
-		c.index++
-		switch {
-		case p.Is(PITContextConnector):
-			return p.Connect(ctx, qCtx, c)
-		case p.Is(PITESExecutable):
-			earlyStop, err := p.ExecES(ctx, qCtx)
-			if earlyStop || err != nil {
-				return err
-			}
-		default:
-			return fmt.Errorf("plugin %s class err", tag)
-		}
-	}
-	return nil
 }

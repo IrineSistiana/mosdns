@@ -45,8 +45,8 @@ type FallbackConfig struct {
 }
 
 type FallbackECS struct {
-	primary              ExecutableCmd
-	secondary            ExecutableCmd
+	primary              ExecutableNode
+	secondary            ExecutableNode
 	fastFallbackDuration time.Duration
 	alwaysStandby        bool
 
@@ -108,12 +108,12 @@ func ParseFallbackECS(c *FallbackConfig) (*FallbackECS, error) {
 		return nil, errors.New("secondary is empty")
 	}
 
-	primaryECS, err := ParseExecutableCmd(c.Primary)
+	primaryECS, err := ParseExecutableNode(c.Primary)
 	if err != nil {
 		return nil, fmt.Errorf("invalid primary sequence: %w", err)
 	}
 
-	secondaryECS, err := ParseExecutableCmd(c.Secondary)
+	secondaryECS, err := ParseExecutableNode(c.Secondary)
 	if err != nil {
 		return nil, fmt.Errorf("invalid secondary sequence: %w", err)
 	}
@@ -135,11 +135,11 @@ func ParseFallbackECS(c *FallbackConfig) (*FallbackECS, error) {
 	return fallbackECS, nil
 }
 
-func (f *FallbackECS) ExecCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (earlyStop bool, err error) {
-	return false, f.execCmd(ctx, qCtx, logger)
+func (f *FallbackECS) Exec(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (earlyStop bool, err error) {
+	return false, f.exec(ctx, qCtx, logger)
 }
 
-func (f *FallbackECS) execCmd(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
+func (f *FallbackECS) exec(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
 	if f.primaryST == nil || f.primaryST.good() {
 		if f.fastFallbackDuration > 0 {
 			return f.doFastFallback(ctx, qCtx, logger)
@@ -159,7 +159,7 @@ func (f *FallbackECS) isolateDoPrimary(ctx context.Context, qCtx *handler.Contex
 }
 
 func (f *FallbackECS) doPrimary(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
-	err = ExecRoot(ctx, qCtx, logger, f.primary)
+	_, err = ExecRoot(ctx, qCtx, logger, f.primary)
 	if f.primaryST != nil {
 		if err != nil || qCtx.R() == nil {
 			f.primaryST.update(1)
@@ -232,7 +232,8 @@ func (f *FallbackECS) doFastFallback(ctx context.Context, qCtx *handler.Context,
 }
 
 func (f *FallbackECS) doSecondary(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
-	return ExecRoot(ctx, qCtx, logger, f.secondary)
+	_, err = ExecRoot(ctx, qCtx, logger, f.secondary)
+	return err
 }
 
 func (f *FallbackECS) doFallback(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) error {

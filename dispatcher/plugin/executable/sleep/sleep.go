@@ -30,7 +30,7 @@ func init() {
 	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 }
 
-var _ handler.ExecutablePlugin = (*sleep)(nil)
+var _ handler.ESExecutablePlugin = (*sleep)(nil)
 
 type Args struct {
 	Duration uint `yaml:"duration"` // (milliseconds) duration for sleep.
@@ -42,8 +42,8 @@ type sleep struct {
 	d time.Duration
 }
 
-func (s *sleep) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
-	return s.sleep(ctx)
+func (s *sleep) ExecES(ctx context.Context, _ *handler.Context) (earlyStop bool, err error) {
+	return false, s.sleep(ctx)
 }
 
 func (s *sleep) sleep(ctx context.Context) (err error) {

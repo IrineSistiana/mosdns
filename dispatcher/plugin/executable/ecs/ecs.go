@@ -36,7 +36,7 @@ func init() {
 	handler.MustRegPlugin(&noECS{BP: handler.NewBP("_no_ecs", PluginType)}, true)
 }
 
-var _ handler.ExecutablePlugin = (*ecsPlugin)(nil)
+var _ handler.ESExecutablePlugin = (*ecsPlugin)(nil)
 
 type Args struct {
 	// Automatically append client address as ecs.
@@ -103,13 +103,13 @@ func newPlugin(bp *handler.BP, args *Args) (p handler.Plugin, err error) {
 	return ep, nil
 }
 
-// Exec tries to append ECS to qCtx.Q().
+// ExecES tries to append ECS to qCtx.Q().
 // If an error occurred, Do will just log it.
-// Therefore, Do will never return an err.
-func (e ecsPlugin) Exec(_ context.Context, qCtx *handler.Context) (_ error) {
+// Therefore, Do will never return an errOR.
+func (e ecsPlugin) ExecES(_ context.Context, qCtx *handler.Context) (bool, error) {
 	qHasECS := dnsutils.GetMsgECS(qCtx.Q()) != nil
 	if qHasECS && !e.args.ForceOverwrite {
-		return nil
+		return false, nil
 	}
 
 	var ecs *dns.EDNS0_SUBNET
@@ -117,7 +117,7 @@ func (e ecsPlugin) Exec(_ context.Context, qCtx *handler.Context) (_ error) {
 		ip := utils.GetIPFromAddr(qCtx.From())
 		if ip == nil {
 			e.L().Warn("internal err: can not parse client ip address", qCtx.InfoField(), zap.Stringer("from", qCtx.From()))
-			return nil
+			return false, nil
 		}
 		if ip4 := ip.To4(); ip4 != nil { // is ipv4
 			ecs = dnsutils.NewEDNS0Subnet(ip4, e.args.Mask4, false)
@@ -126,7 +126,7 @@ func (e ecsPlugin) Exec(_ context.Context, qCtx *handler.Context) (_ error) {
 				ecs = dnsutils.NewEDNS0Subnet(ip6, e.args.Mask6, true)
 			} else { // non
 				e.L().Warn("internal err: client ip address is not a valid ip address", qCtx.InfoField(), zap.Stringer("from", qCtx.From()))
-				return nil
+				return false, nil
 			}
 		}
 	} else { // use preset ip
@@ -149,20 +149,9 @@ func (e ecsPlugin) Exec(_ context.Context, qCtx *handler.Context) (_ error) {
 
 	if ecs != nil {
 		dnsutils.AppendECS(qCtx.Q(), ecs)
-
-		// According to https://tools.ietf.org/html/rfc7871#section-7.2.2
-		// > Because a client that did not use an ECS option might not
-		// > be able to understand it, the server MUST NOT provide one in
-		// > its response.
-		//
-		// If the original query did not have an ECS option, remove ECS from
-		// its response.
-		if !qHasECS {
-			qCtx.DeferExec(removeResponseECS{})
-		}
 	}
 
-	return nil
+	return false, nil
 }
 
 func checkQueryType(m *dns.Msg, typ uint16) bool {
@@ -176,22 +165,12 @@ type noECS struct {
 	*handler.BP
 }
 
-var _ handler.ExecutablePlugin = (*noECS)(nil)
+var _ handler.ESExecutablePlugin = (*noECS)(nil)
 
-func (n noECS) Exec(_ context.Context, qCtx *handler.Context) (_ error) {
+func (n noECS) ExecES(_ context.Context, qCtx *handler.Context) (bool, error) {
 	dnsutils.RemoveECS(qCtx.Q())
 	if qCtx.R() != nil {
 		dnsutils.RemoveECS(qCtx.R())
 	}
-	return
-}
-
-type removeResponseECS struct{}
-
-func (e removeResponseECS) Exec(_ context.Context, qCtx *handler.Context) (_ error) {
-	r := qCtx.R()
-	if r != nil {
-		dnsutils.RemoveECS(r)
-	}
-	return nil
+	return false, nil
 }

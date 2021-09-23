@@ -35,27 +35,6 @@ func (d *DummyMatcherPlugin) Match(_ context.Context, _ *Context) (matched bool,
 	return d.Matched, d.WantErr
 }
 
-type DummyExecutablePlugin struct {
-	*BP
-	Sleep   time.Duration
-	WantR   *dns.Msg
-	WantErr error
-}
-
-func (d *DummyExecutablePlugin) Exec(_ context.Context, qCtx *Context) (err error) {
-	if d.Sleep != 0 {
-		time.Sleep(d.Sleep)
-	}
-
-	if d.WantErr != nil {
-		return d.WantErr
-	}
-	if d.WantR != nil {
-		qCtx.SetResponse(d.WantR, ContextStatusResponded)
-	}
-	return nil
-}
-
 type DummyESExecutablePlugin struct {
 	*BP
 	Sleep    time.Duration
