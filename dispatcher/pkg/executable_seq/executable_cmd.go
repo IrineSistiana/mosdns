@@ -34,7 +34,7 @@ type ExecutableNode interface {
 
 type ExecutableNodeWrapper struct {
 	Executable
-	LinkedListElem
+	NodeLinker
 }
 
 func WarpExecutable(e Executable) ExecutableNode {
@@ -48,22 +48,22 @@ type linkedList interface {
 	LinkNext(n ExecutableNode)
 }
 
-type LinkedListElem struct {
+type NodeLinker struct {
 	prev, next ExecutableNode
 }
 
-func (l *LinkedListElem) Previous() ExecutableNode {
+func (l *NodeLinker) Previous() ExecutableNode {
 	return l.prev
 }
 
-func (l *LinkedListElem) Next() ExecutableNode {
+func (l *NodeLinker) Next() ExecutableNode {
 	return l.next
 }
 
-func (l *LinkedListElem) LinkPrevious(n ExecutableNode) {
+func (l *NodeLinker) LinkPrevious(n ExecutableNode) {
 	l.prev = n
 }
 
-func (l *LinkedListElem) LinkNext(n ExecutableNode) {
+func (l *NodeLinker) LinkNext(n ExecutableNode) {
 	l.next = n
 }

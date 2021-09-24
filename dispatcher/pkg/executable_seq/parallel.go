@@ -26,17 +26,17 @@ import (
 	"time"
 )
 
-type ParallelECS struct {
+type ParallelNode struct {
 	s       []ExecutableNode
 	timeout time.Duration
 }
 
-type ParallelECSConfig struct {
+type ParallelConfig struct {
 	Parallel []interface{} `yaml:"parallel"`
 	Timeout  uint          `yaml:"timeout"`
 }
 
-func ParseParallelECS(c *ParallelECSConfig) (*ParallelECS, error) {
+func ParseParallelNode(c *ParallelConfig) (*ParallelNode, error) {
 	if len(c.Parallel) < 2 {
 		return nil, fmt.Errorf("parallel needs at least 2 cmd sequences, but got %d", len(c.Parallel))
 	}
@@ -49,7 +49,7 @@ func ParseParallelECS(c *ParallelECSConfig) (*ParallelECS, error) {
 		}
 		ps = append(ps, es)
 	}
-	return &ParallelECS{s: ps, timeout: time.Duration(c.Timeout) * time.Second}, nil
+	return &ParallelNode{s: ps, timeout: time.Duration(c.Timeout) * time.Second}, nil
 }
 
 type parallelECSResult struct {
@@ -59,11 +59,11 @@ type parallelECSResult struct {
 	from   int
 }
 
-func (p *ParallelECS) Exec(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (earlyStop bool, err error) {
+func (p *ParallelNode) Exec(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (earlyStop bool, err error) {
 	return false, p.exec(ctx, qCtx, logger)
 }
 
-func (p *ParallelECS) exec(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
+func (p *ParallelNode) exec(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
 
 	var pCtx context.Context // only valid if p.timeout == 0
 	var cancel func()

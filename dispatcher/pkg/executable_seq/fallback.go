@@ -44,7 +44,7 @@ type FallbackConfig struct {
 	AlwaysStandby bool `yaml:"always_standby"`
 }
 
-type FallbackECS struct {
+type FallbackNode struct {
 	primary              ExecutableNode
 	secondary            ExecutableNode
 	fastFallbackDuration time.Duration
@@ -100,7 +100,7 @@ func (t *statusTracker) update(s uint8) {
 	t.p++
 }
 
-func ParseFallbackECS(c *FallbackConfig) (*FallbackECS, error) {
+func ParseFallbackNode(c *FallbackConfig) (*FallbackNode, error) {
 	if c.Primary == nil {
 		return nil, errors.New("primary is empty")
 	}
@@ -118,7 +118,7 @@ func ParseFallbackECS(c *FallbackConfig) (*FallbackECS, error) {
 		return nil, fmt.Errorf("invalid secondary sequence: %w", err)
 	}
 
-	fallbackECS := &FallbackECS{
+	fallbackECS := &FallbackNode{
 		primary:              primaryECS,
 		secondary:            secondaryECS,
 		fastFallbackDuration: time.Duration(c.FastFallback) * time.Millisecond,
@@ -135,11 +135,11 @@ func ParseFallbackECS(c *FallbackConfig) (*FallbackECS, error) {
 	return fallbackECS, nil
 }
 
-func (f *FallbackECS) Exec(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (earlyStop bool, err error) {
+func (f *FallbackNode) Exec(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (earlyStop bool, err error) {
 	return false, f.exec(ctx, qCtx, logger)
 }
 
-func (f *FallbackECS) exec(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
+func (f *FallbackNode) exec(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
 	if f.primaryST == nil || f.primaryST.good() {
 		if f.fastFallbackDuration > 0 {
 			return f.doFastFallback(ctx, qCtx, logger)
@@ -151,14 +151,14 @@ func (f *FallbackECS) exec(ctx context.Context, qCtx *handler.Context, logger *z
 	return f.doFallback(ctx, qCtx, logger)
 }
 
-func (f *FallbackECS) isolateDoPrimary(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
+func (f *FallbackNode) isolateDoPrimary(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
 	qCtxCopy := qCtx.Copy()
 	err = f.doPrimary(ctx, qCtxCopy, logger)
 	qCtx.SetResponse(qCtxCopy.R(), qCtxCopy.Status())
 	return err
 }
 
-func (f *FallbackECS) doPrimary(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
+func (f *FallbackNode) doPrimary(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
 	_, err = ExecRoot(ctx, qCtx, logger, f.primary)
 	if f.primaryST != nil {
 		if err != nil || qCtx.R() == nil {
@@ -171,7 +171,7 @@ func (f *FallbackECS) doPrimary(ctx context.Context, qCtx *handler.Context, logg
 	return err
 }
 
-func (f *FallbackECS) doFastFallback(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
+func (f *FallbackNode) doFastFallback(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
 	fCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -231,12 +231,12 @@ func (f *FallbackECS) doFastFallback(ctx context.Context, qCtx *handler.Context,
 	return asyncWait(ctx, qCtx, logger, c, 2)
 }
 
-func (f *FallbackECS) doSecondary(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
+func (f *FallbackNode) doSecondary(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
 	_, err = ExecRoot(ctx, qCtx, logger, f.secondary)
 	return err
 }
 
-func (f *FallbackECS) doFallback(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) error {
+func (f *FallbackNode) doFallback(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) error {
 	fCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 

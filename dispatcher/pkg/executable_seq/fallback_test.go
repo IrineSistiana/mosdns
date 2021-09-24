@@ -62,7 +62,7 @@ func Test_FallbackECS_fallback(t *testing.T) {
 		AlwaysStandby: false,
 	}
 
-	fallbackECS, err := ParseFallbackECS(conf)
+	fallbackECS, err := ParseFallbackNode(conf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func Test_FallbackECS_fast_fallback(t *testing.T) {
 				AlwaysStandby: tt.alwaysStandby,
 			}
 
-			fallbackECS, err := ParseFallbackECS(conf)
+			fallbackECS, err := ParseFallbackNode(conf)
 			if err != nil {
 				t.Fatal(err)
 			}

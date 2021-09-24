@@ -30,7 +30,7 @@ import (
 var EarlyStop earlyStop
 
 type earlyStop struct {
-	LinkedListElem
+	NodeLinker
 }
 
 func (e *earlyStop) Exec(_ context.Context, _ *handler.Context, _ *zap.Logger) (earlyStop bool, err error) {
@@ -45,7 +45,7 @@ func NewRESEPNode(tag string) *RefESExecutablePluginNode {
 // RefESExecutablePluginNode is a handler.ESExecutablePlugin reference tag.
 type RefESExecutablePluginNode struct {
 	ref string
-	LinkedListElem
+	NodeLinker
 }
 
 func (n *RefESExecutablePluginNode) Exec(ctx context.Context, qCtx *handler.Context, _ *zap.Logger) (earlyStop bool, err error) {
@@ -71,7 +71,7 @@ func (ref RefMatcherPluginNode) Match(ctx context.Context, qCtx *handler.Context
 // ParseExecutableNode parses in into a ExecutableNode.
 // in can be: (a / a slice of) Executable,
 // (a / a slice of) string of registered handler.ESExecutablePlugin tag,
-// (a / a slice of) map[string]interface{}, which can be parsed to FallbackConfig, ParallelECSConfig or IfBlockConfig,
+// (a / a slice of) map[string]interface{}, which can be parsed to FallbackConfig, ParallelConfig or IfBlockConfig,
 // a []interface{} that contains all of the above.
 func ParseExecutableNode(in interface{}) (ExecutableNode, error) {
 	switch v := in.(type) {
@@ -145,12 +145,12 @@ func parseIfBlockFromMap(m map[string]interface{}) (ExecutableNode, error) {
 }
 
 func parseParallelECSFromMap(m map[string]interface{}) (ExecutableNode, error) {
-	conf := new(ParallelECSConfig)
+	conf := new(ParallelConfig)
 	err := handler.WeakDecode(m, conf)
 	if err != nil {
 		return nil, err
 	}
-	e, err := ParseParallelECS(conf)
+	e, err := ParseParallelNode(conf)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +164,7 @@ func parseFallbackECSFromMap(m map[string]interface{}) (ExecutableNode, error) {
 	if err != nil {
 		return nil, err
 	}
-	e, err := ParseFallbackECS(conf)
+	e, err := ParseFallbackNode(conf)
 	if err != nil {
 		return nil, err
 	}

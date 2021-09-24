@@ -34,7 +34,7 @@ var _ handler.ESExecutablePlugin = (*fallback)(nil)
 type fallback struct {
 	*handler.BP
 
-	fallbackECS *executable_seq.FallbackECS
+	fallbackECS *executable_seq.FallbackNode
 }
 
 type Args = executable_seq.FallbackConfig
@@ -44,7 +44,7 @@ func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
 }
 
 func newFallback(bp *handler.BP, args *Args) (*fallback, error) {
-	fallbackECS, err := executable_seq.ParseFallbackECS(args)
+	fallbackECS, err := executable_seq.ParseFallbackNode(args)
 	if err != nil {
 		return nil, err
 	}

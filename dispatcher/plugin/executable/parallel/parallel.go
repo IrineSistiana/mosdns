@@ -34,17 +34,17 @@ var _ handler.ESExecutablePlugin = (*parallel)(nil)
 type parallel struct {
 	*handler.BP
 
-	ps *executable_seq.ParallelECS
+	ps *executable_seq.ParallelNode
 }
 
-type Args = executable_seq.ParallelECSConfig
+type Args = executable_seq.ParallelConfig
 
 func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
 	return newParallel(bp, args.(*Args))
 }
 
 func newParallel(bp *handler.BP, args *Args) (*parallel, error) {
-	ps, err := executable_seq.ParseParallelECS(args)
+	ps, err := executable_seq.ParseParallelNode(args)
 	if err != nil {
 		return nil, err
 	}

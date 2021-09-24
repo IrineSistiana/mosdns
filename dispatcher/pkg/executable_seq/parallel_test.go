@@ -51,7 +51,7 @@ func Test_ParallelECS(t *testing.T) {
 		{"p2 response #2", nil, er, r2, nil, r2, false},
 	}
 
-	parallelECS, err := ParseParallelECS(&ParallelECSConfig{
+	parallelECS, err := ParseParallelNode(&ParallelConfig{
 		Parallel: []interface{}{"p1", "p2"},
 	})
 	if err != nil {
