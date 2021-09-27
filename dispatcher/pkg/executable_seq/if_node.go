@@ -19,6 +19,7 @@ package executable_seq
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/utils"
@@ -46,41 +47,68 @@ func (n *NagativeMatcher) Match(ctx context.Context, qCtx *handler.Context) (mat
 	return !matched, nil
 }
 
-// IfBlockConfig is a config to build a IfBlock.
-type IfBlockConfig struct {
+// IfNodeConfig is a config to build a IfNode.
+type IfNodeConfig struct {
 	// Available type are:
-	// 	string (a tag of registered handler.MatcherPlugin)
-	// 	handler.Matcher.
-	// 	a slice of interface{} and contains above type. (In this case, the logic
+	// 	1. string (a tag of registered handler.MatcherPlugin)
+	// 	2. handler.Matcher.
+	// 	3. a slice of interface{} and contains above type. (In this case, the logic
 	// 		between multiple matchers is OR.)
-	//
+	// This cannot be nil.
 	If interface{} `yaml:"if"`
 
-	// See ParseExecutableNode.
+	// See ParseExecutableNode. This cannot be nil.
 	Exec interface{} `yaml:"exec"`
 }
 
-type IfBlock struct {
-	IfMatcher      handler.Matcher
-	ExecutableNode handler.ExecutableChainNode
+// IfNode implement handler.ExecutableChainNode.
+// Internal IfNode.ExecutableNode will also be linked by
+// LinkPrevious and LinkNext.
+type IfNode struct {
+	IfMatcher      handler.Matcher             // This cannot be nil.
+	ExecutableNode handler.ExecutableChainNode // This cannot be nil.
+
+	prev, next handler.ExecutableChainNode
 }
 
-func ParseIfBlock(c *IfBlockConfig, logger *zap.Logger) (*IfBlock, error) {
-	b := new(IfBlock)
+func (b *IfNode) Previous() handler.ExecutableChainNode {
+	return b.prev
+}
+
+func (b *IfNode) Next() handler.ExecutableChainNode {
+	return b.next
+}
+
+func (b *IfNode) LinkPrevious(n handler.ExecutableChainNode) {
+	b.prev = n
+	b.ExecutableNode.LinkPrevious(n)
+}
+
+func (b *IfNode) LinkNext(n handler.ExecutableChainNode) {
+	b.next = n
+	handler.LatestNode(b.ExecutableNode).LinkNext(n)
+}
+
+func ParseIfChainNode(c *IfNodeConfig, logger *zap.Logger) (*IfNode, error) {
+	b := new(IfNode)
 	var err error
 
-	if c.If != nil {
-		b.IfMatcher, err = parseMatcher(c.If)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse if condition: %w", err)
-		}
+	if c.If == nil {
+		return nil, errors.New("if condition is missing")
 	}
 
-	if c.Exec != nil {
-		b.ExecutableNode, err = ParseExecutableNode(c.Exec, logger)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse exec command: %w", err)
-		}
+	b.IfMatcher, err = parseMatcher(c.If)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse if condition: %w", err)
+	}
+
+	if c.Exec == nil {
+		return nil, errors.New("exec is missing")
+	}
+
+	b.ExecutableNode, err = ParseExecutableNode(c.Exec, logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse exec command: %w", err)
 	}
 
 	return b, nil
@@ -118,19 +146,14 @@ func (bm BatchMatherOr) Match(ctx context.Context, qCtx *handler.Context) (bool,
 	return utils.BoolLogic(ctx, qCtx, bm, false)
 }
 
-func (b *IfBlock) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) (err error) {
+func (b *IfNode) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) (err error) {
 	if b.IfMatcher != nil {
 		ok, err := b.IfMatcher.Match(ctx, qCtx)
 		if err != nil {
 			return fmt.Errorf("matcher failed: %w", err)
 		}
-		if ok {
-			if b.ExecutableNode != nil {
-				err := handler.ExecChainNode(ctx, qCtx, b.ExecutableNode)
-				if err != nil {
-					return fmt.Errorf("exec node failed: %w", err)
-				}
-			}
+		if ok && b.ExecutableNode != nil {
+			return handler.ExecChainNode(ctx, qCtx, b.ExecutableNode)
 		}
 	}
 

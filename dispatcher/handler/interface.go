@@ -30,12 +30,13 @@ type Executable interface {
 	Exec(ctx context.Context, qCtx *Context, next ExecutableChainNode) error
 }
 
+// ExecutableChainNode represents a node in a executable chain.
 type ExecutableChainNode interface {
 	Executable
-	linkedList
+	LinkedListNode
 }
 
-// ExecutablePlugin: See ESExecutable.
+// ExecutablePlugin represents a Plugin that is Executable.
 type ExecutablePlugin interface {
 	Plugin
 	Executable
@@ -46,7 +47,7 @@ type Matcher interface {
 	Match(ctx context.Context, qCtx *Context) (matched bool, err error)
 }
 
-// MatcherPlugin: See Matcher.
+// MatcherPlugin represents a Plugin that is a Matcher.
 type MatcherPlugin interface {
 	Plugin
 	Matcher
@@ -58,28 +59,31 @@ type Service interface {
 	Shutdown() error
 }
 
-// ServicePlugin: See Service.
+// ServicePlugin represents a Plugin that is a Service.
 type ServicePlugin interface {
 	Plugin
 	Service
 }
 
+// ExecutableNodeWrapper wraps a Executable to a ExecutableChainNode.
 type ExecutableNodeWrapper struct {
 	Executable
 	NodeLinker
 }
 
+// WarpExecutable wraps a Executable to a ExecutableChainNode.
 func WarpExecutable(e Executable) ExecutableChainNode {
 	return &ExecutableNodeWrapper{Executable: e}
 }
 
-type linkedList interface {
+type LinkedListNode interface {
 	Previous() ExecutableChainNode
 	Next() ExecutableChainNode
 	LinkPrevious(n ExecutableChainNode)
 	LinkNext(n ExecutableChainNode)
 }
 
+// NodeLinker implements LinkedListNode.
 type NodeLinker struct {
 	prev, next ExecutableChainNode
 }

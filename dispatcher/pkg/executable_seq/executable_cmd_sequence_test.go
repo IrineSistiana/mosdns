@@ -64,6 +64,7 @@ exec:
   exec: 
     - exec_skip
     - exec_err # skipped, should not reach here.
+- exec_err
 `,
 			wantTarget: false, wantErr: nil},
 	}

@@ -34,7 +34,6 @@ func NewREPNode(tag string) *RefExecPluginNode {
 // RefExecPluginNode is a handler.ExecutablePlugin reference tag.
 type RefExecPluginNode struct {
 	ref string
-	handler.NodeLinker
 }
 
 func (n *RefExecPluginNode) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) (err error) {
@@ -60,7 +59,7 @@ func (ref RefMatcherPluginNode) Match(ctx context.Context, qCtx *handler.Context
 // ParseExecutableNode parses in into a ExecutableChainNode.
 // in can be: (a / a slice of) Executable,
 // (a / a slice of) string of registered handler.ExecutablePlugin tag,
-// (a / a slice of) map[string]interface{}, which can be parsed to FallbackConfig, ParallelConfig or IfBlockConfig,
+// (a / a slice of) map[string]interface{}, which can be parsed to FallbackConfig, ParallelConfig or IfNodeConfig,
 // a []interface{} that contains all of the above.
 func ParseExecutableNode(in interface{}, logger *zap.Logger) (handler.ExecutableChainNode, error) {
 	switch v := in.(type) {
@@ -88,7 +87,7 @@ func ParseExecutableNode(in interface{}, logger *zap.Logger) (handler.Executable
 		return rootNode, nil
 
 	case string:
-		return NewREPNode(v), nil
+		return handler.WarpExecutable(NewREPNode(v)), nil
 
 	case map[string]interface{}:
 		switch {
@@ -119,13 +118,13 @@ func ParseExecutableNode(in interface{}, logger *zap.Logger) (handler.Executable
 }
 
 func parseIfBlockFromMap(m map[string]interface{}, logger *zap.Logger) (handler.ExecutableChainNode, error) {
-	conf := new(IfBlockConfig)
+	conf := new(IfNodeConfig)
 	err := handler.WeakDecode(m, conf)
 	if err != nil {
 		return nil, err
 	}
 
-	e, err := ParseIfBlock(conf, logger)
+	e, err := ParseIfChainNode(conf, logger)
 	if err != nil {
 		return nil, err
 	}

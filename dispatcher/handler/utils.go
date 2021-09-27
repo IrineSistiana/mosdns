@@ -27,3 +27,25 @@ func ExecChainNode(ctx context.Context, qCtx *Context, n ExecutableChainNode) er
 	// TODO: Error logging
 	return n.Exec(ctx, qCtx, n.Next())
 }
+
+// FirstNode returns the first node of chain of n.
+func FirstNode(n ExecutableChainNode) ExecutableChainNode {
+	for {
+		p := n.Previous()
+		if p == nil {
+			return n
+		}
+		n = p
+	}
+}
+
+// LatestNode returns the Latest node of chain of n.
+func LatestNode(n ExecutableChainNode) ExecutableChainNode {
+	for {
+		nn := n.Next()
+		if nn == nil {
+			return n
+		}
+		nn = n
+	}
+}
