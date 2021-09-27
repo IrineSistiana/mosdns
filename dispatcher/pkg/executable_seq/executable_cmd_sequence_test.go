@@ -32,7 +32,17 @@ exec:
   exec:
   - if: ["!not_matched", not_matched] 	# matched
     exec: exec_target					# reached here
+`,
+			wantTarget: true, wantErr: nil},
 
+		{name: "test if_and", yamlStr: `
+exec:
+- if_and: [matched, not_matched] # not matched
+  exec: exec_err
+- if_and: [matched, matched] # matched
+  exec:
+  - if: [matched, matched] 	# matched
+    exec: exec_target					# reached here
 `,
 			wantTarget: true, wantErr: nil},
 

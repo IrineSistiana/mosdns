@@ -54,8 +54,9 @@ type IfNodeConfig struct {
 	// 	2. handler.Matcher.
 	// 	3. a slice of interface{} and contains above type. (In this case, the logic
 	// 		between multiple matchers is OR.)
-	// This cannot be nil.
-	If interface{} `yaml:"if"`
+	// Must specify one condition. If both conditions are given, If takes the priority.
+	If    interface{} `yaml:"if"`     // logical OR
+	IfAnd interface{} `yaml:"if_and"` // logical AND
 
 	// See ParseExecutableNode. This cannot be nil.
 	Exec interface{} `yaml:"exec"`
@@ -65,8 +66,8 @@ type IfNodeConfig struct {
 // Internal IfNode.ExecutableNode will also be linked by
 // LinkPrevious and LinkNext.
 type IfNode struct {
-	IfMatcher      handler.Matcher             // This cannot be nil.
-	ExecutableNode handler.ExecutableChainNode // This cannot be nil.
+	ConditionMatcher handler.Matcher             // This cannot be nil.
+	ExecutableNode   handler.ExecutableChainNode // This cannot be nil.
 
 	prev, next handler.ExecutableChainNode
 }
@@ -91,13 +92,17 @@ func (b *IfNode) LinkNext(n handler.ExecutableChainNode) {
 
 func ParseIfChainNode(c *IfNodeConfig, logger *zap.Logger) (*IfNode, error) {
 	b := new(IfNode)
-	var err error
 
-	if c.If == nil {
-		return nil, errors.New("if condition is missing")
+	if c.If == nil && c.IfAnd == nil {
+		return nil, errors.New("missing condition")
 	}
 
-	b.IfMatcher, err = parseMatcher(c.If)
+	var err error
+	if c.If != nil {
+		b.ConditionMatcher, err = parseMatcher(c.If, batchLogicOr)
+	} else if c.IfAnd != nil {
+		b.ConditionMatcher, err = parseMatcher(c.IfAnd, batchLogicAnd)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse if condition: %w", err)
 	}
@@ -114,20 +119,33 @@ func ParseIfChainNode(c *IfNodeConfig, logger *zap.Logger) (*IfNode, error) {
 	return b, nil
 }
 
-func parseMatcher(in interface{}) (handler.Matcher, error) {
+const (
+	batchLogicNoBatch int = iota
+	batchLogicAnd
+	batchLogicOr
+)
+
+func parseMatcher(in interface{}, batchLogic int) (handler.Matcher, error) {
 	switch v := in.(type) {
 	case handler.Matcher:
 		return v, nil
 	case []interface{}:
+		if batchLogic == batchLogicNoBatch {
+			return nil, errors.New("input should not be multiple matchers")
+		}
+
 		ms := make([]handler.Matcher, 0)
 		for i, leaf := range v {
-			m, err := parseMatcher(leaf)
+			m, err := parseMatcher(leaf, batchLogicNoBatch)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse leaf #%d: %w", i, err)
 			}
 			ms = append(ms, m)
 		}
 
+		if batchLogic == batchLogicAnd {
+			return BatchMatherAnd(ms), nil
+		}
 		return BatchMatherOr(ms), nil
 	case string:
 		if strings.HasPrefix(v, "!") {
@@ -146,9 +164,15 @@ func (bm BatchMatherOr) Match(ctx context.Context, qCtx *handler.Context) (bool,
 	return utils.BoolLogic(ctx, qCtx, bm, false)
 }
 
+type BatchMatherAnd []handler.Matcher
+
+func (bm BatchMatherAnd) Match(ctx context.Context, qCtx *handler.Context) (bool, error) {
+	return utils.BoolLogic(ctx, qCtx, bm, true)
+}
+
 func (b *IfNode) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) (err error) {
-	if b.IfMatcher != nil {
-		ok, err := b.IfMatcher.Match(ctx, qCtx)
+	if b.ConditionMatcher != nil {
+		ok, err := b.ConditionMatcher.Match(ctx, qCtx)
 		if err != nil {
 			return fmt.Errorf("matcher failed: %w", err)
 		}

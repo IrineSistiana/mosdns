@@ -91,7 +91,7 @@ func ParseExecutableNode(in interface{}, logger *zap.Logger) (handler.Executable
 
 	case map[string]interface{}:
 		switch {
-		case hasKey(v, "if"): // if block
+		case hasKey(v, "if") || hasKey(v, "if_and"): // if block
 			ec, err := parseIfBlockFromMap(v, logger)
 			if err != nil {
 				return nil, fmt.Errorf("invalid if section: %w", err)
