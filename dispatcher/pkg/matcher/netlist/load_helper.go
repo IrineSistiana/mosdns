@@ -32,7 +32,7 @@ var LoadFromDATFunc func(l *List, file, tag string) error
 
 func LoadFromDAT(l *List, file, tag string) error {
 	if LoadFromDATFunc == nil {
-		return errors.New("can not load data from v2ray proto, function is not registered")
+		return errors.New("cannot load data from v2ray proto, function is not registered")
 	}
 	return LoadFromDATFunc(l, file, tag)
 }
@@ -40,10 +40,10 @@ func LoadFromDAT(l *List, file, tag string) error {
 // BatchLoad is a helper func to load multiple files using Load.
 // It might modify the List and causes List unsorted.
 func BatchLoad(l *List, entries []string) error {
-	for _, file := range entries {
-		err := Load(l, file)
+	for _, e := range entries {
+		err := Load(l, e)
 		if err != nil {
-			return fmt.Errorf("failed to load ip entry %s: %w", file, err)
+			return fmt.Errorf("failed to load ip entry %s: %w", e, err)
 		}
 	}
 	return nil

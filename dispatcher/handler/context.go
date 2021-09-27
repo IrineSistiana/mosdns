@@ -146,8 +146,6 @@ func (ctx *Context) InfoField() zap.Field {
 }
 
 // Copy deep copies this Context.
-// Note that Copy won't copy registered deferred Executable.
-// To copy them, use CopyDeferFrom after Copy.
 func (ctx *Context) Copy() *Context {
 	newCtx := ctx.CopyNoR()
 	if ctx.r != nil {
@@ -157,8 +155,7 @@ func (ctx *Context) Copy() *Context {
 	return newCtx
 }
 
-// CopyNoR deep copies this Context. Except deferred Executable
-// and response.
+// CopyNoR deep copies this Context without copy its response.
 func (ctx *Context) CopyNoR() *Context {
 	newCtx := new(Context)
 
