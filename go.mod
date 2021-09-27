@@ -3,7 +3,7 @@ module github.com/IrineSistiana/mosdns
 go 1.15
 
 require (
-	github.com/AdguardTeam/dnsproxy v0.39.5
+	github.com/AdguardTeam/dnsproxy v0.39.7
 	github.com/AdguardTeam/golibs v0.9.3 // indirect
 	github.com/ameshkov/dnscrypt/v2 v2.2.3 // indirect
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
@@ -19,12 +19,12 @@ require (
 	go.uber.org/atomic v1.9.0 // indirect
 	go.uber.org/multierr v1.7.0 // indirect
 	go.uber.org/zap v1.19.1
-	golang.org/x/crypto v0.0.0-20210915214749-c084706c2272 // indirect
+	golang.org/x/crypto v0.0.0-20210921155107-089bfa567519 // indirect
 	golang.org/x/lint v0.0.0-20201208152925-83fdc39ff7b5 // indirect
-	golang.org/x/mod v0.5.0 // indirect
-	golang.org/x/net v0.0.0-20210917221730-978cfadd31cf
+	golang.org/x/mod v0.5.1 // indirect
+	golang.org/x/net v0.0.0-20210924151903-3ad01bbaa167
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
-	golang.org/x/sys v0.0.0-20210917161153-d61c044b1678
+	golang.org/x/sys v0.0.0-20210927094055-39ccf1dd6fa6
 	golang.org/x/text v0.3.7 // indirect
 	golang.org/x/tools v0.1.6 // indirect
 	google.golang.org/protobuf v1.27.1
