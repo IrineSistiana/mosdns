@@ -19,9 +19,9 @@ package hosts
 
 import (
 	"context"
-	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/hosts"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/domain"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/hosts"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/matcher/domain"
 )
 
 const PluginType = "hosts"

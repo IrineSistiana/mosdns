@@ -1,4 +1,4 @@
-module github.com/IrineSistiana/mosdns
+module github.com/IrineSistiana/mosdns/v2
 
 go 1.15
 

@@ -3,7 +3,7 @@ package executable_seq
 import (
 	"context"
 	"errors"
-	"github.com/IrineSistiana/mosdns/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
 	"github.com/miekg/dns"
 	"gopkg.in/yaml.v3"
 	"testing"

@@ -18,7 +18,7 @@
 package coremain
 
 import (
-	"github.com/IrineSistiana/mosdns/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
 	"gopkg.in/yaml.v3"
 	"io/ioutil"
 	"os"

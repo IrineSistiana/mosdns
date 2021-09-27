@@ -19,8 +19,8 @@ package v2data
 
 import (
 	"fmt"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/load_cache"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/domain"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/load_cache"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/matcher/domain"
 	"google.golang.org/protobuf/proto"
 	"os"
 	"strings"

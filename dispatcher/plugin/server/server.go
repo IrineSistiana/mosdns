@@ -20,11 +20,11 @@ package server
 import (
 	"errors"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/executable_seq"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/server"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/server/dns_handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/server/http_handler"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/executable_seq"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/server"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/server/dns_handler"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/server/http_handler"
 	"sync"
 	"time"
 )

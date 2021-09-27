@@ -19,7 +19,7 @@ package mem_cache
 
 import (
 	"context"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/concurrent_lru"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/concurrent_lru"
 	"github.com/miekg/dns"
 	"sync"
 	"time"

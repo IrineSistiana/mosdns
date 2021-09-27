@@ -2,7 +2,7 @@ package upstream
 
 import (
 	"errors"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/dnsutils"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"io"

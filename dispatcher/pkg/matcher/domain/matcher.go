@@ -19,7 +19,7 @@ package domain
 
 import (
 	"fmt"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/utils"
 	"regexp"
 	"strings"
 	"sync"

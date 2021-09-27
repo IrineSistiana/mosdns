@@ -22,9 +22,9 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/upstream"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/upstream"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
 	"time"
 )

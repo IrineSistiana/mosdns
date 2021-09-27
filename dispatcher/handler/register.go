@@ -19,7 +19,7 @@ package handler
 
 import (
 	"fmt"
-	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/mlog"
 	"go.uber.org/zap"
 	"sync"
 )

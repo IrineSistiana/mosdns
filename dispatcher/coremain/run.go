@@ -19,11 +19,11 @@ package coremain
 
 import (
 	"fmt"
-	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/mlog"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/concurrent_limiter"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/load_cache"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/mlog"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/concurrent_limiter"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/load_cache"
+	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"os"

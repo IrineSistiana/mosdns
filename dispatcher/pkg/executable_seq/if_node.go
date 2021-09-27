@@ -20,8 +20,8 @@ package executable_seq
 import (
 	"context"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/utils"
 	"go.uber.org/zap"
 	"reflect"
 	"strings"

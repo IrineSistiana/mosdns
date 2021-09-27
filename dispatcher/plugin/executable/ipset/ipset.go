@@ -19,7 +19,7 @@ package ipset
 
 import (
 	"context"
-	"github.com/IrineSistiana/mosdns/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 )

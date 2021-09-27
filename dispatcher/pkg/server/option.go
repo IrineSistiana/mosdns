@@ -19,7 +19,7 @@ package server
 
 import (
 	"crypto/tls"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/server/dns_handler"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/server/dns_handler"
 	"go.uber.org/zap"
 	"net"
 	"net/http"

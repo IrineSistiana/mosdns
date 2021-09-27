@@ -19,7 +19,7 @@ package hosts
 
 import (
 	"fmt"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/domain"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/matcher/domain"
 	"github.com/miekg/dns"
 	"net"
 )

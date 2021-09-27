@@ -19,21 +19,21 @@ package plugin
 
 // import all plugins
 import (
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/arbitrary"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/blackhole"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/cache"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/ecs"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/fast_forward"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/forward"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/hosts"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/ipset"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/sequence"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/sleep"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/executable/ttl"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/query_matcher"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/matcher/response_matcher"
-	_ "github.com/IrineSistiana/mosdns/dispatcher/plugin/server"
+	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/arbitrary"
+	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/blackhole"
+	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/cache"
+	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/ecs"
+	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/fast_forward"
+	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/forward"
+	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/hosts"
+	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/ipset"
+	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/sequence"
+	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/sleep"
+	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/ttl"
+	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/matcher/query_matcher"
+	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/matcher/response_matcher"
+	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/server"
 
 	// v2ray proto data support
-	_ "github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/v2data"
+	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/matcher/v2data"
 )

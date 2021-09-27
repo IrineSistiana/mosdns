@@ -19,9 +19,9 @@ package ecs
 
 import (
 	"context"
-	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/dnsutils"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
 	"gopkg.in/yaml.v3"
 	"net"

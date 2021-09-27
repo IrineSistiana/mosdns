@@ -20,8 +20,8 @@ package sequence
 import (
 	"context"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/executable_seq"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/executable_seq"
 )
 
 const PluginType = "sequence"

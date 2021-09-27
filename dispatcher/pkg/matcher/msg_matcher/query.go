@@ -20,11 +20,11 @@ package msg_matcher
 import (
 	"context"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/domain"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/elem"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/matcher/netlist"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/matcher/domain"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/matcher/elem"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/matcher/netlist"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
 )
 
