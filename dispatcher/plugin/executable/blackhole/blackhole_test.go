@@ -39,7 +39,7 @@ func Test_blackhole_Exec(t *testing.T) {
 			qCtx := handler.NewContext(q, nil)
 			qCtx.SetResponse(r, handler.ContextStatusResponded)
 
-			_, err = b.ExecES(ctx, qCtx)
+			err = b.Exec(ctx, qCtx, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

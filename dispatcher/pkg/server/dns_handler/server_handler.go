@@ -19,23 +19,12 @@ package dns_handler
 
 import (
 	"context"
-	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/cache"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/concurrent_limiter"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/dnsutils"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/executable_seq"
-	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
-	"golang.org/x/sync/singleflight"
 	"sync"
 	"testing"
-	"time"
-)
-
-const (
-	defaultLazyUpdateTimeout = time.Second * 5
 )
 
 type Handler interface {
@@ -53,7 +42,7 @@ type DefaultHandler struct {
 	Logger *zap.Logger
 
 	// Entry is the entry ExecutablePlugin's tag. This cannot be nil.
-	Entry executable_seq.ExecutableNode
+	Entry handler.ExecutableChainNode
 
 	// ConcurrentLimit controls the max concurrent queries for the DefaultHandler.
 	// If ConcurrentLimit <= 0, means no limit.
@@ -62,15 +51,9 @@ type DefaultHandler struct {
 	// - it can be proceeded -> Normal procedure.
 	ConcurrentLimit int
 
-	// If Cache is not nil, cache will be enabled.
-	Cache        cache.Backend
-	LazyCacheTTL int // If LazyCacheTTL > 0. Lazy cache mode will be enabled.
-
 	initOnce sync.Once // init the followings
 	logger   *zap.Logger
 	limiter  *concurrent_limiter.ConcurrentLimiter // if it's nil, means no limit.
-
-	lazyUpdateSF singleflight.Group
 }
 
 // ServeDNS
@@ -101,8 +84,7 @@ func (h *DefaultHandler) ServeDNS(ctx context.Context, qCtx *handler.Context, w 
 		}
 	}
 
-	err := h.execEntry(ctx, qCtx)
-
+	err := handler.ExecChainNode(ctx, qCtx, h.Entry)
 	if err != nil {
 		h.logger.Warn("entry returned an err", qCtx.InfoField(), zap.Error(err))
 	} else {
@@ -123,101 +105,6 @@ func (h *DefaultHandler) ServeDNS(ctx context.Context, qCtx *handler.Context, w 
 			h.logger.Warn("write response", qCtx.InfoField(), zap.Error(err))
 		}
 	}
-}
-
-func (h *DefaultHandler) execEntry(ctx context.Context, qCtx *handler.Context) error {
-	if h.Cache == nil {
-		_, err := executable_seq.ExecRoot(ctx, qCtx, h.logger, h.Entry)
-		return err
-	}
-
-	q := qCtx.Q()
-	key, err := utils.GetMsgKey(q, 0)
-	if err != nil {
-		return fmt.Errorf("unable to get msg key, %w", err)
-	}
-
-	// lookup in cache
-	r, storedTime, _, err := h.Cache.Get(ctx, key, h.LazyCacheTTL > 0)
-	if err != nil {
-		return fmt.Errorf("unable to access cache, %w", err)
-	}
-
-	// cache hit
-	if r != nil {
-		// change msg id to query
-		r.Id = q.Id
-
-		if h.LazyCacheTTL > 0 && storedTime.Add(time.Duration(dnsutils.GetMinimalTTL(r))*time.Second).Before(time.Now()) { // lazy update enabled and expired cache hit
-			// prepare a response with 1 ttl
-			dnsutils.SetTTL(r, 1)
-			h.logger.Debug("expired cache hit", qCtx.InfoField())
-			qCtx.SetResponse(r, handler.ContextStatusResponded)
-
-			// start a goroutine to update cache
-			lazyUpdateDdl, ok := ctx.Deadline()
-			if !ok {
-				lazyUpdateDdl = time.Now().Add(defaultLazyUpdateTimeout)
-			}
-			lazyQCtx := qCtx.CopyNoR()
-			lazyUpdateFunc := func() (interface{}, error) {
-				h.logger.Debug("start lazy cache update", lazyQCtx.InfoField(), zap.Error(err))
-				defer h.lazyUpdateSF.Forget(key)
-				lazyCtx, cancel := context.WithDeadline(context.Background(), lazyUpdateDdl)
-				defer cancel()
-
-				_, err := executable_seq.ExecRoot(lazyCtx, lazyQCtx, h.logger, h.Entry)
-				if err != nil {
-					h.logger.Warn("failed to update lazy cache", lazyQCtx.InfoField(), zap.Error(err))
-				}
-
-				r := lazyQCtx.R()
-				if r != nil && cacheAble(r) {
-					err := h.storeMsg(ctx, key, r)
-					if err != nil {
-						h.logger.Warn("failed to store lazy cache", lazyQCtx.InfoField(), zap.Error(err))
-					}
-				}
-				h.logger.Debug("lazy cache updated", lazyQCtx.InfoField(), zap.Error(err))
-				return nil, nil
-			}
-			h.lazyUpdateSF.DoChan(key, lazyUpdateFunc) // DoChan won't block this goroutine
-
-			return nil
-		}
-
-		// cache hit but not expired
-		dnsutils.SubtractTTL(r, uint32(time.Since(storedTime).Seconds()))
-		h.logger.Debug("cache hit", qCtx.InfoField())
-		qCtx.SetResponse(r, handler.ContextStatusResponded)
-		return nil
-	}
-
-	// cache miss, run the entry
-	_, err = executable_seq.ExecRoot(ctx, qCtx, h.logger, h.Entry)
-	r = qCtx.R()
-	if r != nil && cacheAble(r) {
-		err := h.storeMsg(ctx, key, r)
-		if err != nil {
-			h.logger.Warn("failed to store lazy cache", qCtx.InfoField(), zap.Error(err))
-		}
-	}
-	return err
-}
-
-func cacheAble(r *dns.Msg) bool {
-	return r.Rcode == dns.RcodeSuccess && r.Truncated == false && len(r.Answer) != 0
-}
-
-func (h *DefaultHandler) storeMsg(ctx context.Context, key string, r *dns.Msg) error {
-	now := time.Now()
-	var expirationTime time.Time
-	if h.LazyCacheTTL > 0 {
-		expirationTime = now.Add(time.Duration(h.LazyCacheTTL) * time.Second)
-	} else {
-		expirationTime = now.Add(time.Duration(dnsutils.GetMinimalTTL(r)) * time.Second)
-	}
-	return h.Cache.Store(ctx, key, r, now, expirationTime)
 }
 
 type DummyServerHandler struct {

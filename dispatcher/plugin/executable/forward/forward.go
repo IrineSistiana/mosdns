@@ -36,7 +36,7 @@ func init() {
 	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 }
 
-var _ handler.ESExecutablePlugin = (*forwarder)(nil)
+var _ handler.ExecutablePlugin = (*forwarder)(nil)
 
 type forwarder struct {
 	*handler.BP
@@ -144,12 +144,17 @@ func (u *trustedUpstream) Trusted() bool {
 	return u.trusted
 }
 
-// ExecES forwards qCtx.Q() to upstreams, and sets qCtx.R().
+// Exec forwards qCtx.Q() to upstreams, and sets qCtx.R().
 // qCtx.Status() will be set as
 // - handler.ContextStatusResponded: if it received a response.
 // - handler.ContextStatusServerFailed: if all upstreams failed.
-func (f *forwarder) ExecES(ctx context.Context, qCtx *handler.Context) (earlyStop bool, err error) {
-	return false, f.exec(ctx, qCtx)
+func (f *forwarder) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
+	err := f.exec(ctx, qCtx)
+	if err != nil {
+		return err
+	}
+
+	return handler.ExecChainNode(ctx, qCtx, next)
 }
 
 func (f *forwarder) exec(ctx context.Context, qCtx *handler.Context) error {

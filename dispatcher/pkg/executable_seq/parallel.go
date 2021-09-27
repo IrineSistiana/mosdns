@@ -27,8 +27,10 @@ import (
 )
 
 type ParallelNode struct {
-	s       []ExecutableNode
+	s       []handler.ExecutableChainNode
 	timeout time.Duration
+
+	logger *zap.Logger // not nil
 }
 
 type ParallelConfig struct {
@@ -36,20 +38,28 @@ type ParallelConfig struct {
 	Timeout  uint          `yaml:"timeout"`
 }
 
-func ParseParallelNode(c *ParallelConfig) (*ParallelNode, error) {
+func ParseParallelNode(c *ParallelConfig, logger *zap.Logger) (*ParallelNode, error) {
 	if len(c.Parallel) < 2 {
 		return nil, fmt.Errorf("parallel needs at least 2 cmd sequences, but got %d", len(c.Parallel))
 	}
 
-	ps := make([]ExecutableNode, 0, len(c.Parallel))
+	ps := make([]handler.ExecutableChainNode, 0, len(c.Parallel))
 	for i, subSequence := range c.Parallel {
-		es, err := ParseExecutableNode(subSequence)
+		es, err := ParseExecutableNode(subSequence, logger)
 		if err != nil {
 			return nil, fmt.Errorf("invalid parallel command at index %d: %w", i, err)
 		}
 		ps = append(ps, es)
 	}
-	return &ParallelNode{s: ps, timeout: time.Duration(c.Timeout) * time.Second}, nil
+
+	pn := &ParallelNode{s: ps, timeout: time.Duration(c.Timeout) * time.Second}
+
+	if logger != nil {
+		pn.logger = logger
+	} else {
+		pn.logger = zap.NewNop()
+	}
+	return pn, nil
 }
 
 type parallelECSResult struct {
@@ -59,38 +69,35 @@ type parallelECSResult struct {
 	from   int
 }
 
-func (p *ParallelNode) Exec(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (earlyStop bool, err error) {
-	return false, p.exec(ctx, qCtx, logger)
+func (p *ParallelNode) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
+	if err := p.exec(ctx, qCtx); err != nil {
+		return err
+	}
+	return handler.ExecChainNode(ctx, qCtx, next)
 }
 
-func (p *ParallelNode) exec(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (err error) {
-
-	var pCtx context.Context // only valid if p.timeout == 0
-	var cancel func()
-	if p.timeout == 0 {
-		pCtx, cancel = context.WithCancel(ctx)
-		defer cancel()
-	}
+func (p *ParallelNode) exec(ctx context.Context, qCtx *handler.Context) error {
 
 	t := len(p.s)
 	c := make(chan *parallelECSResult, len(p.s)) // use buf chan to avoid blocking.
 
-	for i, sequence := range p.s {
+	for i, n := range p.s {
 		i := i
-		sequence := sequence
+		n := n
 		qCtxCopy := qCtx.Copy()
 
-		go func() {
-			var ecsCtx context.Context
-			var ecsCancel func()
-			if p.timeout == 0 {
-				ecsCtx = pCtx
-			} else {
-				ecsCtx, ecsCancel = context.WithTimeout(context.Background(), p.timeout)
-				defer ecsCancel()
-			}
+		var pCtx context.Context
+		var cancel func()
+		if p.timeout > 0 {
+			pCtx, cancel = context.WithTimeout(context.Background(), p.timeout)
+		} else {
+			pCtx, cancel = context.WithCancel(ctx)
+		}
 
-			_, err := ExecRoot(ecsCtx, qCtxCopy, logger, sequence)
+		go func() {
+			defer cancel()
+
+			err := handler.ExecChainNode(pCtx, qCtxCopy, n)
 			c <- &parallelECSResult{
 				r:      qCtxCopy.R(),
 				status: qCtxCopy.Status(),
@@ -100,5 +107,5 @@ func (p *ParallelNode) exec(ctx context.Context, qCtx *handler.Context, logger *
 		}()
 	}
 
-	return asyncWait(ctx, qCtx, logger, c, t)
+	return asyncWait(ctx, qCtx, p.logger, c, t)
 }

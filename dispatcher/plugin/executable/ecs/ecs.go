@@ -36,7 +36,7 @@ func init() {
 	handler.MustRegPlugin(&noECS{BP: handler.NewBP("_no_ecs", PluginType)}, true)
 }
 
-var _ handler.ESExecutablePlugin = (*ecsPlugin)(nil)
+var _ handler.ExecutablePlugin = (*ecsPlugin)(nil)
 
 type Args struct {
 	// Automatically append client address as ecs.
@@ -103,21 +103,29 @@ func newPlugin(bp *handler.BP, args *Args) (p handler.Plugin, err error) {
 	return ep, nil
 }
 
-// ExecES tries to append ECS to qCtx.Q().
-// If an error occurred, Do will just log it.
-// Therefore, Do will never return an errOR.
-func (e ecsPlugin) ExecES(_ context.Context, qCtx *handler.Context) (bool, error) {
+// Exec tries to append ECS to qCtx.Q().
+// If an error occurred, Exec will just log it to internal logger.
+// It will never raise its own error.
+func (e ecsPlugin) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
+	err := e.appendECS(qCtx)
+	if err != nil {
+		e.L().Warn("internal err", zap.Error(err))
+	}
+
+	return handler.ExecChainNode(ctx, qCtx, next)
+}
+
+func (e ecsPlugin) appendECS(qCtx *handler.Context) error {
 	qHasECS := dnsutils.GetMsgECS(qCtx.Q()) != nil
 	if qHasECS && !e.args.ForceOverwrite {
-		return false, nil
+		return nil
 	}
 
 	var ecs *dns.EDNS0_SUBNET
 	if e.args.Auto && qCtx.From() != nil { // use client ip
 		ip := utils.GetIPFromAddr(qCtx.From())
 		if ip == nil {
-			e.L().Warn("internal err: can not parse client ip address", qCtx.InfoField(), zap.Stringer("from", qCtx.From()))
-			return false, nil
+			return fmt.Errorf("failed to parse client ip address, the raw data is [%s]", qCtx.From())
 		}
 		if ip4 := ip.To4(); ip4 != nil { // is ipv4
 			ecs = dnsutils.NewEDNS0Subnet(ip4, e.args.Mask4, false)
@@ -125,8 +133,7 @@ func (e ecsPlugin) ExecES(_ context.Context, qCtx *handler.Context) (bool, error
 			if ip6 := ip.To16(); ip6 != nil { // is ipv6
 				ecs = dnsutils.NewEDNS0Subnet(ip6, e.args.Mask6, true)
 			} else { // non
-				e.L().Warn("internal err: client ip address is not a valid ip address", qCtx.InfoField(), zap.Stringer("from", qCtx.From()))
-				return false, nil
+				return fmt.Errorf("invalid client ip address [%s]", qCtx.From())
 			}
 		}
 	} else { // use preset ip
@@ -151,7 +158,7 @@ func (e ecsPlugin) ExecES(_ context.Context, qCtx *handler.Context) (bool, error
 		dnsutils.AppendECS(qCtx.Q(), ecs)
 	}
 
-	return false, nil
+	return nil
 }
 
 func checkQueryType(m *dns.Msg, typ uint16) bool {
@@ -165,12 +172,12 @@ type noECS struct {
 	*handler.BP
 }
 
-var _ handler.ESExecutablePlugin = (*noECS)(nil)
+var _ handler.ExecutablePlugin = (*noECS)(nil)
 
-func (n noECS) ExecES(_ context.Context, qCtx *handler.Context) (bool, error) {
+func (n noECS) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
 	dnsutils.RemoveECS(qCtx.Q())
 	if qCtx.R() != nil {
 		dnsutils.RemoveECS(qCtx.R())
 	}
-	return false, nil
+	return handler.ExecChainNode(ctx, qCtx, next)
 }

@@ -71,7 +71,7 @@ ipv6: '2001:dd8:1a::'
 				}
 			}
 
-			_, err = ecs.ExecES(ctx, handler.NewContext(m, nil))
+			err = ecs.Exec(ctx, handler.NewContext(m, nil), nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -129,7 +129,7 @@ func Test_ecs_auto(t *testing.T) {
 			}
 
 			qCtx := handler.NewContext(m, from[i])
-			_, err = ecs.ExecES(context.Background(), qCtx)
+			err = ecs.Exec(context.Background(), qCtx, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -155,7 +155,7 @@ func Test_remove_ecs(t *testing.T) {
 	dnsutils.AppendECS(m, ecs)
 
 	p := &noECS{}
-	_, err := p.ExecES(context.Background(), handler.NewContext(m, nil))
+	err := p.Exec(context.Background(), handler.NewContext(m, nil), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

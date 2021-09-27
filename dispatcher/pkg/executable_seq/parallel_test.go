@@ -22,11 +22,10 @@ import (
 	"errors"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/miekg/dns"
-	"go.uber.org/zap"
 	"testing"
 )
 
-func Test_ParallelECS(t *testing.T) {
+func Test_ParallelNode(t *testing.T) {
 	handler.PurgePluginRegister()
 	defer handler.PurgePluginRegister()
 
@@ -51,9 +50,9 @@ func Test_ParallelECS(t *testing.T) {
 		{"p2 response #2", nil, er, r2, nil, r2, false},
 	}
 
-	parallelECS, err := ParseParallelNode(&ParallelConfig{
+	parallelNode, err := ParseParallelNode(&ParallelConfig{
 		Parallel: []interface{}{"p1", "p2"},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,23 +60,23 @@ func Test_ParallelECS(t *testing.T) {
 	ctx := context.Background()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p1 := &handler.DummyESExecutablePlugin{
-				BP:      handler.NewBP("p1", ""),
-				Sleep:   0,
-				WantR:   tt.r1,
-				WantErr: tt.e1,
+			p1 := &handler.DummyExecutablePlugin{
+				BP:        handler.NewBP("p1", ""),
+				WantSleep: 0,
+				WantR:     tt.r1,
+				WantErr:   tt.e1,
 			}
-			p2 := &handler.DummyESExecutablePlugin{
-				BP:      handler.NewBP("p2", ""),
-				Sleep:   0,
-				WantR:   tt.r2,
-				WantErr: tt.e2,
+			p2 := &handler.DummyExecutablePlugin{
+				BP:        handler.NewBP("p2", ""),
+				WantSleep: 0,
+				WantR:     tt.r2,
+				WantErr:   tt.e2,
 			}
 			handler.MustRegPlugin(p1, false)
 			handler.MustRegPlugin(p2, false)
 
 			qCtx := handler.NewContext(new(dns.Msg), nil)
-			err := parallelECS.exec(ctx, qCtx, zap.NewNop())
+			err := handler.ExecChainNode(ctx, qCtx, handler.WarpExecutable(parallelNode))
 			if tt.wantErr != (err != nil) {
 				t.Fatalf("execCmd() error = %v, wantErr %v", err, tt.wantErr)
 			}

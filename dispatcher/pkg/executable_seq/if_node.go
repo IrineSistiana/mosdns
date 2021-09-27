@@ -19,7 +19,6 @@ package executable_seq
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/dispatcher/pkg/utils"
@@ -49,40 +48,36 @@ func (n *NagativeMatcher) Match(ctx context.Context, qCtx *handler.Context) (mat
 
 // IfBlockConfig is a config to build a IfBlock.
 type IfBlockConfig struct {
-	// Available type are string and handler.Matcher, or a slice of them.
+	// Available type are:
+	// 	string (a tag of registered handler.MatcherPlugin)
+	// 	handler.Matcher.
+	// 	a slice of interface{} and contains above type. (In this case, the logic
+	// 		between multiple matchers is OR.)
+	//
 	If interface{} `yaml:"if"`
-	// Available type are string and handler.Matcher, or a slice of them.
-	IfAnd interface{} `yaml:"if_and"`
+
 	// See ParseExecutableNode.
 	Exec interface{} `yaml:"exec"`
 }
 
 type IfBlock struct {
 	IfMatcher      handler.Matcher
-	IfAndMatcher   handler.Matcher
-	ExecutableNode ExecutableNode
+	ExecutableNode handler.ExecutableChainNode
 }
 
-func ParseIfBlock(c *IfBlockConfig) (*IfBlock, error) {
+func ParseIfBlock(c *IfBlockConfig, logger *zap.Logger) (*IfBlock, error) {
 	b := new(IfBlock)
 	var err error
 
 	if c.If != nil {
-		b.IfMatcher, err = parseMatcher(c.If, batchLogicOr)
+		b.IfMatcher, err = parseMatcher(c.If)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse if condition: %w", err)
 		}
 	}
 
-	if c.IfAnd != nil {
-		b.IfAndMatcher, err = parseMatcher(c.IfAnd, batchLogicAnd)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse ifAnd condition: %w", err)
-		}
-	}
-
 	if c.Exec != nil {
-		b.ExecutableNode, err = ParseExecutableNode(c.Exec)
+		b.ExecutableNode, err = ParseExecutableNode(c.Exec, logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse exec command: %w", err)
 		}
@@ -91,33 +86,20 @@ func ParseIfBlock(c *IfBlockConfig) (*IfBlock, error) {
 	return b, nil
 }
 
-const (
-	batchLogicNoBatch int = iota
-	batchLogicAnd
-	batchLogicOr
-)
-
-func parseMatcher(in interface{}, batchLogic int) (handler.Matcher, error) {
+func parseMatcher(in interface{}) (handler.Matcher, error) {
 	switch v := in.(type) {
 	case handler.Matcher:
 		return v, nil
 	case []interface{}:
-		if batchLogic == batchLogicNoBatch {
-			return nil, errors.New("input should not be multiple matchers")
-		}
-
 		ms := make([]handler.Matcher, 0)
 		for i, leaf := range v {
-			m, err := parseMatcher(leaf, batchLogicNoBatch)
+			m, err := parseMatcher(leaf)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse leaf #%d: %w", i, err)
 			}
 			ms = append(ms, m)
 		}
 
-		if batchLogic == batchLogicAnd {
-			return BatchMatherAnd(ms), nil
-		}
 		return BatchMatherOr(ms), nil
 	case string:
 		if strings.HasPrefix(v, "!") {
@@ -136,35 +118,21 @@ func (bm BatchMatherOr) Match(ctx context.Context, qCtx *handler.Context) (bool,
 	return utils.BoolLogic(ctx, qCtx, bm, false)
 }
 
-type BatchMatherAnd []handler.Matcher
-
-func (bm BatchMatherAnd) Match(ctx context.Context, qCtx *handler.Context) (bool, error) {
-	return utils.BoolLogic(ctx, qCtx, bm, true)
-}
-
-func (b *IfBlock) Exec(ctx context.Context, qCtx *handler.Context, logger *zap.Logger) (earlyStop bool, err error) {
-	for _, matcher := range [...]handler.Matcher{b.IfMatcher, b.IfAndMatcher} {
-		if matcher != nil {
-			ok, err := matcher.Match(ctx, qCtx)
-			if err != nil {
-				return false, fmt.Errorf("matcher failed: %w", err)
-			}
-			if !ok {
-				return false, nil
-			}
-		}
-	}
-
-	// exec
-	if b.ExecutableNode != nil {
-		earlyStop, err = b.ExecutableNode.Exec(ctx, qCtx, logger)
+func (b *IfBlock) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) (err error) {
+	if b.IfMatcher != nil {
+		ok, err := b.IfMatcher.Match(ctx, qCtx)
 		if err != nil {
-			return false, fmt.Errorf("exec command failed: %w", err)
+			return fmt.Errorf("matcher failed: %w", err)
 		}
-		if earlyStop {
-			return true, nil
+		if ok {
+			if b.ExecutableNode != nil {
+				err := handler.ExecChainNode(ctx, qCtx, b.ExecutableNode)
+				if err != nil {
+					return fmt.Errorf("exec node failed: %w", err)
+				}
+			}
 		}
 	}
 
-	return false, nil
+	return handler.ExecChainNode(ctx, qCtx, next)
 }

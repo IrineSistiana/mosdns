@@ -25,15 +25,20 @@ type Plugin interface {
 	Type() string
 }
 
-// ESExecutable represents Early Stoppable Executable.
-type ESExecutable interface {
-	ExecES(ctx context.Context, qCtx *Context) (earlyStop bool, err error)
+// Executable represents something that is executable.
+type Executable interface {
+	Exec(ctx context.Context, qCtx *Context, next ExecutableChainNode) error
 }
 
-// ESExecutablePlugin: See ESExecutable.
-type ESExecutablePlugin interface {
+type ExecutableChainNode interface {
+	Executable
+	linkedList
+}
+
+// ExecutablePlugin: See ESExecutable.
+type ExecutablePlugin interface {
 	Plugin
-	ESExecutable
+	Executable
 }
 
 // Matcher represents a matcher that can match a certain patten in Context.
@@ -57,4 +62,40 @@ type Service interface {
 type ServicePlugin interface {
 	Plugin
 	Service
+}
+
+type ExecutableNodeWrapper struct {
+	Executable
+	NodeLinker
+}
+
+func WarpExecutable(e Executable) ExecutableChainNode {
+	return &ExecutableNodeWrapper{Executable: e}
+}
+
+type linkedList interface {
+	Previous() ExecutableChainNode
+	Next() ExecutableChainNode
+	LinkPrevious(n ExecutableChainNode)
+	LinkNext(n ExecutableChainNode)
+}
+
+type NodeLinker struct {
+	prev, next ExecutableChainNode
+}
+
+func (l *NodeLinker) Previous() ExecutableChainNode {
+	return l.prev
+}
+
+func (l *NodeLinker) Next() ExecutableChainNode {
+	return l.next
+}
+
+func (l *NodeLinker) LinkPrevious(n ExecutableChainNode) {
+	l.prev = n
+}
+
+func (l *NodeLinker) LinkNext(n ExecutableChainNode) {
+	l.next = n
 }

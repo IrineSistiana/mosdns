@@ -30,7 +30,7 @@ func init() {
 	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 }
 
-var _ handler.ESExecutablePlugin = (*hostsPlugin)(nil)
+var _ handler.ExecutablePlugin = (*hostsPlugin)(nil)
 
 type Args struct {
 	Hosts []string `yaml:"hosts"`
@@ -58,11 +58,12 @@ func newHostsContainer(bp *handler.BP, args *Args) (*hostsPlugin, error) {
 	}, nil
 }
 
-func (h *hostsPlugin) ExecES(ctx context.Context, qCtx *handler.Context) (earlyStop bool, err error) {
+func (h *hostsPlugin) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
 	r := h.h.LookupMsg(qCtx.Q())
 	if r != nil {
 		qCtx.SetResponse(r, handler.ContextStatusResponded)
-		return true, nil
+		return nil
 	}
-	return false, nil
+
+	return handler.ExecChainNode(ctx, qCtx, next)
 }

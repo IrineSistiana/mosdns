@@ -31,7 +31,7 @@ func init() {
 	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 }
 
-var _ handler.ESExecutablePlugin = (*ttl)(nil)
+var _ handler.ExecutablePlugin = (*ttl)(nil)
 
 type Args struct {
 	MaximumTTL uint32 `yaml:"maximum_ttl"`
@@ -54,9 +54,8 @@ func newTTL(bp *handler.BP, args *Args) handler.Plugin {
 	}
 }
 
-func (t *ttl) ExecES(_ context.Context, qCtx *handler.Context) (bool, error) {
-	r := qCtx.R()
-	if r != nil {
+func (t *ttl) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
+	if r := qCtx.R(); r != nil {
 		if t.args.MaximumTTL > 0 {
 			dnsutils.ApplyMaximumTTL(r, t.args.MaximumTTL)
 		}
@@ -64,5 +63,5 @@ func (t *ttl) ExecES(_ context.Context, qCtx *handler.Context) (bool, error) {
 			dnsutils.ApplyMinimalTTL(r, t.args.MinimalTTL)
 		}
 	}
-	return false, nil
+	return handler.ExecChainNode(ctx, qCtx, next)
 }

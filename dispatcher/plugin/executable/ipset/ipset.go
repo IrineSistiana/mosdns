@@ -20,6 +20,7 @@ package ipset
 import (
 	"context"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
+	"github.com/miekg/dns"
 	"go.uber.org/zap"
 )
 
@@ -29,7 +30,7 @@ func init() {
 	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 }
 
-var _ handler.ESExecutablePlugin = (*ipsetPlugin)(nil)
+var _ handler.ExecutablePlugin = (*ipsetPlugin)(nil)
 
 type Args struct {
 	SetName4 string `yaml:"set_name4"`
@@ -61,17 +62,21 @@ func newIpsetPlugin(bp *handler.BP, args *Args) *ipsetPlugin {
 	}
 }
 
-// ExecES tries to add all qCtx.R() IPs to system ipset.
+// Exec tries to add all qCtx.R() IPs to system ipset.
 // If an error occurred, Exec will just log it.
-// Therefore, Exec will never return an error.
-func (p *ipsetPlugin) ExecES(_ context.Context, qCtx *handler.Context) (bool, error) {
-	if qCtx.R() == nil {
-		return false, nil
+// Therefore, Exec will never raise its own error.
+func (p *ipsetPlugin) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
+	r := qCtx.R()
+	if r != nil {
+		er := p.addIPSet(r)
+		if er != nil {
+			p.L().Warn("failed to add response IP to ipset", qCtx.InfoField(), zap.Error(er))
+		}
 	}
 
-	er := p.addIPSet(qCtx.R())
-	if er != nil {
-		p.L().Warn("failed to add response IP to ipset", qCtx.InfoField(), zap.Error(er))
-	}
-	return false, nil
+	return handler.ExecChainNode(ctx, qCtx, next)
+}
+
+func (p *ipsetPlugin) addIPset(r *dns.Msg) error {
+	return p.addIPSet(r)
 }

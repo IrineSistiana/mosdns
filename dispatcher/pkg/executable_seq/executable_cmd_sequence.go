@@ -26,35 +26,24 @@ import (
 	"reflect"
 )
 
-// EarlyStop is a noop ExecutableNode that returns earlyStop == true.
-var EarlyStop earlyStop
-
-type earlyStop struct {
-	NodeLinker
+// NewREPNode creates a RefExecPluginNode from tag.
+func NewREPNode(tag string) *RefExecPluginNode {
+	return &RefExecPluginNode{ref: tag}
 }
 
-func (e *earlyStop) Exec(_ context.Context, _ *handler.Context, _ *zap.Logger) (earlyStop bool, err error) {
-	return true, nil
-}
-
-// NewRESEPNode creates a RefESExecutablePluginNode from tag.
-func NewRESEPNode(tag string) *RefESExecutablePluginNode {
-	return &RefESExecutablePluginNode{ref: tag}
-}
-
-// RefESExecutablePluginNode is a handler.ESExecutablePlugin reference tag.
-type RefESExecutablePluginNode struct {
+// RefExecPluginNode is a handler.ExecutablePlugin reference tag.
+type RefExecPluginNode struct {
 	ref string
-	NodeLinker
+	handler.NodeLinker
 }
 
-func (n *RefESExecutablePluginNode) Exec(ctx context.Context, qCtx *handler.Context, _ *zap.Logger) (earlyStop bool, err error) {
+func (n *RefExecPluginNode) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) (err error) {
 	p, err := handler.GetPlugin(n.ref)
 	if err != nil {
-		return false, err
+		return err
 	}
 
-	return p.ExecES(ctx, qCtx)
+	return p.Exec(ctx, qCtx, next)
 }
 
 // RefMatcherPluginNode is a handler.MatcherPlugin reference tag.
@@ -68,21 +57,21 @@ func (ref RefMatcherPluginNode) Match(ctx context.Context, qCtx *handler.Context
 	return p.Match(ctx, qCtx)
 }
 
-// ParseExecutableNode parses in into a ExecutableNode.
+// ParseExecutableNode parses in into a ExecutableChainNode.
 // in can be: (a / a slice of) Executable,
-// (a / a slice of) string of registered handler.ESExecutablePlugin tag,
+// (a / a slice of) string of registered handler.ExecutablePlugin tag,
 // (a / a slice of) map[string]interface{}, which can be parsed to FallbackConfig, ParallelConfig or IfBlockConfig,
 // a []interface{} that contains all of the above.
-func ParseExecutableNode(in interface{}) (ExecutableNode, error) {
+func ParseExecutableNode(in interface{}, logger *zap.Logger) (handler.ExecutableChainNode, error) {
 	switch v := in.(type) {
-	case Executable:
-		return WarpExecutable(v), nil
+	case handler.Executable:
+		return handler.WarpExecutable(v), nil
 
 	case []interface{}:
-		var rootNode ExecutableNode
-		var tailNode ExecutableNode
+		var rootNode handler.ExecutableChainNode
+		var tailNode handler.ExecutableChainNode
 		for i, elem := range v {
-			n, err := ParseExecutableNode(elem)
+			n, err := ParseExecutableNode(elem, logger)
 			if err != nil {
 				return nil, fmt.Errorf("invalid cmd at #%d: %w", i, err)
 			}
@@ -99,24 +88,24 @@ func ParseExecutableNode(in interface{}) (ExecutableNode, error) {
 		return rootNode, nil
 
 	case string:
-		return NewRESEPNode(v), nil
+		return NewREPNode(v), nil
 
 	case map[string]interface{}:
 		switch {
-		case hasKey(v, "if") || hasKey(v, "if_and"): // if block
-			ec, err := parseIfBlockFromMap(v)
+		case hasKey(v, "if"): // if block
+			ec, err := parseIfBlockFromMap(v, logger)
 			if err != nil {
 				return nil, fmt.Errorf("invalid if section: %w", err)
 			}
 			return ec, nil
 		case hasKey(v, "parallel"): // parallel
-			ec, err := parseParallelECSFromMap(v)
+			ec, err := parseParallelECSFromMap(v, logger)
 			if err != nil {
 				return nil, fmt.Errorf("invalid parallel section: %w", err)
 			}
 			return ec, nil
 		case hasKey(v, "primary") || hasKey(v, "secondary"): // fallback
-			ec, err := parseFallbackECSFromMap(v)
+			ec, err := parseFallbackECSFromMap(v, logger)
 			if err != nil {
 				return nil, fmt.Errorf("invalid fallback section: %w", err)
 			}
@@ -129,47 +118,47 @@ func ParseExecutableNode(in interface{}) (ExecutableNode, error) {
 	}
 }
 
-func parseIfBlockFromMap(m map[string]interface{}) (ExecutableNode, error) {
+func parseIfBlockFromMap(m map[string]interface{}, logger *zap.Logger) (handler.ExecutableChainNode, error) {
 	conf := new(IfBlockConfig)
 	err := handler.WeakDecode(m, conf)
 	if err != nil {
 		return nil, err
 	}
 
-	e, err := ParseIfBlock(conf)
+	e, err := ParseIfBlock(conf, logger)
 	if err != nil {
 		return nil, err
 	}
 
-	return WarpExecutable(e), nil
+	return handler.WarpExecutable(e), nil
 }
 
-func parseParallelECSFromMap(m map[string]interface{}) (ExecutableNode, error) {
+func parseParallelECSFromMap(m map[string]interface{}, logger *zap.Logger) (handler.ExecutableChainNode, error) {
 	conf := new(ParallelConfig)
 	err := handler.WeakDecode(m, conf)
 	if err != nil {
 		return nil, err
 	}
-	e, err := ParseParallelNode(conf)
+	e, err := ParseParallelNode(conf, logger)
 	if err != nil {
 		return nil, err
 	}
 
-	return WarpExecutable(e), nil
+	return handler.WarpExecutable(e), nil
 }
 
-func parseFallbackECSFromMap(m map[string]interface{}) (ExecutableNode, error) {
+func parseFallbackECSFromMap(m map[string]interface{}, logger *zap.Logger) (handler.ExecutableChainNode, error) {
 	conf := new(FallbackConfig)
 	err := handler.WeakDecode(m, conf)
 	if err != nil {
 		return nil, err
 	}
-	e, err := ParseFallbackNode(conf)
+	e, err := ParseFallbackNode(conf, logger)
 	if err != nil {
 		return nil, err
 	}
 
-	return WarpExecutable(e), nil
+	return handler.WarpExecutable(e), nil
 }
 
 func hasKey(m map[string]interface{}, key string) bool {

@@ -22,7 +22,6 @@ import (
 	"errors"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/miekg/dns"
-	"go.uber.org/zap"
 	"testing"
 	"time"
 )
@@ -62,7 +61,7 @@ func Test_FallbackECS_fallback(t *testing.T) {
 		AlwaysStandby: false,
 	}
 
-	fallbackECS, err := ParseFallbackNode(conf)
+	fallbackECS, err := ParseFallbackNode(conf, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,23 +69,23 @@ func Test_FallbackECS_fallback(t *testing.T) {
 	ctx := context.Background()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p1 := &handler.DummyESExecutablePlugin{
-				BP:      handler.NewBP("p1", ""),
-				Sleep:   0,
-				WantR:   tt.r1,
-				WantErr: tt.e1,
+			p1 := &handler.DummyExecutablePlugin{
+				BP:        handler.NewBP("p1", ""),
+				WantSleep: 0,
+				WantR:     tt.r1,
+				WantErr:   tt.e1,
 			}
-			p2 := &handler.DummyESExecutablePlugin{
-				BP:      handler.NewBP("p2", ""),
-				Sleep:   0,
-				WantR:   tt.r2,
-				WantErr: tt.e2,
+			p2 := &handler.DummyExecutablePlugin{
+				BP:        handler.NewBP("p2", ""),
+				WantSleep: 0,
+				WantR:     tt.r2,
+				WantErr:   tt.e2,
 			}
 
 			handler.MustRegPlugin(p1, false)
 			handler.MustRegPlugin(p2, false)
 			qCtx := handler.NewContext(new(dns.Msg), nil)
-			err := fallbackECS.exec(ctx, qCtx, zap.NewNop())
+			err := handler.ExecChainNode(ctx, qCtx, handler.WarpExecutable(fallbackECS))
 			if tt.wantErr != (err != nil) {
 				t.Fatalf("execCmd() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -145,21 +144,21 @@ func Test_FallbackECS_fast_fallback(t *testing.T) {
 				AlwaysStandby: tt.alwaysStandby,
 			}
 
-			fallbackECS, err := ParseFallbackNode(conf)
+			fallbackECS, err := ParseFallbackNode(conf, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
-			p1 := &handler.DummyESExecutablePlugin{
-				BP:      handler.NewBP("p1", ""),
-				Sleep:   time.Duration(tt.l1) * time.Millisecond,
-				WantR:   tt.r1,
-				WantErr: tt.e1,
+			p1 := &handler.DummyExecutablePlugin{
+				BP:        handler.NewBP("p1", ""),
+				WantSleep: time.Duration(tt.l1) * time.Millisecond,
+				WantR:     tt.r1,
+				WantErr:   tt.e1,
 			}
-			p2 := &handler.DummyESExecutablePlugin{
-				BP:      handler.NewBP("p2", ""),
-				Sleep:   time.Duration(tt.l2) * time.Millisecond,
-				WantR:   tt.r2,
-				WantErr: tt.e2,
+			p2 := &handler.DummyExecutablePlugin{
+				BP:        handler.NewBP("p2", ""),
+				WantSleep: time.Duration(tt.l2) * time.Millisecond,
+				WantR:     tt.r2,
+				WantErr:   tt.e2,
 			}
 			handler.MustRegPlugin(p1, false)
 			handler.MustRegPlugin(p2, false)
@@ -169,7 +168,7 @@ func Test_FallbackECS_fast_fallback(t *testing.T) {
 
 			start := time.Now()
 			qCtx := handler.NewContext(new(dns.Msg), nil)
-			err = fallbackECS.exec(ctx, qCtx, zap.NewNop())
+			err = handler.ExecChainNode(ctx, qCtx, handler.WarpExecutable(fallbackECS))
 			if time.Since(start) > time.Millisecond*time.Duration(tt.wantLatency) {
 				t.Fatalf("execCmd() timeout: latency = %vms, want = %vms", time.Since(start).Milliseconds(), tt.wantLatency)
 			}

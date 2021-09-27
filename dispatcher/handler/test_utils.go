@@ -35,27 +35,31 @@ func (d *DummyMatcherPlugin) Match(_ context.Context, _ *Context) (matched bool,
 	return d.Matched, d.WantErr
 }
 
-type DummyESExecutablePlugin struct {
+type DummyExecutablePlugin struct {
 	*BP
-	Sleep    time.Duration
-	WantR    *dns.Msg
-	WantSkip bool
-	WantErr  error
+	WantSkip  bool
+	WantSleep time.Duration
+	WantR     *dns.Msg
+	WantErr   error
 }
 
-func (d *DummyESExecutablePlugin) ExecES(_ context.Context, qCtx *Context) (earlyStop bool, err error) {
-	if d.Sleep != 0 {
-		time.Sleep(d.Sleep)
+func (d *DummyExecutablePlugin) Exec(ctx context.Context, qCtx *Context, next ExecutableChainNode) error {
+	if d.WantSkip {
+		return nil
+	}
+
+	if d.WantSleep != 0 {
+		time.Sleep(d.WantSleep)
 	}
 
 	if d.WantErr != nil {
-		return false, d.WantErr
+		return d.WantErr
 	}
 	if d.WantR != nil {
 		qCtx.SetResponse(d.WantR, ContextStatusResponded)
 	}
 
-	return d.WantSkip, nil
+	return ExecChainNode(ctx, qCtx, next)
 }
 
 type DummyServicePlugin struct {

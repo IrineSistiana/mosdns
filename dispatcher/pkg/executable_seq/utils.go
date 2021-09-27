@@ -24,26 +24,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// ExecRoot executes the root ExecutableNode and its following nodes.
-func ExecRoot(ctx context.Context, qCtx *handler.Context, logger *zap.Logger, entry ExecutableNode) (earlyStop bool, err error) {
-	n := entry
-	for {
-		if n == nil {
-			return false, nil
-		}
-
-		earlyStop, err := n.Exec(ctx, qCtx, logger)
-		if err != nil {
-			return false, err
-		}
-		if earlyStop {
-			return true, nil
-		}
-
-		n = n.Next()
-	}
-}
-
 func asyncWait(ctx context.Context, qCtx *handler.Context, logger *zap.Logger, c chan *parallelECSResult, total int) error {
 	for i := 0; i < total; i++ {
 		select {

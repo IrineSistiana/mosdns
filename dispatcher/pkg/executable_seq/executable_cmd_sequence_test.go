@@ -5,7 +5,6 @@ import (
 	"errors"
 	"github.com/IrineSistiana/mosdns/dispatcher/handler"
 	"github.com/miekg/dns"
-	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 	"testing"
 )
@@ -17,33 +16,14 @@ func Test_ECS(t *testing.T) {
 	mErr := errors.New("mErr")
 	eErr := errors.New("eErr")
 	target := new(dns.Msg)
-	target.Id = 50000
+	target.Id = dns.Id()
 
 	var tests = []struct {
 		name       string
 		yamlStr    string
 		wantTarget bool
-		wantES     bool
 		wantErr    error
 	}{
-		{name: "test if_and", yamlStr: `
-exec:
-- if_and: [matched, not_matched] # not matched
-  exec: [exec_err]
-- if_and: [matched, not_matched, match_err] # not matched, early stop, no err
-  exec: [exec_err]
-- if_and: [matched, matched, matched] # matched
-  exec: exec_target
-`,
-			wantTarget: true, wantErr: nil},
-
-		{name: "test if_and err", yamlStr: `
-exec:
-- if_and: [matched, match_err] # err
-  exec: exec_target
-`,
-			wantTarget: false, wantErr: mErr},
-
 		{name: "test if", yamlStr: `
 exec:
 - if: ["!matched", not_matched] # test ! prefix, not matched
@@ -76,7 +56,7 @@ exec:
 - exec_skip
 - exec_err 	# skipped, should not reach here.
 `,
-			wantTarget: false, wantES: true, wantErr: nil},
+			wantTarget: false, wantErr: nil},
 
 		{name: "test early return in if branch", yamlStr: `
 exec:
@@ -85,7 +65,7 @@ exec:
     - exec_skip
     - exec_err # skipped, should not reach here.
 `,
-			wantTarget: false, wantES: true, wantErr: nil},
+			wantTarget: false, wantErr: nil},
 	}
 
 	// not_matched
@@ -96,19 +76,19 @@ exec:
 	}, true)
 
 	// do something
-	handler.MustRegPlugin(&handler.DummyESExecutablePlugin{
+	handler.MustRegPlugin(&handler.DummyExecutablePlugin{
 		BP:      handler.NewBP("exec", ""),
 		WantErr: nil,
 	}, true)
 
-	handler.MustRegPlugin(&handler.DummyESExecutablePlugin{
+	handler.MustRegPlugin(&handler.DummyExecutablePlugin{
 		BP:      handler.NewBP("exec_target", ""),
 		WantR:   target,
 		WantErr: nil,
 	}, true)
 
 	// do something and skip the following sequence
-	handler.MustRegPlugin(&handler.DummyESExecutablePlugin{
+	handler.MustRegPlugin(&handler.DummyExecutablePlugin{
 		BP:       handler.NewBP("exec_skip", ""),
 		WantSkip: true,
 	}, true)
@@ -127,7 +107,7 @@ exec:
 		WantErr: mErr,
 	}, true)
 
-	handler.MustRegPlugin(&handler.DummyESExecutablePlugin{
+	handler.MustRegPlugin(&handler.DummyExecutablePlugin{
 		BP:      handler.NewBP("exec_err", ""),
 		WantErr: eErr,
 	}, true)
@@ -140,13 +120,13 @@ exec:
 				t.Fatal(err)
 			}
 
-			ecs, err := ParseExecutableNode(args["exec"])
+			ecs, err := ParseExecutableNode(args["exec"], nil)
 			if err != nil {
 				t.Fatal(err)
 			}
 
 			qCtx := handler.NewContext(new(dns.Msg), nil)
-			gotEarlyStop, err := ExecRoot(context.Background(), qCtx, zap.NewNop(), ecs)
+			err = handler.ExecChainNode(context.Background(), qCtx, ecs)
 			if (err != nil || tt.wantErr != nil) && !errors.Is(err, tt.wantErr) {
 				t.Errorf("Exec() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -155,10 +135,6 @@ exec:
 			var gotTarget = qCtx.R()
 			if tt.wantTarget && gotTarget.Id != target.Id {
 				t.Errorf("Exec() gotTarget = %d, want %d", gotTarget.Id, target.Id)
-			}
-
-			if gotEarlyStop != tt.wantES {
-				t.Errorf("Exec() gotEarlyStop = %v, want %v", gotEarlyStop, tt.wantES)
 			}
 		})
 	}

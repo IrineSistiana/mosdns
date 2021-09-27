@@ -32,12 +32,12 @@ func init() {
 	handler.MustRegPlugin(&end{BP: handler.NewBP("_end", PluginType)}, true)
 }
 
-var _ handler.ESExecutablePlugin = (*sequenceRouter)(nil)
+var _ handler.ExecutablePlugin = (*sequence)(nil)
 
-type sequenceRouter struct {
+type sequence struct {
 	*handler.BP
 
-	ecs executable_seq.ExecutableNode
+	ecs handler.ExecutableChainNode
 }
 
 type Args struct {
@@ -48,35 +48,34 @@ func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
 	return newSequencePlugin(bp, args.(*Args))
 }
 
-func newSequencePlugin(bp *handler.BP, args *Args) (*sequenceRouter, error) {
-	ecs, err := executable_seq.ParseExecutableNode(args.Exec)
+func newSequencePlugin(bp *handler.BP, args *Args) (*sequence, error) {
+	ecs, err := executable_seq.ParseExecutableNode(args.Exec, bp.L())
 	if err != nil {
 		return nil, fmt.Errorf("invalid exec squence: %w", err)
 	}
 
-	return &sequenceRouter{
+	return &sequence{
 		BP:  bp,
 		ecs: ecs,
 	}, nil
 }
 
-func (s *sequenceRouter) Exec(ctx context.Context, qCtx *handler.Context) (err error) {
-	_, err = s.ecs.Exec(ctx, qCtx, s.L())
-	return err
+func (s *sequence) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
+	if err := handler.ExecChainNode(ctx, qCtx, s.ecs); err != nil {
+		return err
+	}
+
+	return handler.ExecChainNode(ctx, qCtx, next)
 }
 
-func (s *sequenceRouter) ExecES(ctx context.Context, qCtx *handler.Context) (earlyStop bool, err error) {
-	return executable_seq.ExecRoot(ctx, qCtx, s.L(), s.ecs)
-}
+var _ handler.ExecutablePlugin = (*end)(nil)
 
-var _ handler.ESExecutablePlugin = (*end)(nil)
-
-// end is a no-op handler.Executable and handler.ESExecutable.
-// It can be used as a stop sign in the handler.ExecutableNode.
+// end is a no-op handler.Executable.
+// It can be used as a stop sign in the handler.ExecutableChainNode.
 type end struct {
 	*handler.BP
 }
 
-func (n *end) ExecES(_ context.Context, _ *handler.Context) (earlyStop bool, err error) {
-	return true, nil
+func (n *end) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
+	return nil
 }

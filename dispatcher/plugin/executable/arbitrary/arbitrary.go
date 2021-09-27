@@ -29,7 +29,7 @@ func init() {
 	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 }
 
-var _ handler.ESExecutablePlugin = (*arbitraryPlugin)(nil)
+var _ handler.ExecutablePlugin = (*arbitraryPlugin)(nil)
 
 type Args struct {
 	RR []string `yaml:"rr"`
@@ -55,10 +55,10 @@ func newArb(bp *handler.BP, args *Args) (*arbitraryPlugin, error) {
 	}, nil
 }
 
-func (a *arbitraryPlugin) ExecES(_ context.Context, qCtx *handler.Context) (earlyStop bool, err error) {
+func (a *arbitraryPlugin) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
 	if r := a.arbitrary.LookupMsg(qCtx.Q()); r != nil {
 		qCtx.SetResponse(r, handler.ContextStatusResponded)
-		return true, nil
+		return nil
 	}
-	return false, nil
+	return handler.ExecChainNode(ctx, qCtx, next)
 }

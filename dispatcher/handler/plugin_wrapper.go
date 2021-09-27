@@ -25,9 +25,9 @@ import (
 )
 
 var (
-	_ ESExecutable = (*PluginWrapper)(nil)
-	_ Matcher      = (*PluginWrapper)(nil)
-	_ Service      = (*PluginWrapper)(nil)
+	_ Executable = (*PluginWrapper)(nil)
+	_ Matcher    = (*PluginWrapper)(nil)
+	_ Service    = (*PluginWrapper)(nil)
 )
 
 // PluginWrapper wraps the original plugin to avoid extremely frequently
@@ -35,18 +35,18 @@ var (
 // Note: PluginWrapper not implements Executable.
 // It automatically converts Executable to ESExecutable.
 type PluginWrapper struct {
-	p  Plugin
-	se ESExecutable
-	m  Matcher
-	s  Service
+	p Plugin
+	e Executable
+	m Matcher
+	s Service
 }
 
 func NewPluginWrapper(gp Plugin) *PluginWrapper {
 	w := new(PluginWrapper)
 	w.p = gp
 
-	if se, ok := gp.(ESExecutable); ok {
-		w.se = se
+	if se, ok := gp.(Executable); ok {
+		w.e = se
 	}
 	if m, ok := gp.(Matcher); ok {
 		w.m = m
@@ -83,25 +83,25 @@ func (w *PluginWrapper) match(ctx context.Context, qCtx *Context) (matched bool,
 	return w.m.Match(ctx, qCtx)
 }
 
-func (w *PluginWrapper) ExecES(ctx context.Context, qCtx *Context) (earlyStop bool, err error) {
+func (w *PluginWrapper) Exec(ctx context.Context, qCtx *Context, next ExecutableChainNode) error {
 	mlog.L().Debug("executing plugin", qCtx.InfoField(), zap.String("tag", w.p.Tag()))
-	earlyStop, err = w.execES(ctx, qCtx)
+	err := w.exec(ctx, qCtx, next)
 	if err != nil {
-		return false, NewPluginError(w.p.Tag(), err)
+		return NewPluginError(w.p.Tag(), err)
 	}
-	return earlyStop, nil
+	return nil
 }
 
-func (w *PluginWrapper) execES(ctx context.Context, qCtx *Context) (earlyStop bool, err error) {
-	if err = ctx.Err(); err != nil {
-		return false, err
+func (w *PluginWrapper) exec(ctx context.Context, qCtx *Context, next ExecutableChainNode) error {
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
-	if w.se == nil {
-		return false, fmt.Errorf("plugin tag: %s, type: %s is not an ESExecutable nor Executable", w.p.Tag(), w.p.Type())
+	if w.e == nil {
+		return fmt.Errorf("plugin tag: %s, type: %s is not an ESExecutable nor Executable", w.p.Tag(), w.p.Type())
 	}
 
-	return w.se.ExecES(ctx, qCtx)
+	return w.e.Exec(ctx, qCtx, next)
 }
 
 func (w *PluginWrapper) Shutdown() error {
@@ -128,7 +128,7 @@ const (
 func (w *PluginWrapper) Is(t PluginInterfaceType) bool {
 	switch t {
 	case PITESExecutable:
-		return w.se != nil
+		return w.e != nil
 	case PITMatcher:
 		return w.m != nil
 	case PITService:
