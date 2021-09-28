@@ -85,7 +85,7 @@ func Test_FallbackECS_fallback(t *testing.T) {
 			handler.MustRegPlugin(p1, false)
 			handler.MustRegPlugin(p2, false)
 			qCtx := handler.NewContext(new(dns.Msg), nil)
-			err := handler.ExecChainNode(ctx, qCtx, handler.WarpExecutable(fallbackECS))
+			err := handler.ExecChainNode(ctx, qCtx, handler.WrapExecutable(fallbackECS))
 			if tt.wantErr != (err != nil) {
 				t.Fatalf("execCmd() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -168,7 +168,7 @@ func Test_FallbackECS_fast_fallback(t *testing.T) {
 
 			start := time.Now()
 			qCtx := handler.NewContext(new(dns.Msg), nil)
-			err = handler.ExecChainNode(ctx, qCtx, handler.WarpExecutable(fallbackECS))
+			err = handler.ExecChainNode(ctx, qCtx, handler.WrapExecutable(fallbackECS))
 			if time.Since(start) > time.Millisecond*time.Duration(tt.wantLatency) {
 				t.Fatalf("execCmd() timeout: latency = %vms, want = %vms", time.Since(start).Milliseconds(), tt.wantLatency)
 			}

@@ -64,7 +64,7 @@ func (ref RefMatcherPluginNode) Match(ctx context.Context, qCtx *handler.Context
 func ParseExecutableNode(in interface{}, logger *zap.Logger) (handler.ExecutableChainNode, error) {
 	switch v := in.(type) {
 	case handler.Executable:
-		return handler.WarpExecutable(v), nil
+		return handler.WrapExecutable(v), nil
 
 	case []interface{}:
 		var rootNode handler.ExecutableChainNode
@@ -87,7 +87,7 @@ func ParseExecutableNode(in interface{}, logger *zap.Logger) (handler.Executable
 		return rootNode, nil
 
 	case string:
-		return handler.WarpExecutable(NewREPNode(v)), nil
+		return handler.WrapExecutable(NewREPNode(v)), nil
 
 	case map[string]interface{}:
 		switch {
@@ -129,7 +129,7 @@ func parseIfBlockFromMap(m map[string]interface{}, logger *zap.Logger) (handler.
 		return nil, err
 	}
 
-	return handler.WarpExecutable(e), nil
+	return e, nil
 }
 
 func parseParallelECSFromMap(m map[string]interface{}, logger *zap.Logger) (handler.ExecutableChainNode, error) {
@@ -143,7 +143,7 @@ func parseParallelECSFromMap(m map[string]interface{}, logger *zap.Logger) (hand
 		return nil, err
 	}
 
-	return handler.WarpExecutable(e), nil
+	return handler.WrapExecutable(e), nil
 }
 
 func parseFallbackECSFromMap(m map[string]interface{}, logger *zap.Logger) (handler.ExecutableChainNode, error) {
@@ -157,7 +157,7 @@ func parseFallbackECSFromMap(m map[string]interface{}, logger *zap.Logger) (hand
 		return nil, err
 	}
 
-	return handler.WarpExecutable(e), nil
+	return handler.WrapExecutable(e), nil
 }
 
 func hasKey(m map[string]interface{}, key string) bool {

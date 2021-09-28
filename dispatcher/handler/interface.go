@@ -71,8 +71,11 @@ type ExecutableNodeWrapper struct {
 	NodeLinker
 }
 
-// WarpExecutable wraps a Executable to a ExecutableChainNode.
-func WarpExecutable(e Executable) ExecutableChainNode {
+// WrapExecutable wraps a Executable to a ExecutableChainNode.
+func WrapExecutable(e Executable) ExecutableChainNode {
+	if ecn, ok := e.(ExecutableChainNode); ok {
+		return ecn
+	}
 	return &ExecutableNodeWrapper{Executable: e}
 }
 

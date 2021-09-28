@@ -35,6 +35,25 @@ exec:
 `,
 			wantTarget: true, wantErr: nil},
 
+		{name: "test muti_if", yamlStr: `
+exec:
+- if: [matched]
+  exec: exec
+- if: [matched]
+  exec:
+  - exec_target
+`,
+			wantTarget: true, wantErr: nil},
+
+		{name: "test nested if", yamlStr: `
+exec:
+- if: [matched]
+  exec: 
+  - if: [matched]
+    exec: exec_target
+`,
+			wantTarget: true, wantErr: nil},
+
 		{name: "test if_and", yamlStr: `
 exec:
 - if_and: [matched, not_matched] # not matched

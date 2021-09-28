@@ -76,7 +76,7 @@ func Test_ParallelNode(t *testing.T) {
 			handler.MustRegPlugin(p2, false)
 
 			qCtx := handler.NewContext(new(dns.Msg), nil)
-			err := handler.ExecChainNode(ctx, qCtx, handler.WarpExecutable(parallelNode))
+			err := handler.ExecChainNode(ctx, qCtx, handler.WrapExecutable(parallelNode))
 			if tt.wantErr != (err != nil) {
 				t.Fatalf("execCmd() error = %v, wantErr %v", err, tt.wantErr)
 			}
