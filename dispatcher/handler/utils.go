@@ -30,22 +30,24 @@ func ExecChainNode(ctx context.Context, qCtx *Context, n ExecutableChainNode) er
 
 // FirstNode returns the first node of chain of n.
 func FirstNode(n ExecutableChainNode) ExecutableChainNode {
+	p := n
 	for {
-		p := n.Previous()
-		if p == nil {
-			return n
+		if pn := p.Previous(); pn == nil {
+			return p
+		} else {
+			p = pn
 		}
-		n = p
 	}
 }
 
 // LatestNode returns the Latest node of chain of n.
 func LatestNode(n ExecutableChainNode) ExecutableChainNode {
+	p := n
 	for {
-		nn := n.Next()
-		if nn == nil {
-			return n
+		if nn := p.Next(); nn == nil {
+			return p
+		} else {
+			p = nn
 		}
-		nn = n
 	}
 }
