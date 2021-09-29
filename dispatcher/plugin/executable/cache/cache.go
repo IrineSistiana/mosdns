@@ -49,9 +49,10 @@ const (
 var _ handler.ExecutablePlugin = (*cachePlugin)(nil)
 
 type Args struct {
-	Size         int    `yaml:"size"`
-	Redis        string `yaml:"redis"`
-	LazyCacheTTL int    `yaml:"lazy_cache_ttl"`
+	Size              int    `yaml:"size"`
+	Redis             string `yaml:"redis"`
+	LazyCacheTTL      int    `yaml:"lazy_cache_ttl"`
+	LazyCacheReplyTTL int    `yaml:"lazy_cache_reply_ttl"`
 }
 
 type cachePlugin struct {
@@ -83,6 +84,11 @@ func newCachePlugin(bp *handler.BP, args *Args) (*cachePlugin, error) {
 
 		c = mem_cache.NewMemCache(32, sizePerShard, 120*time.Second)
 	}
+
+	if args.LazyCacheReplyTTL <= 0 {
+		args.LazyCacheReplyTTL = 30
+	}
+
 	return &cachePlugin{
 		BP:      bp,
 		args:    args,
@@ -119,7 +125,7 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *handler.Context, next hand
 		if c.args.LazyCacheTTL > 0 {
 			c.L().Debug("expired cache hit", qCtx.InfoField())
 			// prepare a response with 1 ttl
-			dnsutils.SetTTL(r, 1)
+			dnsutils.SetTTL(r, uint32(c.args.LazyCacheReplyTTL))
 			qCtx.SetResponse(r, handler.ContextStatusResponded)
 
 			// start a goroutine to update cache
