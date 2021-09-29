@@ -147,23 +147,20 @@ func (ctx *Context) InfoField() zap.Field {
 
 // Copy deep copies this Context.
 func (ctx *Context) Copy() *Context {
-	newCtx := ctx.CopyNoR()
-	if ctx.r != nil {
-		newCtx.r = ctx.r.Copy()
-	}
-
+	newCtx := new(Context)
+	ctx.CopyTo(newCtx)
 	return newCtx
 }
 
-// CopyNoR deep copies this Context without copy its response.
-func (ctx *Context) CopyNoR() *Context {
-	newCtx := new(Context)
-
-	newCtx.q = ctx.q.Copy()
-	newCtx.clientAddr = ctx.clientAddr
-	newCtx.id = ctx.id
-	newCtx.startTime = ctx.startTime
-	newCtx.status = ctx.status
-
-	return newCtx
+// CopyTo deep copies this Context to d.
+func (ctx *Context) CopyTo(d *Context) *Context {
+	d.startTime = ctx.startTime
+	d.q = ctx.q.Copy()
+	d.id = ctx.id
+	d.clientAddr = ctx.clientAddr
+	d.status = ctx.status
+	if r := ctx.r; r != nil {
+		d.r = r.Copy()
+	}
+	return d
 }

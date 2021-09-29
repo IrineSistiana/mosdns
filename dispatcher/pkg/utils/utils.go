@@ -31,7 +31,6 @@ import (
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
-	"golang.org/x/sync/singleflight"
 	"io/ioutil"
 	"math/big"
 	"net"
@@ -216,35 +215,6 @@ func SplitString2(s, symbol string) (s1 string, s2 string, ok bool) {
 	return "", "", false
 }
 
-type ExchangeSingleFlightGroup struct {
-	singleflight.Group
-}
-
-func (g *ExchangeSingleFlightGroup) Exchange(ctx context.Context, qCtx *handler.Context, upstreams []Upstream, logger *zap.Logger) (r *dns.Msg, err error) {
-	key, err := GetMsgKey(qCtx.Q(), 0)
-	if err != nil {
-		return nil, fmt.Errorf("failed to caculate msg key, %w", err)
-	}
-
-	v, err, shared := g.Do(key, func() (interface{}, error) {
-		defer g.Forget(key)
-		return ExchangeParallel(ctx, qCtx, upstreams, logger)
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	rUnsafe := v.(*dns.Msg)
-	if shared && rUnsafe != nil { // shared reply may has a different id and is not safe to modify.
-		r = rUnsafe.Copy()
-		r.Id = qCtx.Q().Id
-		return r, nil
-	}
-
-	return rUnsafe, nil
-}
-
 func BoolLogic(ctx context.Context, qCtx *handler.Context, fs []handler.Matcher, logicalAND bool) (matched bool, err error) {
 	if len(fs) == 0 {
 		return false, nil
@@ -296,7 +266,7 @@ func ExchangeParallel(ctx context.Context, qCtx *handler.Context, upstreams []Up
 	}
 
 	c := make(chan *parallelResult, t) // use buf chan to avoid blocking.
-	qCopy := qCtx.CopyNoR()            // qCtx is not safe for concurrent use.
+	qCopy := qCtx.Copy()               // qCtx is not safe for concurrent use.
 	for _, u := range upstreams {
 		u := u
 		go func() {

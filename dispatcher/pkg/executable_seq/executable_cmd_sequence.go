@@ -63,6 +63,9 @@ func (ref RefMatcherPluginNode) Match(ctx context.Context, qCtx *handler.Context
 // a []interface{} that contains all of the above.
 func ParseExecutableNode(in interface{}, logger *zap.Logger) (handler.ExecutableChainNode, error) {
 	switch v := in.(type) {
+	case handler.ExecutableChainNode:
+		return v, nil
+
 	case handler.Executable:
 		return handler.WrapExecutable(v), nil
 

@@ -40,13 +40,10 @@ var _ handler.ExecutablePlugin = (*forwarder)(nil)
 
 type forwarder struct {
 	*handler.BP
-	upstream    []utils.Upstream
-	deduplicate bool
+	upstream []utils.Upstream
 
 	fastIPHandler  *fastip.FastestAddr // nil if fast ip is disabled
 	upstreamFastIP []upstream.Upstream // same as upstream, just used by fastIPHandler
-
-	sfGroup utils.ExchangeSingleFlightGroup
 }
 
 type Args struct {
@@ -56,9 +53,6 @@ type Args struct {
 	InsecureSkipVerify bool             `yaml:"insecure_skip_verify"`
 	Bootstrap          []string         `yaml:"bootstrap"`
 	FastestIP          bool             `yaml:"fastest_ip"`
-
-	// options for mosdns
-	Deduplicate bool `yaml:"deduplicate"`
 }
 
 type UpstreamConfig struct {
@@ -78,7 +72,6 @@ func newForwarder(bp *handler.BP, args *Args) (*forwarder, error) {
 
 	f := new(forwarder)
 	f.BP = bp
-	f.deduplicate = args.Deduplicate
 
 	if args.FastestIP {
 		f.fastIPHandler = fastip.NewFastestAddr()
@@ -162,8 +155,6 @@ func (f *forwarder) exec(ctx context.Context, qCtx *handler.Context) error {
 	var err error
 	if f.fastIPHandler != nil {
 		r, _, err = f.fastIPHandler.ExchangeFastest(qCtx.Q().Copy(), f.upstreamFastIP)
-	} else if f.deduplicate {
-		r, err = f.sfGroup.Exchange(ctx, qCtx, f.upstream, f.L())
 	} else {
 		r, err = utils.ExchangeParallel(ctx, qCtx, f.upstream, f.L())
 	}

@@ -24,24 +24,29 @@ func Test_ECS(t *testing.T) {
 		wantTarget bool
 		wantErr    error
 	}{
-		{name: "test if", yamlStr: `
+
+		{name: "test ! prefix", yamlStr: `
 exec:
 - if: ["!matched", not_matched] # test ! prefix, not matched
   exec: exec_err
-- if: [matched, match_err] # matched, early stop, no err
-  exec:
-  - if: ["!not_matched", not_matched] 	# matched
-    exec: exec_target					# reached here
+- if: ["!not_matched"]
+  exec: exec_target  # reached here
+`,
+			wantTarget: true, wantErr: nil},
+
+		{name: "test matcher short circuit", yamlStr: `
+exec:
+- if: [matched, match_err] # logic short circuit, match_err won't run
+  exec: exec_target
 `,
 			wantTarget: true, wantErr: nil},
 
 		{name: "test muti_if", yamlStr: `
 exec:
 - if: [matched]
-  exec: exec
+  exec: [exec,exec,exec]
 - if: [matched]
-  exec:
-  - exec_target
+  exec: exec_target
 `,
 			wantTarget: true, wantErr: nil},
 
@@ -49,6 +54,8 @@ exec:
 exec:
 - if: [matched]
   exec: 
+  - exec
+  - exec
   - if: [matched]
     exec: exec_target
 `,
@@ -59,9 +66,7 @@ exec:
 - if_and: [matched, not_matched] # not matched
   exec: exec_err
 - if_and: [matched, matched] # matched
-  exec:
-  - if: [matched, matched] 	# matched
-    exec: exec_target					# reached here
+  exec: exec_target
 `,
 			wantTarget: true, wantErr: nil},
 
@@ -72,14 +77,30 @@ exec:
 `,
 			wantTarget: false, wantErr: mErr},
 
+		{name: "test if_and err", yamlStr: `
+exec:
+- if_and: [matched, match_err] # err
+  exec: exec
+`,
+			wantTarget: false, wantErr: mErr},
+
 		{name: "test exec err", yamlStr: `
 exec:
-- if: [matched] 
-  exec: exec_err
+- exec
+- exec_err
 `,
 			wantTarget: false, wantErr: eErr},
 
-		{name: "test early return in main sequence", yamlStr: `
+		{name: "test exec err in if branch", yamlStr: `
+exec:
+- if: [matched] 
+  exec: 
+  - exec
+  - exec_err
+`,
+			wantTarget: false, wantErr: eErr},
+
+		{name: "test return in main sequence", yamlStr: `
 exec:
 - exec
 - exec_skip

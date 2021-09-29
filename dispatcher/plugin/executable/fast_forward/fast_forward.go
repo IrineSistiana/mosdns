@@ -42,15 +42,12 @@ type fastForward struct {
 	args *Args
 
 	upstream []utils.Upstream
-
-	sfGroup utils.ExchangeSingleFlightGroup
 }
 
 type Args struct {
-	Deduplicate bool              `yaml:"deduplicate"`
-	CA          []string          `yaml:"ca"`
-	Timeout     int               `yaml:"timeout"`
-	Upstream    []*UpstreamConfig `yaml:"upstream"`
+	Upstream []*UpstreamConfig `yaml:"upstream"`
+	Timeout  int               `yaml:"timeout"`
+	CA       []string          `yaml:"ca"`
 }
 
 type UpstreamConfig struct {
@@ -152,7 +149,7 @@ func (f *fastForward) Exec(ctx context.Context, qCtx *handler.Context, next hand
 }
 
 func (f *fastForward) exec(ctx context.Context, qCtx *handler.Context) (err error) {
-	r, err := f.exchange(ctx, qCtx)
+	r, err := utils.ExchangeParallel(ctx, qCtx, f.upstream, f.L())
 	if err != nil {
 		qCtx.SetResponse(nil, handler.ContextStatusServerFailed)
 		return err
@@ -160,11 +157,4 @@ func (f *fastForward) exec(ctx context.Context, qCtx *handler.Context) (err erro
 
 	qCtx.SetResponse(r, handler.ContextStatusResponded)
 	return nil
-}
-
-func (f *fastForward) exchange(ctx context.Context, qCtx *handler.Context) (r *dns.Msg, err error) {
-	if f.args.Deduplicate {
-		return f.sfGroup.Exchange(ctx, qCtx, f.upstream, f.L())
-	}
-	return utils.ExchangeParallel(ctx, qCtx, f.upstream, f.L())
 }

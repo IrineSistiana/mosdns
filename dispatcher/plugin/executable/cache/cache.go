@@ -127,7 +127,7 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *handler.Context, next hand
 			if !ok {
 				lazyUpdateDdl = time.Now().Add(defaultLazyUpdateTimeout)
 			}
-			lazyQCtx := qCtx.CopyNoR()
+			lazyQCtx := qCtx.Copy()
 			lazyUpdateFunc := func() (interface{}, error) {
 				c.L().Debug("start lazy cache update", lazyQCtx.InfoField(), zap.Error(err))
 				defer c.lazyUpdateSF.Forget(key)
