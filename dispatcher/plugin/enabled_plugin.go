@@ -21,6 +21,7 @@ package plugin
 import (
 	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/arbitrary"
 	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/blackhole"
+	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/bufsize"
 	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/cache"
 	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/ecs"
 	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/fast_forward"
