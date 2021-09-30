@@ -24,8 +24,12 @@ import (
 	"sync"
 )
 
-type NewPluginFunc func(bp *BP, args interface{}) (p Plugin, err error)
+// NewArgsFunc represents a func that creates a new args object.
 type NewArgsFunc func() interface{}
+
+// NewPluginFunc represents a func that can init a Plugin.
+// args is the object created by NewArgsFunc.
+type NewPluginFunc func(bp *BP, args interface{}) (p Plugin, err error)
 
 type typeInfo struct {
 	newPlugin NewPluginFunc
@@ -147,6 +151,7 @@ func InitAndRegPlugin(c *Config, errIfDup bool) (err error) {
 	return RegPlugin(p, errIfDup)
 }
 
+// NewPlugin creates a registered Plugin from c.
 func NewPlugin(c *Config) (p Plugin, err error) {
 	typeInfo, ok := pluginTypeRegister[c.Type]
 	if !ok {
@@ -219,7 +224,7 @@ func PurgePluginRegister() {
 	pluginTagRegister.purge()
 }
 
-// BP means basic plugin, which implements Plugin.
+// BP represents a basic plugin, which implements Plugin.
 // It also has an internal logger, for convenience.
 type BP struct {
 	tag, typ string
