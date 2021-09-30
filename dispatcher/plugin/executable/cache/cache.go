@@ -152,7 +152,7 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *handler.Context, next hand
 						c.L().Warn("failed to store lazy cache", lazyQCtx.InfoField(), zap.Error(err))
 					}
 				}
-				c.L().Debug("lazy cache updated", lazyQCtx.InfoField(), zap.Error(err))
+				c.L().Debug("lazy cache updated", lazyQCtx.InfoField())
 				return nil, nil
 			}
 			c.lazyUpdateSF.DoChan(key, lazyUpdateFunc) // DoChan won't block this goroutine
