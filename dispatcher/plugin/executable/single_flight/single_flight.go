@@ -30,7 +30,16 @@ const (
 )
 
 func init() {
+	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 	handler.MustRegPlugin(&singleFlight{BP: handler.NewBP("_single_flight", PluginType)}, true)
+}
+
+type Args struct{}
+
+func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
+	return &singleFlight{
+		BP: bp,
+	}, err
 }
 
 type singleFlight struct {
