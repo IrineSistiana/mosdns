@@ -3,13 +3,12 @@ module github.com/IrineSistiana/mosdns/v2
 go 1.15
 
 require (
-	github.com/AdguardTeam/dnsproxy v0.39.7
+	github.com/AdguardTeam/dnsproxy v0.39.8
 	github.com/AdguardTeam/golibs v0.9.3 // indirect
 	github.com/ameshkov/dnscrypt/v2 v2.2.3 // indirect
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
 	github.com/fsnotify/fsnotify v1.5.1 // indirect
 	github.com/go-redis/redis/v8 v8.11.3
-	github.com/golang/protobuf v1.5.2
 	github.com/kardianos/service v1.2.0
 	github.com/lucas-clemente/quic-go v0.23.0 // indirect
 	github.com/miekg/dns v1.1.43
