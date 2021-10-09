@@ -81,13 +81,26 @@ func newBlackhole(bp *handler.BP, args *Args) (*blackhole, error) {
 // drops qCtx.R() if Args.RCode < 0
 // It never returns an error.
 func (b *blackhole) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
+	b.exec(qCtx)
+	return handler.ExecChainNode(ctx, qCtx, next)
+}
+
+func (b *blackhole) exec(qCtx *handler.Context) {
+	q := qCtx.Q()
+	if len(q.Question) != 1 {
+		return
+	}
+
+	qName := q.Question[0].Name
+	qtype := q.Question[0].Qtype
+
 	switch {
-	case b.ipv4 != nil && len(qCtx.Q().Question) == 1 && qCtx.Q().Question[0].Qtype == dns.TypeA:
+	case b.ipv4 != nil && qtype == dns.TypeA:
 		r := new(dns.Msg)
 		r.SetReply(qCtx.Q())
 		rr := &dns.A{
 			Hdr: dns.RR_Header{
-				Name:   qCtx.Q().Question[0].Name,
+				Name:   qName,
 				Rrtype: dns.TypeA,
 				Class:  dns.ClassINET,
 				Ttl:    3600,
@@ -97,13 +110,13 @@ func (b *blackhole) Exec(ctx context.Context, qCtx *handler.Context, next handle
 		r.Answer = append(r.Answer, rr)
 		qCtx.SetResponse(r, handler.ContextStatusRejected)
 
-	case b.ipv6 != nil && len(qCtx.Q().Question) == 1 && qCtx.Q().Question[0].Qtype == dns.TypeAAAA:
+	case b.ipv6 != nil && qtype == dns.TypeAAAA:
 		r := new(dns.Msg)
 		r.SetReply(qCtx.Q())
 		rr := &dns.AAAA{
 			Hdr: dns.RR_Header{
-				Name:   qCtx.Q().Question[0].Name,
-				Rrtype: dns.TypeA,
+				Name:   qName,
+				Rrtype: dns.TypeAAAA,
 				Class:  dns.ClassINET,
 				Ttl:    3600,
 			},
@@ -122,7 +135,7 @@ func (b *blackhole) Exec(ctx context.Context, qCtx *handler.Context, next handle
 		qCtx.SetResponse(nil, handler.ContextStatusDropped)
 	}
 
-	return handler.ExecChainNode(ctx, qCtx, next)
+	return
 }
 
 func preset(bp *handler.BP, args *Args) *blackhole {
