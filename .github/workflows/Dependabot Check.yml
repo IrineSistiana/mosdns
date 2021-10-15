@@ -1,0 +1,12 @@
+name: dependabot-check
+
+on:
+  pull_request:
+
+# See https://github.com/dependabot/dependabot-core/issues/3253#issuecomment-852541544
+jobs:
+  check-dependabot:
+    runs-on: ubuntu-latest
+    if: ${{ github.actor == 'dependabot[bot]' }}
+    steps:
+      - run: echo "PR created by Dependabot"

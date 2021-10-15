@@ -1,0 +1,30 @@
+name: dependabot-merge
+
+on:
+  workflow_run:
+    workflows: ["dependabot-check"]
+    types: 
+      - completed
+
+# See https://github.com/dependabot/dependabot-core/issues/3253#issuecomment-852541544
+jobs:
+  check:
+    # Copied from push.yml
+    runs-on: ubuntu-latest
+    if: ${{ (github.event.workflow_run.conclusion == 'success') && (github.event.sender.login == 'dependabot[bot]') }}
+    steps:
+      - uses: haya14busa/action-workflow_run-status@v1
+      - uses: actions/checkout@v2.3.4
+        with:
+          ref: ${{ github.event.workflow_run.head_branch }}
+  auto-merge:
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: haya14busa/action-workflow_run-status@v1
+      - uses: fastify/github-action-merge-dependabot@v2.5.0
+        with:
+          target: minor
+          merge-method: merge
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          pr-number: ${{ github.event.workflow_run.pull_requests[0].number }}
