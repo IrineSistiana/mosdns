@@ -3,7 +3,7 @@ module github.com/IrineSistiana/mosdns/v2
 go 1.15
 
 require (
-	github.com/AdguardTeam/dnsproxy v0.39.8
+	github.com/AdguardTeam/dnsproxy v0.39.9
 	github.com/AdguardTeam/golibs v0.9.3 // indirect
 	github.com/ameshkov/dnscrypt/v2 v2.2.3 // indirect
 	github.com/fsnotify/fsnotify v1.5.1 // indirect
