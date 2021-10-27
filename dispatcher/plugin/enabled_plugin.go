@@ -28,6 +28,7 @@ import (
 	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/forward"
 	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/hosts"
 	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/ipset"
+	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/nftset"
 	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/sequence"
 	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/single_flight"
 	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/sleep"
