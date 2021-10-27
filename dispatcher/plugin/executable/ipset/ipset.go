@@ -20,7 +20,6 @@ package ipset
 import (
 	"context"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
-	"github.com/miekg/dns"
 	"go.uber.org/zap"
 )
 
@@ -75,8 +74,4 @@ func (p *ipsetPlugin) Exec(ctx context.Context, qCtx *handler.Context, next hand
 	}
 
 	return handler.ExecChainNode(ctx, qCtx, next)
-}
-
-func (p *ipsetPlugin) addIPset(r *dns.Msg) error {
-	return p.addIPSet(r)
 }
