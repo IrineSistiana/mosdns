@@ -90,13 +90,14 @@ func NewContext(q *dns.Msg, from net.Addr) *Context {
 	return ctx
 }
 
+// String returns a short summery of its query.
 func (ctx *Context) String() string {
 	q := ctx.q
 	if len(q.Question) == 1 {
 		q := q.Question[0]
-		return fmt.Sprintf("%s %s %s %d %d", q.Name, dnsutils.QclassToString(q.Qclass), dnsutils.QtypeToString(q.Qtype), ctx.q.Id, ctx.id)
+		return fmt.Sprintf("%s %s %s %d %d %s", q.Name, dnsutils.QclassToString(q.Qclass), dnsutils.QtypeToString(q.Qtype), ctx.q.Id, ctx.id, ctx.clientAddr)
 	}
-	return fmt.Sprintf("%v %d %d", ctx.q.Question, ctx.id, ctx.q.Id)
+	return fmt.Sprintf("%v %d %d %s", ctx.q.Question, ctx.q.Id, ctx.id, ctx.clientAddr)
 }
 
 // Q returns the query msg. It always returns a non-nil msg.

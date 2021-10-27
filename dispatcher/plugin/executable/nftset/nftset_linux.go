@@ -121,14 +121,12 @@ func (p *nftsetPlugin) addElems(r *dns.Msg) error {
 	}
 
 	if p.v4set != nil && len(v4Elems) > 0 {
-		p.L().Debug("push ipv4 elems to set", zap.Int("len", len(v4Elems)))
 		if err := p.v4set.AddElems(v4Elems); err != nil {
 			return fmt.Errorf("failed to add ipv4 elems %s: %w", v4Elems, err)
 		}
 	}
 
 	if p.v6set != nil && len(v6Elems) > 0 {
-		p.L().Debug("push ipv6 elems to set", zap.Int("len", len(v6Elems)))
 		if err := p.v6set.AddElems(v6Elems); err != nil {
 			return fmt.Errorf("failed to add ipv6 elems %s: %w", v6Elems, err)
 		}
