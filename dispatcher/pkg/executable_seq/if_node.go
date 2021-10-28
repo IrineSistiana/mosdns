@@ -58,16 +58,18 @@ type IfNodeConfig struct {
 	If    interface{} `yaml:"if"`     // logical OR
 	IfAnd interface{} `yaml:"if_and"` // logical AND
 
-	// See ParseExecutableNode. This cannot be nil.
-	Exec interface{} `yaml:"exec"`
+	// See ParseExecutableNode.
+	Exec     interface{} `yaml:"exec"`
+	ElseExec interface{} `yaml:"else_exec"`
 }
 
 // IfNode implement handler.ExecutableChainNode.
 // Internal IfNode.ExecutableNode will also be linked by
 // LinkPrevious and LinkNext.
 type IfNode struct {
-	ConditionMatcher handler.Matcher             // This cannot be nil.
-	ExecutableNode   handler.ExecutableChainNode // This cannot be nil.
+	ConditionMatcher   handler.Matcher // if ConditionMatcher is nil, IfNode is a no-op.
+	ExecutableNode     handler.ExecutableChainNode
+	ElseExecutableNode handler.ExecutableChainNode
 
 	prev, next handler.ExecutableChainNode
 }
@@ -82,38 +84,51 @@ func (b *IfNode) Next() handler.ExecutableChainNode {
 
 func (b *IfNode) LinkPrevious(n handler.ExecutableChainNode) {
 	b.prev = n
-	b.ExecutableNode.LinkPrevious(n)
+	if b.ExecutableNode != nil {
+		b.ExecutableNode.LinkPrevious(n)
+	}
+	if b.ElseExecutableNode != nil {
+		b.ElseExecutableNode.LinkPrevious(n)
+	}
 }
 
 func (b *IfNode) LinkNext(n handler.ExecutableChainNode) {
 	b.next = n
-	handler.LatestNode(b.ExecutableNode).LinkNext(n)
+	if b.ExecutableNode != nil {
+		handler.LatestNode(b.ExecutableNode).LinkNext(n)
+	}
+	if b.ElseExecutableNode != nil {
+		handler.LatestNode(b.ElseExecutableNode).LinkNext(n)
+	}
 }
 
 func ParseIfChainNode(c *IfNodeConfig, logger *zap.Logger) (*IfNode, error) {
 	b := new(IfNode)
 
-	if c.If == nil && c.IfAnd == nil {
-		return nil, errors.New("missing condition")
-	}
-
 	var err error
 	if c.If != nil {
 		b.ConditionMatcher, err = parseMatcher(c.If, batchLogicOr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse if condition: %w", err)
+		}
 	} else if c.IfAnd != nil {
 		b.ConditionMatcher, err = parseMatcher(c.IfAnd, batchLogicAnd)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse if condition: %w", err)
-	}
-
-	if c.Exec == nil {
-		return nil, errors.New("exec is missing")
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse if_and condition: %w", err)
+		}
 	}
 
-	b.ExecutableNode, err = ParseExecutableNode(c.Exec, logger)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse exec command: %w", err)
+	if c.Exec != nil {
+		b.ExecutableNode, err = ParseExecutableNode(c.Exec, logger)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse exec command: %w", err)
+		}
+	}
+	if c.ElseExec != nil {
+		b.ElseExecutableNode, err = ParseExecutableNode(c.ElseExec, logger)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse else_exec command: %w", err)
+		}
 	}
 
 	return b, nil
@@ -178,6 +193,8 @@ func (b *IfNode) Exec(ctx context.Context, qCtx *handler.Context, next handler.E
 		}
 		if ok && b.ExecutableNode != nil {
 			return handler.ExecChainNode(ctx, qCtx, b.ExecutableNode)
+		} else if !ok && b.ElseExecutableNode != nil {
+			return handler.ExecChainNode(ctx, qCtx, b.ElseExecutableNode)
 		}
 	}
 

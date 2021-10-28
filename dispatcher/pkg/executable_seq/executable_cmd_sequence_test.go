@@ -50,6 +50,25 @@ exec:
 `,
 			wantTarget: true, wantErr: nil},
 
+		{name: "test if else_exec", yamlStr: `
+exec:
+- if: ['!matched']
+  exec: exec_err
+  else_exec: exec_target
+`,
+			wantTarget: true, wantErr: nil},
+
+		{name: "test multi if else_exec", yamlStr: `
+exec:
+- if: ['!matched']
+  exec: [exec_err]
+  else_exec: [exec]
+- if: ['!matched']
+  exec: [exec_err]
+  else_exec: [exec_target]
+`,
+			wantTarget: true, wantErr: nil},
+
 		{name: "test nested if", yamlStr: `
 exec:
 - if: [matched]
