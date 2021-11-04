@@ -198,3 +198,36 @@ func QclassToString(u uint16) string {
 func QtypeToString(u uint16) string {
 	return uint16Conv(u, dns.TypeToString)
 }
+
+func GenEmptyReply(q *dns.Msg, rcode int) *dns.Msg {
+	r := new(dns.Msg)
+	r.SetRcode(q, rcode)
+
+	var name string
+	if len(q.Question) > 1 {
+		name = q.Question[0].Name
+	} else {
+		name = "."
+	}
+
+	r.Ns = []dns.RR{FakeSOA(name)}
+	return r
+}
+
+func FakeSOA(name string) *dns.SOA {
+	return &dns.SOA{
+		Hdr: dns.RR_Header{
+			Name:   name,
+			Rrtype: dns.TypeSOA,
+			Class:  dns.ClassINET,
+			Ttl:    300,
+		},
+		Ns:      "fake-ns.mosdns.fake.root.",
+		Mbox:    "fake-mbox.mosdns.fake.root.",
+		Serial:  2021110400,
+		Refresh: 1800,
+		Retry:   900,
+		Expire:  604800,
+		Minttl:  86400,
+	}
+}

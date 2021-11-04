@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/dnsutils"
 	"github.com/miekg/dns"
 	"net"
 )
@@ -97,7 +98,7 @@ func (b *blackhole) exec(qCtx *handler.Context) {
 	switch {
 	case b.ipv4 != nil && qtype == dns.TypeA:
 		r := new(dns.Msg)
-		r.SetReply(qCtx.Q())
+		r.SetRcode(q, dns.RcodeSuccess)
 		rr := &dns.A{
 			Hdr: dns.RR_Header{
 				Name:   qName,
@@ -107,12 +108,12 @@ func (b *blackhole) exec(qCtx *handler.Context) {
 			},
 			A: b.ipv4,
 		}
-		r.Answer = append(r.Answer, rr)
+		r.Answer = []dns.RR{rr}
 		qCtx.SetResponse(r, handler.ContextStatusRejected)
 
 	case b.ipv6 != nil && qtype == dns.TypeAAAA:
 		r := new(dns.Msg)
-		r.SetReply(qCtx.Q())
+		r.SetRcode(q, dns.RcodeSuccess)
 		rr := &dns.AAAA{
 			Hdr: dns.RR_Header{
 				Name:   qName,
@@ -122,13 +123,17 @@ func (b *blackhole) exec(qCtx *handler.Context) {
 			},
 			AAAA: b.ipv6,
 		}
-		r.Answer = append(r.Answer, rr)
+		r.Answer = []dns.RR{rr}
 		qCtx.SetResponse(r, handler.ContextStatusRejected)
 
 	case b.args.RCode >= 0:
 		r := new(dns.Msg)
-		r.SetReply(qCtx.Q())
-		r.Rcode = b.args.RCode
+		r.SetRcode(qCtx.Q(), b.args.RCode)
+
+		if rcode := b.args.RCode; rcode == dns.RcodeSuccess || rcode == dns.RcodeNameError {
+			r.Ns = []dns.RR{dnsutils.FakeSOA(qName)}
+		}
+
 		qCtx.SetResponse(r, handler.ContextStatusRejected)
 
 	default:

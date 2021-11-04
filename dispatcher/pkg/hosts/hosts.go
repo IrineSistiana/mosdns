@@ -19,6 +19,7 @@ package hosts
 
 import (
 	"fmt"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/matcher/domain"
 	"github.com/miekg/dns"
 	"net"
@@ -120,6 +121,11 @@ func (h *Hosts) LookupMsg(m *dns.Msg) *dns.Msg {
 			}
 			r.Answer = append(r.Answer, rr)
 		}
+	}
+
+	// Append fake SOA record for empty reply.
+	if len(r.Answer) == 0 {
+		r.Ns = []dns.RR{dnsutils.FakeSOA(fqdn)}
 	}
 	return r
 }
