@@ -26,11 +26,9 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
-	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
 	"github.com/miekg/dns"
-	"go.uber.org/zap"
 	"io/ioutil"
 	"math/big"
 	"net"
@@ -235,72 +233,6 @@ func BoolLogic(ctx context.Context, qCtx *handler.Context, fs []handler.Matcher,
 	}
 
 	return matched, nil
-}
-
-type Upstream interface {
-	// Exchange should not keep nor modify qCtx.
-	Exchange(qCtx *handler.Context) (*dns.Msg, error)
-	Address() string
-	Trusted() bool
-}
-
-type parallelResult struct {
-	r    *dns.Msg
-	err  error
-	from Upstream
-}
-
-func ExchangeParallel(ctx context.Context, qCtx *handler.Context, upstreams []Upstream, logger *zap.Logger) (r *dns.Msg, err error) {
-	t := len(upstreams)
-	if t == 0 {
-		return nil, errors.New("no upstream")
-	}
-	if t == 1 {
-		u := upstreams[0]
-		r, err = u.Exchange(qCtx)
-		if err != nil {
-			return nil, err
-		}
-		logger.Debug("response received", qCtx.InfoField(), zap.String("from", u.Address()))
-		return r, nil
-	}
-
-	c := make(chan *parallelResult, t) // use buf chan to avoid blocking.
-	qCopy := qCtx.Copy()               // qCtx is not safe for concurrent use.
-	for _, u := range upstreams {
-		u := u
-		go func() {
-			r, err := u.Exchange(qCopy)
-			c <- &parallelResult{
-				r:    r,
-				err:  err,
-				from: u,
-			}
-		}()
-	}
-
-	for i := 0; i < t; i++ {
-		select {
-		case res := <-c:
-			if res.err != nil {
-				logger.Warn("upstream failed", qCtx.InfoField(), zap.String("from", res.from.Address()), zap.Error(res.err))
-				continue
-			}
-
-			if !res.from.Trusted() && res.r.Rcode != dns.RcodeSuccess {
-				logger.Debug("untrusted upstream returned an err rcode", qCtx.InfoField(), zap.String("from", res.from.Address()), zap.Int("rcode", res.r.Rcode))
-				continue
-			}
-
-			logger.Debug("response received", qCtx.InfoField(), zap.String("from", res.from.Address()))
-			return res.r, nil
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-	}
-
-	// all upstreams are failed
-	return nil, errors.New("no response")
 }
 
 // IsIPAddr returns true is s is a IP address. s can contain ":port".

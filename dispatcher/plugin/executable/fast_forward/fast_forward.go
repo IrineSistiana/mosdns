@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/bundled_upstream"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/upstream"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
@@ -41,7 +42,7 @@ type fastForward struct {
 	*handler.BP
 	args *Args
 
-	upstream []utils.Upstream
+	upstream *bundled_upstream.BundledUpstream
 }
 
 type Args struct {
@@ -71,10 +72,11 @@ func newFastForward(bp *handler.BP, args *Args) (*fastForward, error) {
 	}
 
 	f := &fastForward{
-		BP:       bp,
-		args:     args,
-		upstream: make([]utils.Upstream, 0),
+		BP:   bp,
+		args: args,
 	}
+
+	us := make([]bundled_upstream.Upstream, 0)
 
 	// rootCAs
 	var rootCAs *x509.CertPool
@@ -112,9 +114,10 @@ func newFastForward(bp *handler.BP, args *Args) (*fastForward, error) {
 			u:       u,
 		}
 
-		f.upstream = append(f.upstream, wu)
+		us = append(us, wu)
 	}
 
+	f.upstream = bundled_upstream.NewBundledUpstream(us, bp.L())
 	return f, nil
 }
 
@@ -123,8 +126,8 @@ type upstreamWrapper struct {
 	u       *upstream.FastUpstream
 }
 
-func (u *upstreamWrapper) Exchange(qCtx *handler.Context) (*dns.Msg, error) {
-	return u.u.Exchange(qCtx.Q())
+func (u *upstreamWrapper) Exchange(q *dns.Msg) (*dns.Msg, error) {
+	return u.u.Exchange(q)
 }
 
 func (u *upstreamWrapper) Address() string {
@@ -149,7 +152,7 @@ func (f *fastForward) Exec(ctx context.Context, qCtx *handler.Context, next hand
 }
 
 func (f *fastForward) exec(ctx context.Context, qCtx *handler.Context) (err error) {
-	r, err := utils.ExchangeParallel(ctx, qCtx, f.upstream, f.L())
+	r, err := f.upstream.ExchangeParallel(ctx, qCtx)
 	if err != nil {
 		qCtx.SetResponse(nil, handler.ContextStatusServerFailed)
 		return err

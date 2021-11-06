@@ -24,7 +24,7 @@ import (
 	"github.com/AdguardTeam/dnsproxy/fastip"
 	"github.com/AdguardTeam/dnsproxy/upstream"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/utils"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/bundled_upstream"
 	"github.com/miekg/dns"
 	"net"
 	"time"
@@ -36,14 +36,15 @@ func init() {
 	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 }
 
-var _ handler.ExecutablePlugin = (*forwarder)(nil)
+var _ handler.ExecutablePlugin = (*forwardPlugin)(nil)
 
-type forwarder struct {
+type forwardPlugin struct {
 	*handler.BP
-	upstream []utils.Upstream
 
-	fastIPHandler  *fastip.FastestAddr // nil if fast ip is disabled
-	upstreamFastIP []upstream.Upstream // same as upstream, just used by fastIPHandler
+	upstreams []upstream.Upstream // same as upstream, just used by fastIPHandler
+	bu        *bundled_upstream.BundledUpstream
+
+	fastIPHandler *fastip.FastestAddr // nil if fast ip is disabled
 }
 
 type Args struct {
@@ -65,18 +66,15 @@ func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
 	return newForwarder(bp, args.(*Args))
 }
 
-func newForwarder(bp *handler.BP, args *Args) (*forwarder, error) {
+func newForwarder(bp *handler.BP, args *Args) (*forwardPlugin, error) {
 	if len(args.UpstreamConfig) == 0 {
 		return nil, errors.New("no upstream is configured")
 	}
 
-	f := new(forwarder)
+	f := new(forwardPlugin)
 	f.BP = bp
 
-	if args.FastestIP {
-		f.fastIPHandler = fastip.NewFastestAddr()
-	}
-
+	bu := make([]bundled_upstream.Upstream, 0)
 	for _, conf := range args.UpstreamConfig {
 		if len(conf.Addr) == 0 {
 			return nil, errors.New("missing upstream address")
@@ -107,14 +105,17 @@ func newForwarder(bp *handler.BP, args *Args) (*forwarder, error) {
 			return nil, fmt.Errorf("failed to init upsteam: %w", err)
 		}
 
-		if args.FastestIP {
-			f.upstreamFastIP = append(f.upstreamFastIP, u)
-		} else {
-			f.upstream = append(f.upstream, &trustedUpstream{
-				dnsproxyUpstream: u,
-				trusted:          conf.Trusted,
-			})
-		}
+		f.upstreams = append(f.upstreams, u)
+		bu = append(bu, &trustedUpstream{
+			dnsproxyUpstream: u,
+			trusted:          conf.Trusted,
+		})
+	}
+
+	if args.FastestIP {
+		f.fastIPHandler = fastip.NewFastestAddr()
+	} else {
+		f.bu = bundled_upstream.NewBundledUpstream(bu, bp.L())
 	}
 
 	return f, nil
@@ -129,8 +130,8 @@ func (u *trustedUpstream) Address() string {
 	return u.dnsproxyUpstream.Address()
 }
 
-func (u *trustedUpstream) Exchange(qCtx *handler.Context) (*dns.Msg, error) {
-	return u.dnsproxyUpstream.Exchange(qCtx.Q())
+func (u *trustedUpstream) Exchange(q *dns.Msg) (*dns.Msg, error) {
+	return u.dnsproxyUpstream.Exchange(q)
 }
 
 func (u *trustedUpstream) Trusted() bool {
@@ -141,7 +142,7 @@ func (u *trustedUpstream) Trusted() bool {
 // qCtx.Status() will be set as
 // - handler.ContextStatusResponded: if it received a response.
 // - handler.ContextStatusServerFailed: if all upstreams failed.
-func (f *forwarder) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
+func (f *forwardPlugin) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
 	err := f.exec(ctx, qCtx)
 	if err != nil {
 		return err
@@ -150,13 +151,13 @@ func (f *forwarder) Exec(ctx context.Context, qCtx *handler.Context, next handle
 	return handler.ExecChainNode(ctx, qCtx, next)
 }
 
-func (f *forwarder) exec(ctx context.Context, qCtx *handler.Context) error {
+func (f *forwardPlugin) exec(ctx context.Context, qCtx *handler.Context) error {
 	var r *dns.Msg
 	var err error
 	if f.fastIPHandler != nil {
-		r, _, err = f.fastIPHandler.ExchangeFastest(qCtx.Q().Copy(), f.upstreamFastIP)
+		r, _, err = f.fastIPHandler.ExchangeFastest(qCtx.Q().Copy(), f.upstreams)
 	} else {
-		r, err = utils.ExchangeParallel(ctx, qCtx, f.upstream, f.L())
+		r, err = f.bu.ExchangeParallel(ctx, qCtx)
 	}
 
 	if err != nil {
