@@ -65,6 +65,7 @@ func (a *Arbitrary) LookupMsg(m *dns.Msg) *dns.Msg {
 	if len(rr) != 0 {
 		r := new(dns.Msg)
 		r.SetReply(m)
+		r.RecursionAvailable = true
 		SetRR(r, rr)
 		return r
 	}

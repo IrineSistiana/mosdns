@@ -92,9 +92,10 @@ func newServerPlugin(bp *handler.BP, args *Args) (*serverPlugin, error) {
 	}
 
 	sh := &dns_handler.DefaultHandler{
-		Logger:          bp.L(),
-		Entry:           ecs,
-		ConcurrentLimit: args.MaxConcurrentQueries,
+		Logger:             bp.L(),
+		Entry:              ecs,
+		ConcurrentLimit:    args.MaxConcurrentQueries,
+		RecursionAvailable: true,
 	}
 
 	sg := &serverPlugin{

@@ -51,6 +51,9 @@ type DefaultHandler struct {
 	// - it can be proceeded -> Normal procedure.
 	ConcurrentLimit int
 
+	// RecursionAvailable sets the dns.Msg.RecursionAvailable flag globally.
+	RecursionAvailable bool
+
 	initOnce sync.Once // init the followings
 	logger   *zap.Logger
 	limiter  *concurrent_limiter.ConcurrentLimiter // if it's nil, means no limit.
@@ -101,6 +104,9 @@ func (h *DefaultHandler) ServeDNS(ctx context.Context, qCtx *handler.Context, w 
 	}
 
 	if r != nil {
+		if h.RecursionAvailable {
+			r.RecursionAvailable = true
+		}
 		if _, err := w.Write(r); err != nil {
 			h.logger.Warn("write response", qCtx.InfoField(), zap.Error(err))
 		}
