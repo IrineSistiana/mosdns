@@ -147,7 +147,7 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *handler.Context, next hand
 
 				r := lazyQCtx.R()
 				if r != nil && cacheAble(r) {
-					err := c.storeMsg(ctx, key, r)
+					err := c.storeMsg(lazyCtx, key, r)
 					if err != nil {
 						c.L().Warn("failed to store lazy cache", lazyQCtx.InfoField(), zap.Error(err))
 					}
