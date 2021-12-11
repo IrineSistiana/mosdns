@@ -19,7 +19,6 @@ package dual_selector
 
 import (
 	"context"
-	"fmt"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/pool"
@@ -84,82 +83,73 @@ func (s *Selector) Exec(ctx context.Context, qCtx *handler.Context, next handler
 		return handler.ExecChainNode(ctx, qCtx, next)
 	}
 
-	runSubQuery := func() (chan error, chan error, *handler.Context, *handler.Context) {
-		qCtxV4 := qCtx.Copy()
-		qCtxV4.Q().Question[0].Qtype = dns.TypeA
-		qCtxV6 := qCtx.Copy()
-		qCtxV6.Q().Question[0].Qtype = dns.TypeAAAA
+	// start reference goroutine
+	qCtxRef := qCtx.Copy()
+	var refQtype uint16
+	if qtype == dns.TypeA {
+		refQtype = dns.TypeAAAA
+	} else {
+		refQtype = dns.TypeA
+	}
+	qCtxRef.Q().Question[0].Qtype = refQtype
 
-		doneChanV4 := make(chan error, 1)
-		doneChanV6 := make(chan error, 1)
-
-		ddl, ok := ctx.Deadline()
-		if !ok {
-			ddl = time.Now().Add(defaultSubRoutineTimout)
+	ddl, ok := ctx.Deadline()
+	if !ok {
+		ddl = time.Now().Add(defaultSubRoutineTimout)
+	}
+	ctxRef, cancelRef := context.WithDeadline(context.Background(), ddl)
+	defer cancelRef()
+	shouldBlock := make(chan struct{}, 0)
+	shouldPass := make(chan struct{}, 0)
+	go func() {
+		err := handler.ExecChainNode(ctxRef, qCtxRef, next)
+		if err != nil {
+			s.L().Warn("reference query routine err", qCtxRef.InfoField(), zap.Error(err))
+			close(shouldPass)
+			return
 		}
-		ctxV4, cancelV4 := context.WithDeadline(context.Background(), ddl)
-		ctxV6, cancelV6 := context.WithDeadline(context.Background(), ddl)
+		if r := qCtxRef.R(); r != nil && msgAnsHasRR(r, refQtype) {
+			// Target domain has reference type.
+			close(shouldBlock)
+			return
+		}
+		close(shouldPass)
+		return
+	}()
 
-		go func() {
-			doneChanV4 <- handler.ExecChainNode(ctxV4, qCtxV4, next)
-			close(doneChanV4)
-			cancelV4()
-		}()
-		go func() {
-			doneChanV6 <- handler.ExecChainNode(ctxV6, qCtxV6, next)
-			close(doneChanV6)
-			cancelV6()
-		}()
-		return doneChanV4, doneChanV6, qCtxV4, qCtxV6
-	}
+	// start original query goroutine
+	doneChan := make(chan error, 1)
+	qCtxSub := qCtx.Copy()
+	ctxSub, cancelSub := context.WithDeadline(context.Background(), ddl)
+	defer cancelSub()
+	go func() {
+		doneChan <- handler.ExecChainNode(ctxSub, qCtxSub, next)
+	}()
 
-	switch s.mode {
-	case modePreferIPv4: // undergoing query is an AAAA.
-		doneChanV4, doneChanV6, qCtxV4, qCtxV6 := runSubQuery()
-		return s.waitAndBlock(ctx, doneChanV6, doneChanV4, qCtxV6, qCtxV4, qCtx, dns.TypeA)
-	case modePreferIPv6: // undergoing query is an A.
-		doneChanV4, doneChanV6, qCtxV4, qCtxV6 := runSubQuery()
-		return s.waitAndBlock(ctx, doneChanV4, doneChanV6, qCtxV4, qCtxV6, qCtx, dns.TypeAAAA)
-	default:
-		return fmt.Errorf("invalid mode: %d", s.mode)
-	}
-}
-
-// waitAndBlock waits dual replies and blocks the original query if
-// the reference returned a valid reply and has the wanted RR type (typRef).
-func (s *Selector) waitAndBlock(ctx context.Context, doneChan, doneChanRef chan error, qCtx, qCtxRef, rootQCtx *handler.Context, typRef uint16) error {
-	waitTimeoutTimer := pool.GetTimer(s.getWaitTimeout())
-	defer pool.ReleaseTimer(waitTimeoutTimer)
-
-	var lazyDoneChan chan error
-	for {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-shouldBlock: // Reference indicates we should block this query before the original query finished.
+		r := dnsutils.GenEmptyReply(q, dns.RcodeSuccess)
+		qCtx.SetResponse(r, handler.ContextStatusResponded)
+		return nil
+	case err := <-doneChan: // The original query finished. Waiting for reference.
+		waitTimeoutTimer := pool.GetTimer(s.getWaitTimeout())
+		defer pool.ReleaseTimer(waitTimeoutTimer)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case err := <-doneChanRef: // Reference goroutine done
-			if err != nil {
-				s.L().Warn("reference query routine err", qCtxRef.InfoField(), zap.Error(err))
-			} else {
-				if rRef := qCtxRef.R(); rRef != nil && msgAnsHasRR(rRef, typRef) {
-					// Target domain has one or more reference records. Block the original query.
-					r := dnsutils.GenEmptyReply(rootQCtx.Q(), dns.RcodeSuccess)
-					rootQCtx.SetResponse(r, handler.ContextStatusResponded)
-					return nil
-				}
-			}
-
-			// reference sub query failed or target domain does not have an reference record.
-			// Waiting for the original reply.
-			doneChanRef = nil
-			lazyDoneChan = doneChan
-
+		case <-shouldBlock:
+			r := dnsutils.GenEmptyReply(q, dns.RcodeSuccess)
+			qCtx.SetResponse(r, handler.ContextStatusResponded)
+			return nil
+		case <-shouldPass:
+			qCtxSub.CopyTo(qCtx)
+			return err
 		case <-waitTimeoutTimer.C:
 			// We have been waiting the reference query for too long.
-			// Something may go wrong. We, for now, start to accept the original reply.
-			lazyDoneChan = doneChan
-
-		case err := <-lazyDoneChan:
-			qCtx.CopyTo(rootQCtx)
+			// Something may go wrong. We accept the original reply.
+			qCtxSub.CopyTo(qCtx)
 			return err
 		}
 	}
