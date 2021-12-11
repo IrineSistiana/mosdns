@@ -29,25 +29,29 @@ const (
 
 func init() {
 	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
-	handler.MustRegPlugin(&SingleFlightPlugin{BP: handler.NewBP("_single_flight", PluginType)}, true)
+	handler.MustRegPlugin(NewSF(handler.NewBP("_single_flight", PluginType)), true)
 }
 
 type Args struct{}
 
 func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
-	return &SingleFlightPlugin{
-		BP:  bp,
-		sfg: new(single_flight.SingleFlight),
-	}, err
+	return NewSF(bp), nil
 }
 
 type SingleFlightPlugin struct {
 	*handler.BP
-	sfg *single_flight.SingleFlight
+	sf *single_flight.SingleFlight
 }
 
 var _ handler.ExecutablePlugin = (*SingleFlightPlugin)(nil)
 
-func (sf *SingleFlightPlugin) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
-	return sf.sfg.Exec(ctx, qCtx, next)
+func NewSF(bp *handler.BP) *SingleFlightPlugin {
+	return &SingleFlightPlugin{
+		BP: bp,
+		sf: new(single_flight.SingleFlight),
+	}
+}
+
+func (p *SingleFlightPlugin) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
+	return p.sf.Exec(ctx, qCtx, next)
 }
