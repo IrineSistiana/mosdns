@@ -18,10 +18,16 @@
 package coremain
 
 import (
+	"bytes"
+	"context"
+	"fmt"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/ext_exec"
 	"gopkg.in/yaml.v3"
 	"io/ioutil"
 	"os"
+	"regexp"
+	"time"
 )
 
 // Config is config
@@ -35,9 +41,30 @@ type Config struct {
 	Include []string          `yaml:"include"`
 }
 
+var expSyntax = regexp.MustCompile("\\${{.*}}")
+
 // parseConfig loads a yaml config from path f.
 func parseConfig(f string) (*Config, error) {
 	b, err := ioutil.ReadFile(f)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+
+	expSyntax.ReplaceAllFunc(b, func(b []byte) []byte {
+		if err != nil {
+			return b
+		}
+		cmd := string(bytes.Trim(b[3:len(b)-2], " "))
+		out, innerErr := ext_exec.GetOutputFromCmd(ctx, cmd)
+		if innerErr != nil {
+			err = fmt.Errorf("cmd [%s] failed with err: %w", cmd, innerErr)
+			return b
+		}
+		return bytes.Trim(out, "\r\n")
+	})
 	if err != nil {
 		return nil, err
 	}
