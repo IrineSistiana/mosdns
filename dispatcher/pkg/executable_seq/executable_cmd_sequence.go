@@ -180,7 +180,7 @@ func parseLBNodeFromMap(m map[string]interface{}, logger *zap.Logger) (handler.E
 		return nil, err
 	}
 
-	return handler.WrapExecutable(e), nil
+	return e, nil
 }
 
 func hasKey(m map[string]interface{}, key string) bool {

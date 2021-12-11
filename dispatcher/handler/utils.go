@@ -40,8 +40,8 @@ func FirstNode(n ExecutableChainNode) ExecutableChainNode {
 	}
 }
 
-// LatestNode returns the Latest node of chain of n.
-func LatestNode(n ExecutableChainNode) ExecutableChainNode {
+// LastNode returns the Latest node of chain of n.
+func LastNode(n ExecutableChainNode) ExecutableChainNode {
 	p := n
 	for {
 		if nn := p.Next(); nn == nil {

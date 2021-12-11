@@ -22,7 +22,7 @@ func TestNode(t *testing.T) {
 		if FirstNode(cn) != chain[0] {
 			t.Fatal()
 		}
-		if LatestNode(cn) != chain[len(chain)-1] {
+		if LastNode(cn) != chain[len(chain)-1] {
 			t.Fatal()
 		}
 	}

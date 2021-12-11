@@ -26,10 +26,31 @@ import (
 )
 
 type LBNode struct {
-	loadBalance []handler.ExecutableChainNode
+	prev, next handler.ExecutableChainNode
+	branchNode []handler.ExecutableChainNode
+	p          uint32
+}
 
-	logger *zap.Logger // not nil
-	p      uint32
+func (lbn *LBNode) Previous() handler.ExecutableChainNode {
+	return lbn.prev
+}
+
+func (lbn *LBNode) Next() handler.ExecutableChainNode {
+	return lbn.next
+}
+
+func (lbn *LBNode) LinkPrevious(n handler.ExecutableChainNode) {
+	lbn.prev = n
+	for _, branch := range lbn.branchNode {
+		branch.LinkPrevious(n)
+	}
+}
+
+func (lbn *LBNode) LinkNext(n handler.ExecutableChainNode) {
+	lbn.next = n
+	for _, branch := range lbn.branchNode {
+		handler.LastNode(branch).LinkNext(n)
+	}
 }
 
 type LBConfig struct {
@@ -46,22 +67,18 @@ func ParseLBNode(c *LBConfig, logger *zap.Logger) (*LBNode, error) {
 		ps = append(ps, es)
 	}
 
-	pn := &LBNode{loadBalance: ps}
-
-	if logger != nil {
-		pn.logger = logger
-	} else {
-		pn.logger = zap.NewNop()
-	}
-	return pn, nil
+	return &LBNode{branchNode: ps}, nil
 }
 
-func (n *LBNode) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
-	if len(n.loadBalance) > 0 {
-		nextIdx := atomic.AddUint32(&n.p, 1) % uint32(len(n.loadBalance))
-		if err := handler.ExecChainNode(ctx, qCtx, n.loadBalance[nextIdx]); err != nil {
-			return fmt.Errorf("command sequence #%d: %w", nextIdx, err)
-		}
+func (lbn *LBNode) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
+	if len(lbn.branchNode) == 0 {
+		return handler.ExecChainNode(ctx, qCtx, next)
 	}
-	return handler.ExecChainNode(ctx, qCtx, next)
+
+	nextIdx := atomic.AddUint32(&lbn.p, 1) % uint32(len(lbn.branchNode))
+	err := handler.ExecChainNode(ctx, qCtx, lbn.branchNode[nextIdx])
+	if err != nil {
+		return fmt.Errorf("command sequence #%d: %w", nextIdx, err)
+	}
+	return nil
 }

@@ -95,10 +95,10 @@ func (b *IfNode) LinkPrevious(n handler.ExecutableChainNode) {
 func (b *IfNode) LinkNext(n handler.ExecutableChainNode) {
 	b.next = n
 	if b.ExecutableNode != nil {
-		handler.LatestNode(b.ExecutableNode).LinkNext(n)
+		handler.LastNode(b.ExecutableNode).LinkNext(n)
 	}
 	if b.ElseExecutableNode != nil {
-		handler.LatestNode(b.ElseExecutableNode).LinkNext(n)
+		handler.LastNode(b.ElseExecutableNode).LinkNext(n)
 	}
 }
 
