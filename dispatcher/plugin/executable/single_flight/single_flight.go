@@ -19,10 +19,8 @@ package single_flight
 
 import (
 	"context"
-	"fmt"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/utils"
-	"golang.org/x/sync/singleflight"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/single_flight"
 )
 
 const (
@@ -31,50 +29,25 @@ const (
 
 func init() {
 	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
-	handler.MustRegPlugin(&singleFlight{BP: handler.NewBP("_single_flight", PluginType)}, true)
+	handler.MustRegPlugin(&SingleFlightPlugin{BP: handler.NewBP("_single_flight", PluginType)}, true)
 }
 
 type Args struct{}
 
 func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
-	return &singleFlight{
-		BP: bp,
+	return &SingleFlightPlugin{
+		BP:  bp,
+		sfg: new(single_flight.SingleFlight),
 	}, err
 }
 
-type singleFlight struct {
+type SingleFlightPlugin struct {
 	*handler.BP
-
-	singleflight.Group
+	sfg *single_flight.SingleFlight
 }
 
-var _ handler.ExecutablePlugin = (*singleFlight)(nil)
+var _ handler.ExecutablePlugin = (*SingleFlightPlugin)(nil)
 
-func (sf *singleFlight) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
-	key, err := utils.GetMsgKey(qCtx.Q(), 0)
-	if err != nil {
-		return fmt.Errorf("failed to get msg key, %w", err)
-	}
-
-	qCtxCopy := qCtx.Copy()
-	v, err, _ := sf.Group.Do(key, func() (interface{}, error) {
-		defer sf.Group.Forget(key)
-		err := handler.ExecChainNode(ctx, qCtxCopy, next)
-		return qCtxCopy, err
-	})
-
-	if err != nil {
-		return err
-	}
-
-	qCtxUnsafe := v.(*handler.Context)
-
-	// Returned qCtxUnsafe may from another goroutine.
-	// Replace qCtx.
-	qCtxUnsafe.CopyTo(qCtx)
-	if r := qCtx.R(); r != nil { // Make sure msg IDs are consistent.
-		r.Id = qCtx.Q().Id
-	}
-
-	return nil
+func (sf *SingleFlightPlugin) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
+	return sf.sfg.Exec(ctx, qCtx, next)
 }

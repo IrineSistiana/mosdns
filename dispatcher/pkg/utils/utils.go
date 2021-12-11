@@ -25,6 +25,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/binary"
 	"encoding/pem"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
@@ -110,6 +111,25 @@ func GetMsgKey(m *dns.Msg, salt uint16) (string, error) {
 	wireMsg[0] = byte(salt >> 8)
 	wireMsg[1] = byte(salt)
 	return BytesToStringUnsafe(wireMsg), nil
+}
+
+// GetMsgKeyWithBytesSalt unpacks m and appends salt to the string.
+func GetMsgKeyWithBytesSalt(m *dns.Msg, salt []byte) (string, error) {
+	wireMsg, err := m.Pack()
+	if err != nil {
+		return "", err
+	}
+	wireMsg[0] = 0
+	wireMsg[1] = 0
+	wireMsg = append(wireMsg, salt...)
+	return BytesToStringUnsafe(wireMsg), nil
+}
+
+// GetMsgKeyWithInt64Salt unpacks m and appends salt to the string.
+func GetMsgKeyWithInt64Salt(m *dns.Msg, salt int64) (string, error) {
+	b := make([]byte, 8)
+	binary.BigEndian.PutUint64(b, uint64(salt))
+	return GetMsgKeyWithBytesSalt(m, b)
 }
 
 // BytesToStringUnsafe converts bytes to string.

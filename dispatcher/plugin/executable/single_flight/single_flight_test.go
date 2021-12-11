@@ -12,7 +12,7 @@ import (
 )
 
 func Test_singleFlight_Exec(t *testing.T) {
-	sf := &singleFlight{
+	sf := &SingleFlightPlugin{
 		BP: handler.NewBP("", ""),
 	}
 
@@ -40,7 +40,7 @@ func Test_singleFlight_Exec(t *testing.T) {
 }
 
 func Test_singleFlight_Exec_err(t *testing.T) {
-	sf := &singleFlight{
+	sf := &SingleFlightPlugin{
 		BP: handler.NewBP("", ""),
 	}
 
