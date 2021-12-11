@@ -53,15 +53,15 @@ func parseConfig(f string) (*Config, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
-	expSyntax.ReplaceAllFunc(b, func(b []byte) []byte {
+	b = expSyntax.ReplaceAllFunc(b, func(syntax []byte) []byte {
 		if err != nil {
-			return b
+			return syntax
 		}
-		cmd := string(bytes.Trim(b[3:len(b)-2], " "))
+		cmd := string(bytes.Trim(syntax[3:len(syntax)-2], " "))
 		out, innerErr := ext_exec.GetOutputFromCmd(ctx, cmd)
 		if innerErr != nil {
 			err = fmt.Errorf("cmd [%s] failed with err: %w", cmd, innerErr)
-			return b
+			return syntax
 		}
 		return bytes.Trim(out, "\r\n")
 	})
