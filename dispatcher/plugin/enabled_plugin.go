@@ -23,6 +23,7 @@ import (
 	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/blackhole"
 	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/bufsize"
 	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/cache"
+	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/dual_selector"
 	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/ecs"
 	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/fast_forward"
 	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin/executable/forward"
