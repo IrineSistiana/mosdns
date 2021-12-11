@@ -101,13 +101,19 @@ func ParseExecutableNode(in interface{}, logger *zap.Logger) (handler.Executable
 			}
 			return ec, nil
 		case hasKey(v, "parallel"): // parallel
-			ec, err := parseParallelECSFromMap(v, logger)
+			ec, err := parseParallelNodeFromMap(v, logger)
 			if err != nil {
 				return nil, fmt.Errorf("invalid parallel section: %w", err)
 			}
 			return ec, nil
+		case hasKey(v, "load_balance"): // load balance
+			ec, err := parseLBNodeFromMap(v, logger)
+			if err != nil {
+				return nil, fmt.Errorf("invalid load balance section: %w", err)
+			}
+			return ec, nil
 		case hasKey(v, "primary") || hasKey(v, "secondary"): // fallback
-			ec, err := parseFallbackECSFromMap(v, logger)
+			ec, err := parseFallbackNodeFromMap(v, logger)
 			if err != nil {
 				return nil, fmt.Errorf("invalid fallback section: %w", err)
 			}
@@ -135,7 +141,7 @@ func parseIfBlockFromMap(m map[string]interface{}, logger *zap.Logger) (handler.
 	return e, nil
 }
 
-func parseParallelECSFromMap(m map[string]interface{}, logger *zap.Logger) (handler.ExecutableChainNode, error) {
+func parseParallelNodeFromMap(m map[string]interface{}, logger *zap.Logger) (handler.ExecutableChainNode, error) {
 	conf := new(ParallelConfig)
 	err := handler.WeakDecode(m, conf)
 	if err != nil {
@@ -149,13 +155,27 @@ func parseParallelECSFromMap(m map[string]interface{}, logger *zap.Logger) (hand
 	return handler.WrapExecutable(e), nil
 }
 
-func parseFallbackECSFromMap(m map[string]interface{}, logger *zap.Logger) (handler.ExecutableChainNode, error) {
+func parseFallbackNodeFromMap(m map[string]interface{}, logger *zap.Logger) (handler.ExecutableChainNode, error) {
 	conf := new(FallbackConfig)
 	err := handler.WeakDecode(m, conf)
 	if err != nil {
 		return nil, err
 	}
 	e, err := ParseFallbackNode(conf, logger)
+	if err != nil {
+		return nil, err
+	}
+
+	return handler.WrapExecutable(e), nil
+}
+
+func parseLBNodeFromMap(m map[string]interface{}, logger *zap.Logger) (handler.ExecutableChainNode, error) {
+	conf := new(LBConfig)
+	err := handler.WeakDecode(m, conf)
+	if err != nil {
+		return nil, err
+	}
+	e, err := ParseLBNode(conf, logger)
 	if err != nil {
 		return nil, err
 	}

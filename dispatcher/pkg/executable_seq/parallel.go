@@ -33,16 +33,16 @@ type ParallelNode struct {
 	logger *zap.Logger // not nil
 }
 
+const (
+	defaultParallelTimeout = time.Second * 5
+)
+
 type ParallelConfig struct {
 	Parallel []interface{} `yaml:"parallel"`
 	Timeout  uint          `yaml:"timeout"`
 }
 
 func ParseParallelNode(c *ParallelConfig, logger *zap.Logger) (*ParallelNode, error) {
-	if len(c.Parallel) < 2 {
-		return nil, fmt.Errorf("parallel needs at least 2 cmd sequences, but got %d", len(c.Parallel))
-	}
-
 	ps := make([]handler.ExecutableChainNode, 0, len(c.Parallel))
 	for i, subSequence := range c.Parallel {
 		es, err := ParseExecutableNode(subSequence, logger)
@@ -77,6 +77,9 @@ func (p *ParallelNode) Exec(ctx context.Context, qCtx *handler.Context, next han
 }
 
 func (p *ParallelNode) exec(ctx context.Context, qCtx *handler.Context) error {
+	if len(p.s) == 0 {
+		return nil
+	}
 
 	t := len(p.s)
 	c := make(chan *parallelECSResult, len(p.s)) // use buf chan to avoid blocking.
@@ -91,7 +94,10 @@ func (p *ParallelNode) exec(ctx context.Context, qCtx *handler.Context) error {
 		if p.timeout > 0 {
 			pCtx, cancel = context.WithTimeout(context.Background(), p.timeout)
 		} else {
-			pCtx, cancel = context.WithCancel(ctx)
+			if ddl, ok := ctx.Deadline(); ok {
+				pCtx, cancel = context.WithDeadline(ctx, ddl)
+			}
+			pCtx, cancel = context.WithTimeout(ctx, defaultParallelTimeout)
 		}
 
 		go func() {
