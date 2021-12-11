@@ -1,3 +1,6 @@
+//go:build linux
+// +build linux
+
 //     Copyright (C) 2020-2021, IrineSistiana
 //
 //     This file is part of mosdns.
