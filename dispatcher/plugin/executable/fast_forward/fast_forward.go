@@ -88,9 +88,13 @@ func newFastForward(bp *handler.BP, args *Args) (*fastForward, error) {
 		}
 	}
 
-	for _, config := range args.Upstream {
+	for i, config := range args.Upstream {
 		if len(config.Addr) == 0 {
 			return nil, errors.New("missing server addr")
+		}
+
+		if i == 0 { // Set first upstream as trusted upstream.
+			config.Trusted = true
 		}
 
 		u, err := upstream.NewFastUpstream(

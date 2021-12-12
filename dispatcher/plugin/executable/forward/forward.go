@@ -75,9 +75,13 @@ func newForwarder(bp *handler.BP, args *Args) (*forwardPlugin, error) {
 	f.BP = bp
 
 	bu := make([]bundled_upstream.Upstream, 0)
-	for _, conf := range args.UpstreamConfig {
+	for i, conf := range args.UpstreamConfig {
 		if len(conf.Addr) == 0 {
 			return nil, errors.New("missing upstream address")
+		}
+
+		if i == 0 { // Set first upstream as trusted upstream.
+			conf.Trusted = true
 		}
 
 		serverIPAddrs := make([]net.IP, 0, len(conf.IPAddr))
