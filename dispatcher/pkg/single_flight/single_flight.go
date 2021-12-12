@@ -49,11 +49,12 @@ func (sf *SingleFlight) Exec(ctx context.Context, qCtx *handler.Context, next ha
 
 	qCtxUnsafe := v.(*handler.Context)
 
-	// Returned qCtxUnsafe may from another goroutine.
-	// Replace qCtx.
+	// Returned qCtxUnsafe may also be returned to other goroutines.
+	// Make a deep copy of it to qCtx. Then we can modify it safely.
+	qid := qCtx.Q().Id
 	qCtxUnsafe.CopyTo(qCtx)
 	if r := qCtx.R(); r != nil { // Make sure msg IDs are consistent.
-		r.Id = qCtx.Q().Id
+		r.Id = qid
 	}
 
 	return nil

@@ -48,8 +48,8 @@ func TestSingleFlight_Exec(t *testing.T) {
 					t.Errorf("wanted err: nil, but got: %v", err)
 				}
 				// check msg id
-				if qCtx.Q().Id != qCtx.R().Id {
-					t.Error("msg id mismatched")
+				if m.Id != qCtx.R().Id {
+					t.Error("msg id mismatch")
 				}
 			}()
 		}
