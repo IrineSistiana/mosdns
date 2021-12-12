@@ -18,17 +18,9 @@
 package coremain
 
 import (
-	"bytes"
-	"context"
-	"fmt"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/mlog"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/ext_exec"
-	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
-	"io/ioutil"
 	"os"
-	"regexp"
 )
 
 // Config is config
@@ -42,30 +34,14 @@ type Config struct {
 	Include []string          `yaml:"include"`
 }
 
-var expSyntax = regexp.MustCompile("\\${{.*}}")
-
 // parseConfig loads a yaml config from path f.
 func parseConfig(f string) (*Config, error) {
-	b, err := ioutil.ReadFile(f)
+	b, err := os.ReadFile(f)
 	if err != nil {
 		return nil, err
 	}
 
-	b = expSyntax.ReplaceAllFunc(b, func(syntax []byte) []byte {
-		if err != nil {
-			return syntax
-		}
-		cmd := string(bytes.Trim(syntax[3:len(syntax)-2], " "))
-		mlog.L().Info("executing config cmd", zap.String("cmd", cmd))
-		out, innerErr := ext_exec.GetOutputFromCmd(context.Background(), cmd)
-		if innerErr != nil {
-			err = fmt.Errorf("cmd [%s] failed with err: %w", cmd, innerErr)
-			return syntax
-		}
-		out = bytes.Trim(out, "\r\n")
-		mlog.L().Info("successfully executed cmd", zap.String("cmd", cmd), zap.String("stdout", string(out)))
-		return out
-	})
+	b, err = findAndReplaceCmd(b, 0, runCmd)
 	if err != nil {
 		return nil, err
 	}

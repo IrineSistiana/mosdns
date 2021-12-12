@@ -18,10 +18,10 @@
 package coremain
 
 import (
+	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/mlog"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/concurrent_limiter"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/load_cache"
 	_ "github.com/IrineSistiana/mosdns/v2/dispatcher/plugin"
 	"go.uber.org/zap"
@@ -29,15 +29,15 @@ import (
 	"os"
 	"os/signal"
 	"plugin"
-	"runtime"
 	"runtime/debug"
-	"sync"
 	"syscall"
 )
 
 // Run starts mosdns, it blocks.
 func Run(c string) {
-	loadConfig(c, 0)
+	if err := loadConfig(c, 0); err != nil {
+		mlog.L().Fatal("failed to load config", zap.Error(err))
+	}
 
 	mlog.L().Info("all plugins are successfully loaded")
 	load_cache.GetCache().Purge()
@@ -52,34 +52,36 @@ func Run(c string) {
 }
 
 const (
-	maxIncludeDepth = 10
+	maxIncludeDepth = 16
 )
 
+var errIncludeDepth = errors.New("max include depth reached")
+
 // Init loads plugins from config
-func loadConfig(f string, depth int) {
+func loadConfig(f string, depth int) error {
 	if depth >= maxIncludeDepth {
-		mlog.S().Fatal("max include depth reached")
+		return errIncludeDepth
 	}
 	depth++
 
 	mlog.L().Info("loading config", zap.String("file", f))
 	c, err := parseConfig(f)
 	if err != nil {
-		mlog.S().Fatalf("failed to parse config from file %s: %v", f, err)
+		return fmt.Errorf("failed to parse the config file: %w", err)
 	}
 
 	if depth == 1 {
 		// init logger
-		level, err := parseLogLevel(c.Log.Level)
-		if err != nil {
-			mlog.S().Fatal(err)
+		level, ok := parseLogLevel(c.Log.Level)
+		if !ok {
+			return fmt.Errorf("invalid log level [%s]", c.Log.Level)
 		}
 		mlog.Level().SetLevel(level)
 		if len(c.Log.File) != 0 {
 			mlog.L().Info("opening log file", zap.String("file", c.Log.File))
 			f, err := os.OpenFile(c.Log.File, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0755)
 			if err != nil {
-				mlog.S().Fatalf("can not open log file %s: %v", c.Log.File, err)
+				return fmt.Errorf("open log file: %w", err)
 			}
 			mlog.L().Info("redirecting log to file, end of console log", zap.String("file", c.Log.File))
 			mlog.Writer().Replace(f)
@@ -89,58 +91,41 @@ func loadConfig(f string, depth int) {
 			mlog.L().Info("loading library", zap.String("library", lib))
 			_, err := plugin.Open(lib)
 			if err != nil {
-				mlog.S().Fatalf("failed to open library %s: %v", lib, err)
+				return fmt.Errorf("failed to open library: %w", err)
 			}
 		}
 	}
 
-	n := runtime.NumCPU() / 2
-	if n < 1 {
-		n = 1
-	}
-	pool := concurrent_limiter.NewConcurrentLimiter(n)
-	wg := new(sync.WaitGroup)
-	for i, pluginConfig := range c.Plugin {
+	for _, pluginConfig := range c.Plugin {
 		if len(pluginConfig.Tag) == 0 || len(pluginConfig.Type) == 0 {
 			continue
 		}
-		i := i
-		pluginConfig := pluginConfig
 
-		select {
-		case pool.Wait() <- struct{}{}:
-			wg.Add(1)
-			go func() {
-				defer pool.Done()
-				defer wg.Done()
-				mlog.L().Info("loading plugin", zap.String("tag", pluginConfig.Tag))
-				if err := handler.InitAndRegPlugin(pluginConfig, true); err != nil {
-					mlog.S().Fatalf("failed to register plugin #%d %s: %v", i, pluginConfig.Tag, err)
-				}
-			}()
+		mlog.L().Info("loading plugin", zap.String("tag", pluginConfig.Tag))
+		if err := handler.InitAndRegPlugin(pluginConfig, true); err != nil {
+			return fmt.Errorf("failed to load plugin  %s: %v", pluginConfig.Tag, err)
 		}
 	}
-	wg.Wait()
 
 	for _, include := range c.Include {
-		if len(include) == 0 {
-			continue
+		if err := loadConfig(include, depth); err != nil {
+			return err
 		}
-		loadConfig(include, depth)
 	}
+	return nil
 }
 
-func parseLogLevel(s string) (zapcore.Level, error) {
+func parseLogLevel(s string) (zapcore.Level, bool) {
 	switch s {
 	case "debug":
-		return zap.DebugLevel, nil
+		return zap.DebugLevel, true
 	case "", "info":
-		return zap.InfoLevel, nil
+		return zap.InfoLevel, true
 	case "warn":
-		return zap.WarnLevel, nil
+		return zap.WarnLevel, true
 	case "error":
-		return zap.ErrorLevel, nil
+		return zap.ErrorLevel, true
 	default:
-		return 0, fmt.Errorf("invalid log level [%s]", s)
+		return 0, false
 	}
 }
