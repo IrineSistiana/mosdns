@@ -43,7 +43,9 @@ func init() {
 }
 
 const (
+	defaultCacheSize         = 1024
 	defaultLazyUpdateTimeout = time.Second * 5
+	defaultEmptyAnswerTTL    = time.Second * 300
 )
 
 var _ handler.ExecutablePlugin = (*cachePlugin)(nil)
@@ -76,8 +78,8 @@ func newCachePlugin(bp *handler.BP, args *Args) (*cachePlugin, error) {
 			return nil, err
 		}
 	} else {
-		if args.Size <= 1024 {
-			args.Size = 1024
+		if args.Size <= defaultCacheSize {
+			args.Size = defaultCacheSize
 		}
 
 		sizePerShard := args.Size / 32
@@ -114,7 +116,13 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *handler.Context, next hand
 		// change msg id to query
 		r.Id = q.Id
 
-		if storedTime.Add(time.Duration(dnsutils.GetMinimalTTL(r)) * time.Second).After(time.Now()) { // not expired
+		var msgTTL time.Duration
+		if len(r.Answer) == 0 {
+			msgTTL = defaultEmptyAnswerTTL
+		} else {
+			msgTTL = time.Duration(dnsutils.GetMinimalTTL(r)) * time.Second
+		}
+		if storedTime.Add(msgTTL).After(time.Now()) { // not expired
 			c.L().Debug("cache hit", qCtx.InfoField())
 			dnsutils.SubtractTTL(r, uint32(time.Since(storedTime).Seconds()))
 			qCtx.SetResponse(r, handler.ContextStatusResponded)
@@ -146,8 +154,8 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *handler.Context, next hand
 				}
 
 				r := lazyQCtx.R()
-				if r != nil && cacheAble(r) {
-					err := c.storeMsg(lazyCtx, key, r)
+				if r != nil {
+					err := c.tryStoreMsg(lazyCtx, key, r)
 					if err != nil {
 						c.L().Warn("failed to store lazy cache", lazyQCtx.InfoField(), zap.Error(err))
 					}
@@ -164,8 +172,8 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *handler.Context, next hand
 	c.L().Debug("cache miss", qCtx.InfoField())
 	err = handler.ExecChainNode(ctx, qCtx, next)
 	r = qCtx.R()
-	if r != nil && cacheAble(r) {
-		err := c.storeMsg(ctx, key, r)
+	if r != nil {
+		err := c.tryStoreMsg(ctx, key, r)
 		if err != nil {
 			c.L().Warn("failed to store lazy cache", qCtx.InfoField(), zap.Error(err))
 		}
@@ -173,11 +181,12 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *handler.Context, next hand
 	return err
 }
 
-func cacheAble(r *dns.Msg) bool {
-	return r.Rcode == dns.RcodeSuccess && r.Truncated == false && len(r.Answer) != 0
-}
+// tryStoreMsg tries to store r to cache. If r should be cached.
+func (c *cachePlugin) tryStoreMsg(ctx context.Context, key string, r *dns.Msg) error {
+	if r.Rcode != dns.RcodeSuccess || r.Truncated != false {
+		return nil
+	}
 
-func (c *cachePlugin) storeMsg(ctx context.Context, key string, r *dns.Msg) error {
 	now := time.Now()
 	var expirationTime time.Time
 	if c.args.LazyCacheTTL > 0 {
