@@ -143,18 +143,18 @@ func ParseFallbackNode(c *FallbackConfig, logger *zap.Logger) (*FallbackNode, er
 }
 
 func (f *FallbackNode) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
-	if err := f.exec(ctx, qCtx, next); err != nil {
+	if err := f.exec(ctx, qCtx); err != nil {
 		return err
 	}
 	return handler.ExecChainNode(ctx, qCtx, next)
 }
 
-func (f *FallbackNode) exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
+func (f *FallbackNode) exec(ctx context.Context, qCtx *handler.Context) error {
 	if f.primaryST == nil || f.primaryST.good() {
 		if f.fastFallbackDuration > 0 {
 			return f.doFastFallback(ctx, qCtx)
 		} else {
-			return f.isolateDoPrimary(ctx, qCtx)
+			return f.doPrimary(ctx, qCtx)
 		}
 	}
 	f.logger.Debug("primary is not good", qCtx.InfoField())
@@ -191,21 +191,20 @@ func (f *FallbackNode) doFastFallback(ctx context.Context, qCtx *handler.Context
 	c := make(chan *parallelECSResult, 2)
 	primFailed := make(chan struct{}) // will be closed if primary returns an err.
 
-	qCtxCopyP := qCtx.Copy()
+	qCtxP := qCtx.Copy()
 	go func() {
-		err := f.doPrimary(fCtx, qCtxCopyP)
-		if err != nil || qCtxCopyP.R() == nil {
+		err := f.doPrimary(fCtx, qCtxP)
+		if err != nil || qCtxP.R() == nil {
 			close(primFailed)
 		}
 		c <- &parallelECSResult{
-			r:      qCtxCopyP.R(),
-			status: qCtxCopyP.Status(),
-			err:    err,
-			from:   1,
+			qCtx: qCtxP,
+			err:  err,
+			from: 1,
 		}
 	}()
 
-	qCtxCopyS := qCtx.Copy()
+	qCtxS := qCtx.Copy()
 	go func() {
 		if !f.alwaysStandby { // not always standby, wait here.
 			select {
@@ -216,12 +215,11 @@ func (f *FallbackNode) doFastFallback(ctx context.Context, qCtx *handler.Context
 			}
 		}
 
-		err := f.doSecondary(fCtx, qCtxCopyS)
+		err := f.doSecondary(fCtx, qCtxS)
 		res := &parallelECSResult{
-			r:      qCtxCopyS.R(),
-			status: qCtxCopyS.Status(),
-			err:    err,
-			from:   2,
+			qCtx: qCtxS,
+			err:  err,
+			from: 2,
 		}
 
 		if f.alwaysStandby { // always standby
@@ -251,25 +249,23 @@ func (f *FallbackNode) doFallback(ctx context.Context, qCtx *handler.Context) er
 
 	c := make(chan *parallelECSResult, 2) // buf size is 2, avoid blocking.
 
-	qCtxCopyP := qCtx.Copy()
+	qCtxP := qCtx.Copy()
 	go func() {
-		err := f.doPrimary(fCtx, qCtxCopyP)
+		err := f.doPrimary(fCtx, qCtxP)
 		c <- &parallelECSResult{
-			r:      qCtxCopyP.R(),
-			status: qCtxCopyP.Status(),
-			err:    err,
-			from:   1,
+			qCtx: qCtxP,
+			err:  err,
+			from: 1,
 		}
 	}()
 
-	qCtxCopyS := qCtx.Copy()
+	qCtxS := qCtx.Copy()
 	go func() {
-		err := f.doSecondary(fCtx, qCtxCopyS)
+		err := f.doSecondary(fCtx, qCtxS)
 		c <- &parallelECSResult{
-			r:      qCtxCopyS.R(),
-			status: qCtxCopyS.Status(),
-			err:    err,
-			from:   2,
+			qCtx: qCtxS,
+			err:  err,
+			from: 2,
 		}
 	}()
 

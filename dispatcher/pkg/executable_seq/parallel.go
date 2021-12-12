@@ -21,7 +21,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
-	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"time"
 )
@@ -63,10 +62,9 @@ func ParseParallelNode(c *ParallelConfig, logger *zap.Logger) (*ParallelNode, er
 }
 
 type parallelECSResult struct {
-	r      *dns.Msg
-	status handler.ContextStatus
-	err    error
-	from   int
+	qCtx *handler.Context
+	err  error
+	from int
 }
 
 func (p *ParallelNode) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
@@ -105,10 +103,9 @@ func (p *ParallelNode) exec(ctx context.Context, qCtx *handler.Context) error {
 
 			err := handler.ExecChainNode(pCtx, qCtxCopy, n)
 			c <- &parallelECSResult{
-				r:      qCtxCopy.R(),
-				status: qCtxCopy.Status(),
-				err:    err,
-				from:   i,
+				qCtx: qCtxCopy,
+				err:  err,
+				from: i,
 			}
 		}()
 	}

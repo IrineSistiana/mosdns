@@ -33,14 +33,14 @@ func asyncWait(ctx context.Context, qCtx *handler.Context, logger *zap.Logger, c
 				continue
 			}
 
-			if res.r == nil {
-				logger.Debug("sequence returned with an empty response", qCtx.InfoField(), zap.Int("sequence", res.from))
-				continue
+			if res.qCtx != nil && res.qCtx.R() != nil {
+				logger.Debug("sequence returned a response", qCtx.InfoField(), zap.Int("sequence", res.from))
+				*qCtx = *res.qCtx
+				return nil
 			}
 
-			logger.Debug("sequence returned a response", qCtx.InfoField(), zap.Int("sequence", res.from))
-			qCtx.SetResponse(res.r, res.status)
-			return nil
+			logger.Debug("sequence returned with an empty response", qCtx.InfoField(), zap.Int("sequence", res.from))
+			continue
 
 		case <-ctx.Done():
 			return ctx.Err()
