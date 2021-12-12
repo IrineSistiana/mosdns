@@ -209,3 +209,105 @@ exec:
 		})
 	}
 }
+
+func Test_LoadBalance(t *testing.T) {
+	handler.PurgePluginRegister()
+	defer handler.PurgePluginRegister()
+
+	eErr := errors.New("eErr")
+	target := new(dns.Msg)
+	target.Id = dns.Id()
+
+	type want struct {
+		target bool
+		err    error
+	}
+
+	var tests = []struct {
+		name    string
+		yamlStr string
+		want    []want
+	}{
+
+		{name: "test round robin", yamlStr: `
+exec:
+- load_balance:
+  - - exec_err
+  - - exec
+  - - exec_target
+`,
+			// LoadBalance executes the branch#2 first.
+			want: []want{
+				{false, nil},
+				{true, nil},
+				{false, eErr},
+			}},
+
+		{name: "test node connection", yamlStr: `
+exec:
+- load_balance:
+  - - exec_err
+  - - exec_skip
+  - - exec
+- exec_target
+`,
+			want: []want{
+				{false, nil},
+				{true, nil},
+				{false, eErr},
+			}},
+	}
+
+	handler.MustRegPlugin(&handler.DummyExecutablePlugin{
+		BP:      handler.NewBP("exec", ""),
+		WantErr: nil,
+	}, true)
+
+	handler.MustRegPlugin(&handler.DummyExecutablePlugin{
+		BP:      handler.NewBP("exec_target", ""),
+		WantR:   target,
+		WantErr: nil,
+	}, true)
+
+	handler.MustRegPlugin(&handler.DummyExecutablePlugin{
+		BP:       handler.NewBP("exec_skip", ""),
+		WantSkip: true,
+	}, true)
+
+	handler.MustRegPlugin(&handler.DummyExecutablePlugin{
+		BP:      handler.NewBP("exec_err", ""),
+		WantErr: eErr,
+	}, true)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args := make(map[string]interface{}, 0)
+			err := yaml.Unmarshal([]byte(tt.yamlStr), args)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			ecs, err := ParseExecutableNode(args["exec"], nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			for r := 0; r < 3; r++ {
+				for _, want := range tt.want {
+					qCtx := handler.NewContext(new(dns.Msg), nil)
+					err = handler.ExecChainNode(context.Background(), qCtx, ecs)
+					if (err != nil || want.err != nil) && !errors.Is(err, want.err) {
+						t.Errorf("Exec() error = %v, wantErr %v", err, want.err)
+						return
+					}
+
+					var gotTarget = qCtx.R()
+					if want.target && gotTarget.Id != target.Id {
+						t.Errorf("Exec() gotTarget = %d, want %d", gotTarget.Id, target.Id)
+					}
+				}
+			}
+
+		})
+	}
+}
