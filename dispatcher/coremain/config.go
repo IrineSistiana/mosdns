@@ -22,12 +22,13 @@ import (
 	"context"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/mlog"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/ext_exec"
+	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 	"io/ioutil"
 	"os"
 	"regexp"
-	"time"
 )
 
 // Config is config
@@ -50,20 +51,20 @@ func parseConfig(f string) (*Config, error) {
 		return nil, err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
-	defer cancel()
-
 	b = expSyntax.ReplaceAllFunc(b, func(syntax []byte) []byte {
 		if err != nil {
 			return syntax
 		}
 		cmd := string(bytes.Trim(syntax[3:len(syntax)-2], " "))
-		out, innerErr := ext_exec.GetOutputFromCmd(ctx, cmd)
+		mlog.L().Info("executing config cmd", zap.String("cmd", cmd))
+		out, innerErr := ext_exec.GetOutputFromCmd(context.Background(), cmd)
 		if innerErr != nil {
 			err = fmt.Errorf("cmd [%s] failed with err: %w", cmd, innerErr)
 			return syntax
 		}
-		return bytes.Trim(out, "\r\n")
+		out = bytes.Trim(out, "\r\n")
+		mlog.L().Info("successfully executed cmd", zap.String("cmd", cmd), zap.String("stdout", string(out)))
+		return out
 	})
 	if err != nil {
 		return nil, err
