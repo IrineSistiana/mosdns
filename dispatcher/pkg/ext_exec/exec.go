@@ -20,6 +20,7 @@ package ext_exec
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -30,7 +31,8 @@ func GetOutputFromCmd(ctx context.Context, cmd string) ([]byte, error) {
 	name := ss[0]
 	args := ss[1:]
 	c := exec.CommandContext(ctx, name, args...)
-	out, err := c.CombinedOutput()
+	c.Stderr = os.Stderr
+	out, err := c.Output()
 	if err != nil {
 		if len(out) != 0 {
 			return nil, fmt.Errorf("cmd err: %w, output: %s", err, string(out))
