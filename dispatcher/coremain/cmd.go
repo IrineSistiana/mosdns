@@ -34,49 +34,72 @@ func findAndReplaceCmd(b []byte, depth int, handleCmd func(string) ([]byte, erro
 	}
 	depth++
 
-	buf := make([]byte, len(b))
-	copy(buf, b)
+	leftIndicator := []byte("${{")
+	rightIndicator := []byte("}}")
+	buf := new(bytes.Buffer)
 
-	lh := make(intHeap, 0)
-	i := 0
-	for {
-		if i == len(buf) {
-			break
+	remainData := b
+	for len(remainData) > 0 {
+		nextNewLineIdx := bytes.IndexByte(remainData, '\n')
+		var line []byte
+		if nextNewLineIdx == -1 {
+			line = remainData
+			remainData = remainData[0:0]
+		} else {
+			line = remainData[:nextNewLineIdx+1]
+			remainData = remainData[nextNewLineIdx+1:]
 		}
-		switch {
-		case bytes.HasPrefix(buf[i:], []byte("${{")):
-			lh.push(i)
-			i++
-		case bytes.HasPrefix(buf[i:], []byte("}}")):
-			if li, ok := lh.pop(); ok {
-				cmd := string(buf[li+3 : i])
-				cmd = strings.Trim(cmd, " ")
-				stdout, err := handleCmd(cmd)
-				if err != nil {
-					return nil, err
-				}
-				stdout, err = findAndReplaceCmd(stdout, depth, handleCmd)
-				if err != nil {
-					return nil, err
-				}
-				newBuf := new(bytes.Buffer)
-				newBuf.Write(buf[:li])
-				newBuf.Write(stdout)
-				newBuf.Write(buf[i+2:])
-				buf = newBuf.Bytes()
-				i = li + 1
-			} else {
-				return nil, fmt.Errorf("unexpected }}: %s >>>> }} <<<< %s", string(buf[:i]), string(buf[i+2:]))
+
+		lh := make(intHeap, 0)
+		i := 0
+	scanFor:
+		for {
+			if i >= len(line) {
+				break
 			}
-		default:
-			i++
+			switch {
+			case line[i] == '#':
+				// This line starts with '#' or has a # separated from other
+				// tokens by white space characters. Ignore it.
+				if i == 0 || line[i-1] == ' ' {
+					break scanFor
+				}
+				i++
+			case bytes.HasPrefix(line[i:], leftIndicator):
+				lh.push(i)
+				i++
+			case bytes.HasPrefix(line[i:], rightIndicator):
+				if li, ok := lh.pop(); ok {
+					cmd := string(line[li+3 : i])
+					cmd = strings.Trim(cmd, " ")
+					stdout, err := handleCmd(cmd)
+					if err != nil {
+						return nil, err
+					}
+					stdout, err = findAndReplaceCmd(stdout, depth, handleCmd)
+					if err != nil {
+						return nil, err
+					}
+					newBuf := new(bytes.Buffer)
+					newBuf.Write(line[:li])
+					newBuf.Write(stdout)
+					newBuf.Write(line[i+2:])
+					line = newBuf.Bytes()
+					i = li + len(stdout)
+				} else {
+					return nil, fmt.Errorf("unexpected }}: %s >>>>}}<<<< %s", string(line[:i]), string(line[i+2:]))
+				}
+			default:
+				i++
+			}
 		}
-	}
-	if li, ok := lh.pop(); ok {
-		return nil, fmt.Errorf("unpaired ${{: %s >>>> ${{ <<<< %s", string(buf[:li]), string(buf[li+3:]))
+		if li, ok := lh.pop(); ok {
+			return nil, fmt.Errorf("unpaired ${{: %s >>>>${{<<<< %s", string(line[:li]), string(line[li+3:]))
+		}
+		buf.Write(line)
 	}
 
-	return buf, nil
+	return buf.Bytes(), nil
 }
 
 type intHeap []int
