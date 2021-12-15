@@ -28,12 +28,12 @@ const PluginType = "padding"
 
 func init() {
 	handler.MustRegPlugin(&PadQuery{BP: handler.NewBP("_pad_query", PluginType)}, true)
-	handler.MustRegPlugin(&PadResponse{BP: handler.NewBP("_pad_response", PluginType)}, true)
-	handler.MustRegPlugin(&PadResponse{BP: handler.NewBP("_always_pad_response", PluginType), Always: true}, true)
+	handler.MustRegPlugin(&ResponsePaddingHandler{BP: handler.NewBP("_enable_conditional_response_padding", PluginType)}, true)
+	handler.MustRegPlugin(&ResponsePaddingHandler{BP: handler.NewBP("_enable_response_padding", PluginType), Always: true}, true)
 }
 
 var _ handler.ExecutablePlugin = (*PadQuery)(nil)
-var _ handler.ExecutablePlugin = (*PadResponse)(nil)
+var _ handler.ExecutablePlugin = (*ResponsePaddingHandler)(nil)
 
 const (
 	minimumQueryLen    = 128
@@ -68,20 +68,24 @@ func (p *PadQuery) Exec(ctx context.Context, qCtx *handler.Context, next handler
 	return nil
 }
 
-type PadResponse struct {
+type ResponsePaddingHandler struct {
 	*handler.BP
-	// Always indicates that PadResponse should always
-	// pad response even if query wasn't padded.
+	// Always indicates that ResponsePaddingHandler should always
+	// pad response as long as it is EDNS0 even if it wasn't padded.
 	Always bool
 }
 
 // Exec pads responses to 468 octets as RFC 8467 recommended.
-func (p *PadResponse) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
+func (h *ResponsePaddingHandler) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
+	if err := handler.ExecChainNode(ctx, qCtx, next); err != nil {
+		return err
+	}
+
 	oq := qCtx.OriginalQuery()
 	if r := qCtx.R(); r != nil {
 		opt := oq.IsEdns0()
 		if opt != nil { // Only pad response if client supports EDNS0.
-			if p.Always {
+			if h.Always {
 				dnsutils.PadToMinimum(r, minimumResponseLen)
 			} else {
 				// Only pad response if client padded its query.
@@ -91,5 +95,5 @@ func (p *PadResponse) Exec(ctx context.Context, qCtx *handler.Context, next hand
 			}
 		}
 	}
-	return handler.ExecChainNode(ctx, qCtx, next)
+	return nil
 }
