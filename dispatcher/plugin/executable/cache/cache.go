@@ -98,8 +98,18 @@ func newCachePlugin(bp *handler.BP, args *Args) (*cachePlugin, error) {
 	}, nil
 }
 
+func queryCachable(q *dns.Msg) bool {
+	// We only cache simple queries.
+	return len(q.Question) == 1 && len(q.Answer)+len(q.Ns)+len(q.Extra) == 0
+}
+
 func (c *cachePlugin) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
 	q := qCtx.Q()
+	if !queryCachable(q) {
+		c.L().Debug("skipped", qCtx.InfoField())
+		return handler.ExecChainNode(ctx, qCtx, next)
+	}
+
 	key, err := utils.GetMsgKey(q, 0)
 	if err != nil {
 		return fmt.Errorf("failed to get msg key, %w", err)
@@ -188,11 +198,19 @@ func (c *cachePlugin) tryStoreMsg(ctx context.Context, key string, r *dns.Msg) e
 	}
 
 	now := time.Now()
+	if len(r.Answer) == 0 { // handle msg without any answer
+		return c.backend.Store(ctx, key, r, now, now.Add(defaultEmptyAnswerTTL))
+	}
+
 	var expirationTime time.Time
 	if c.args.LazyCacheTTL > 0 {
 		expirationTime = now.Add(time.Duration(c.args.LazyCacheTTL) * time.Second)
 	} else {
-		expirationTime = now.Add(time.Duration(dnsutils.GetMinimalTTL(r)) * time.Second)
+		minTTL := dnsutils.GetMinimalTTL(r)
+		if minTTL == 0 {
+			return nil
+		}
+		expirationTime = now.Add(time.Duration(minTTL) * time.Second)
 	}
 	return c.backend.Store(ctx, key, r, now, expirationTime)
 }

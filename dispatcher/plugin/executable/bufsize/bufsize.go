@@ -29,7 +29,7 @@ func init() {
 }
 
 type Args struct {
-	Size uint16 `yaml:"size"` // The default value is 512, and the value should be within 512 - 4096.
+	Size uint16 `yaml:"size"` // The maximum UDP Size. Default value is 512, and the value should be within 512 - 4096.
 }
 
 var _ handler.ExecutablePlugin = (*bufSize)(nil)
@@ -52,10 +52,12 @@ func (b *bufSize) getSize() uint16 {
 func (b *bufSize) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
 	q := qCtx.Q()
 	if opt := q.IsEdns0(); opt != nil {
-		opt.SetUDPSize(b.getSize())
-	} else {
-		q.SetEdns0(b.getSize(), false)
+		maxSize := b.getSize()
+		if opt.UDPSize() > maxSize {
+			opt.SetUDPSize(maxSize)
+		}
 	}
+
 	return handler.ExecChainNode(ctx, qCtx, next)
 }
 

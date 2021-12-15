@@ -1,165 +1,105 @@
-//     Copyright (C) 2020-2021, IrineSistiana
-//
-//     This file is part of mosdns.
-//
-//     mosdns is free software: you can redistribute it and/or modify
-//     it under the terms of the GNU General Public License as published by
-//     the Free Software Foundation, either version 3 of the License, or
-//     (at your option) any later version.
-//
-//     mosdns is distributed in the hope that it will be useful,
-//     but WITHOUT ANY WARRANTY; without even the implied warranty of
-//     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-//     GNU General Public License for more details.
-//
-//     You should have received a copy of the GNU General Public License
-//     along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
 package ecs
 
 import (
 	"context"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/dnsutils"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
-	"gopkg.in/yaml.v3"
 	"net"
-	"reflect"
 	"testing"
 )
 
-func Test_ecs(t *testing.T) {
-	argsStr := `
-auto: false
-force_overwrite: true
-mask4: 24
-mask6: 32
-ipv4: 1.2.3.4
-ipv6: '2001:dd8:1a::'
-`
-	args := new(Args)
-	if err := yaml.Unmarshal([]byte(argsStr), args); err != nil {
-		t.Fatal(err)
+func Test_ecsPlugin(t *testing.T) {
+	tests := []struct {
+		name       string
+		args       Args
+		qtype      uint16
+		qHasEDNS0  bool
+		qHasECS    string
+		clientAddr string
+		wantAddr   string
+		rWantEDNS0 bool
+		rWantECS   bool
+	}{
+		{"edns0 contingency", Args{Auto: true}, dns.TypeA, false, "", "1.0.0.0", "1.0.0.0", false, false},
+		{"edns0 contingency", Args{Auto: true}, dns.TypeA, true, "", "1.0.0.0", "1.0.0.0", true, false},
+		{"ecs contingency", Args{Auto: true}, dns.TypeA, true, "", "1.0.0.0", "1.0.0.0", true, false},
+		{"ecs contingency", Args{Auto: true}, dns.TypeA, true, "1.0.0.0", "1.0.0.0", "1.0.0.0", true, true},
+
+		{"auto", Args{Auto: true}, dns.TypeA, false, "", "1.0.0.0", "1.0.0.0", false, false},
+		{"auto", Args{Auto: true}, dns.TypeA, false, "", "", "", false, false},
+
+		{"overwrite off", Args{Auto: true}, dns.TypeA, true, "1.2.3.4", "1.0.0.0", "1.2.3.4", true, true},
+		{"overwrite on", Args{Auto: true, ForceOverwrite: true}, dns.TypeA, true, "1.2.3.4", "1.0.0.0", "1.0.0.0", true, true},
+
+		{"preset v4", Args{IPv4: "1.2.3.4"}, dns.TypeA, false, "", "", "1.2.3.4", false, false},
+		{"preset v6", Args{IPv6: "::1"}, dns.TypeA, false, "", "", "::1", false, false},
+		{"preset both", Args{IPv4: "1.2.3.4", IPv6: "::1"}, dns.TypeA, false, "", "", "1.2.3.4", false, false},
+		{"preset both", Args{IPv4: "1.2.3.4", IPv6: "::1"}, dns.TypeAAAA, false, "", "", "::1", false, false},
 	}
+	for _, tt := range tests {
+		p, err := newPlugin(handler.NewBP("ecs", PluginType), &tt.args)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	// test Init
-	p, err := newPlugin(handler.NewBP("test", PluginType), args)
-	if err != nil {
-		t.Fatal(err)
-	}
+		t.Run(tt.name, func(t *testing.T) {
+			q := new(dns.Msg)
+			q.SetQuestion(".", tt.qtype)
+			r := new(dns.Msg)
+			r.SetReply(q)
 
-	ecs := p.(*ecsPlugin)
-	ctx := context.Background()
+			if tt.qHasEDNS0 {
+				optQ := dnsutils.UpgradeEDNS0(q)
+				optR := dnsutils.UpgradeEDNS0(r)
 
-	testFunc := func(presetECS bool) {
-		typ := []uint16{dns.TypeA, dns.TypeAAAA}
-		wantECS := []net.IP{ecs.ipv4, ecs.ipv6}
-		otherECS := dnsutils.NewEDNS0Subnet(net.IPv4(1, 2, 3, 4), 32, false)
-
-		for i := 0; i < 2; i++ {
-			m := new(dns.Msg)
-			m.SetQuestion("example.com.", typ[i])
-			if dnsutils.GetMsgECS(m) != nil {
-				t.FailNow()
-			}
-
-			if presetECS {
-				dnsutils.AppendECS(m, otherECS)
-				if dnsutils.GetMsgECS(m) != otherECS {
-					t.FailNow()
+				if len(tt.qHasECS) > 0 {
+					ip := net.ParseIP(tt.qHasECS)
+					if ip == nil {
+						t.Fatal("invalid ip")
+					}
+					dnsutils.AddECS(optR, dnsutils.NewEDNS0Subnet(net.IPv6loopback, 24, false), true)
+					dnsutils.AddECS(optQ, dnsutils.NewEDNS0Subnet(ip, 24, false), true)
 				}
 			}
 
-			err = ecs.Exec(ctx, handler.NewContext(m, nil), nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			e := dnsutils.GetMsgECS(m)
-			if !reflect.DeepEqual(e.Address, wantECS[i]) {
-				t.Fatal("ecs not equal")
-			}
-		}
-	}
-	// test appending ecs to non-ecs msg
-	testFunc(false)
-
-	// test overwrite ecs msg
-	testFunc(true)
-}
-
-func Test_ecs_auto(t *testing.T) {
-
-	p, err := newPlugin(handler.NewBP("test", PluginType), &Args{
-		Auto:           true,
-		ForceOverwrite: true,
-		Mask4:          24,
-		Mask6:          32,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	ecs := p.(*ecsPlugin)
-
-	testFunc := func(presetECS bool) {
-		typ := []uint16{dns.TypeA, dns.TypeAAAA}
-		from := []net.Addr{
-			utils.NewNetAddr("192.168.0.1:0", "test"),
-			utils.NewNetAddr("[2001:0db8::]:0", "test"),
-		}
-		wantECS := []*dns.EDNS0_SUBNET{
-			dnsutils.NewEDNS0Subnet(net.ParseIP("192.168.0.1").To4(), 24, false),
-			dnsutils.NewEDNS0Subnet(net.ParseIP("2001:0db8::").To16(), 32, true)}
-		otherECS := dnsutils.NewEDNS0Subnet(net.IPv4(1, 2, 3, 4), 32, false)
-
-		for i := 0; i < 2; i++ {
-			m := new(dns.Msg)
-			m.SetQuestion("example.com.", typ[i])
-			if dnsutils.GetMsgECS(m) != nil {
-				t.FailNow()
-			}
-
-			if presetECS {
-				dnsutils.AppendECS(m, otherECS)
-				if dnsutils.GetMsgECS(m) != otherECS {
-					t.FailNow()
+			var clientAddr net.Addr
+			if len(tt.clientAddr) > 0 {
+				ip := net.ParseIP(tt.clientAddr)
+				if ip == nil {
+					t.Fatal("invalid ip")
+				}
+				clientAddr = &net.TCPAddr{
+					IP:   ip,
+					Port: 0,
 				}
 			}
+			qCtx := handler.NewContext(q, clientAddr)
 
-			qCtx := handler.NewContext(m, from[i])
-			err = ecs.Exec(context.Background(), qCtx, nil)
-			if err != nil {
+			next := handler.WrapExecutable(&handler.DummyExecutablePlugin{
+				BP:    handler.NewBP("next", PluginType),
+				WantR: r,
+			})
+			if err := p.Exec(context.Background(), qCtx, next); err != nil {
 				t.Fatal(err)
 			}
 
-			e := dnsutils.GetMsgECS(m)
-			if !reflect.DeepEqual(e, wantECS[i]) {
-				t.Fatal("ecs not equal")
+			var qECS net.IP
+			e := dnsutils.GetMsgECS(q)
+			if e != nil {
+				qECS = e.Address
 			}
-		}
-	}
+			wantAddr := net.ParseIP(tt.wantAddr)
+			if !qECS.Equal(wantAddr) {
+				t.Fatalf("want addr %v, got %v", tt.wantAddr, qECS)
+			}
 
-	// test appending ecs to non-ecs msg
-	testFunc(false)
-
-	// test overwrite ecs msg
-	testFunc(true)
-}
-
-func Test_remove_ecs(t *testing.T) {
-	m := new(dns.Msg)
-	m.SetQuestion("example.com.", dns.TypeA)
-	ecs := dnsutils.NewEDNS0Subnet(net.IPv4(1, 2, 3, 4), 32, false)
-	dnsutils.AppendECS(m, ecs)
-
-	p := &noECS{}
-	err := p.Exec(context.Background(), handler.NewContext(m, nil), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if e := dnsutils.GetMsgECS(m); e != nil {
-		t.FailNow()
+			if res := dnsutils.GetMsgECS(qCtx.R()) != nil; res != tt.rWantECS {
+				t.Fatalf("want rWantECS %v, got %v", tt.rWantECS, res)
+			}
+			if res := qCtx.R().IsEdns0() != nil; res != tt.rWantEDNS0 {
+				t.Fatalf("want rWantEDNS0 %v, got %v", tt.rWantEDNS0, res)
+			}
+		})
 	}
 }

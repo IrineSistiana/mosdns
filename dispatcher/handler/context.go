@@ -33,10 +33,11 @@ import (
 // Context MUST be created by NewContext.
 type Context struct {
 	// init at beginning
-	startTime  time.Time // when this Context was created
-	q          *dns.Msg
-	id         uint32 // additional uint32 to distinguish duplicated msg
-	clientAddr net.Addr
+	startTime     time.Time // when this Context was created
+	q             *dns.Msg
+	originalQuery *dns.Msg
+	id            uint32 // additional uint32 to distinguish duplicated msg
+	clientAddr    net.Addr
 
 	status ContextStatus
 	r      *dns.Msg
@@ -79,10 +80,11 @@ func NewContext(q *dns.Msg, from net.Addr) *Context {
 	}
 
 	ctx := &Context{
-		q:          q,
-		clientAddr: from,
-		id:         atomic.AddUint32(&id, 1),
-		startTime:  time.Now(),
+		q:             q,
+		originalQuery: q.Copy(),
+		clientAddr:    from,
+		id:            atomic.AddUint32(&id, 1),
+		startTime:     time.Now(),
 
 		status: ContextStatusWaitingResponse,
 	}
@@ -102,6 +104,13 @@ func (ctx *Context) String() string {
 
 // Q returns the query msg. It always returns a non-nil msg.
 func (ctx *Context) Q() *dns.Msg {
+	return ctx.q
+}
+
+// OriginalQuery returns the copied original query msg a that created the Context.
+// It always returns a non-nil msg.
+// The returned msg SHOULD NOT be modified.
+func (ctx *Context) OriginalQuery() *dns.Msg {
 	return ctx.q
 }
 
@@ -157,6 +166,7 @@ func (ctx *Context) Copy() *Context {
 func (ctx *Context) CopyTo(d *Context) *Context {
 	d.startTime = ctx.startTime
 	d.q = ctx.q.Copy()
+	d.originalQuery = ctx.originalQuery
 	d.id = ctx.id
 	d.clientAddr = ctx.clientAddr
 	d.status = ctx.status
