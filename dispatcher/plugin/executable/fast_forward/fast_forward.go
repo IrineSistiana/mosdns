@@ -130,8 +130,8 @@ type upstreamWrapper struct {
 	u       *upstream.FastUpstream
 }
 
-func (u *upstreamWrapper) Exchange(q *dns.Msg) (*dns.Msg, error) {
-	return u.u.Exchange(q)
+func (u *upstreamWrapper) Exchange(ctx context.Context, q *dns.Msg) (*dns.Msg, error) {
+	return u.u.ExchangeContext(ctx, q)
 }
 
 func (u *upstreamWrapper) Address() string {

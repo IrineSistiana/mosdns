@@ -110,7 +110,7 @@ func newForwarder(bp *handler.BP, args *Args) (*forwardPlugin, error) {
 		}
 
 		f.upstreams = append(f.upstreams, u)
-		bu = append(bu, &trustedUpstream{
+		bu = append(bu, &upstreamWrapper{
 			dnsproxyUpstream: u,
 			trusted:          conf.Trusted,
 		})
@@ -125,20 +125,20 @@ func newForwarder(bp *handler.BP, args *Args) (*forwardPlugin, error) {
 	return f, nil
 }
 
-type trustedUpstream struct {
+type upstreamWrapper struct {
 	dnsproxyUpstream upstream.Upstream
 	trusted          bool
 }
 
-func (u *trustedUpstream) Address() string {
+func (u *upstreamWrapper) Address() string {
 	return u.dnsproxyUpstream.Address()
 }
 
-func (u *trustedUpstream) Exchange(q *dns.Msg) (*dns.Msg, error) {
+func (u *upstreamWrapper) Exchange(_ context.Context, q *dns.Msg) (*dns.Msg, error) {
 	return u.dnsproxyUpstream.Exchange(q)
 }
 
-func (u *trustedUpstream) Trusted() bool {
+func (u *upstreamWrapper) Trusted() bool {
 	return u.trusted
 }
 

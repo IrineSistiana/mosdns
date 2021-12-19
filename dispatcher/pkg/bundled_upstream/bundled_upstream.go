@@ -26,7 +26,7 @@ import (
 )
 
 type Upstream interface {
-	Exchange(q *dns.Msg) (*dns.Msg, error)
+	Exchange(ctx context.Context, q *dns.Msg) (*dns.Msg, error)
 	Address() string
 	Trusted() bool
 }
@@ -61,7 +61,7 @@ func (bu *BundledUpstream) ExchangeParallel(ctx context.Context, qCtx *handler.C
 	t := len(bu.us)
 	if t == 1 {
 		u := bu.us[0]
-		r, err := u.Exchange(q)
+		r, err := u.Exchange(ctx, q)
 		if err != nil {
 			return nil, err
 		}
@@ -74,7 +74,7 @@ func (bu *BundledUpstream) ExchangeParallel(ctx context.Context, qCtx *handler.C
 	for _, u := range bu.us {
 		u := u
 		go func() {
-			r, err := u.Exchange(qCopy)
+			r, err := u.Exchange(ctx, qCopy)
 			c <- &parallelResult{
 				r:    r,
 				err:  err,
