@@ -177,9 +177,9 @@ func (t *Transport) getConn() (conn *clientConn, reusedConn bool, qId uint16, er
 	var availableConn *clientConn
 	for c := range t.conns {
 		if c.qId >= t.maxQueryPerConn() { // This connection has serverd too many queries.
-			// Note: the connection will close and clean
-			// up itself after its last query finished.
-			// We don't have to close or delete it here.
+			// Note: the connection will close and clean up itself after its last query finished.
+			// We can't close it here. Some queries may still on that connection.
+			delete(t.conns, c)
 			continue
 		}
 		availableConn = c
