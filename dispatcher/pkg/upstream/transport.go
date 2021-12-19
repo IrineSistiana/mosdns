@@ -31,7 +31,6 @@ import (
 )
 
 var (
-	errDialTimeout   = errors.New("dial timeout")
 	errReadTimeout   = errors.New("read timeout")
 	errIdCollision   = errors.New("id collision")
 	errEOL           = errors.New("end of life")
@@ -302,11 +301,8 @@ func newClientConn(t *Transport, c net.Conn) *clientConn {
 
 func (c *clientConn) exchange(ctx context.Context, q *dns.Msg, qId uint16) (*dns.Msg, error) {
 	resChan := make(chan *dns.Msg, 1)
+
 	c.qm.Lock()
-	if c.markEOL {
-		c.qm.Unlock()
-		return nil, errEOL
-	}
 	if qId >= c.t.maxQueryPerConn() {
 		c.markEOL = true
 	}
@@ -393,13 +389,6 @@ func (c *clientConn) closeAndCleanup(err error) {
 		c.closeErr = err
 		close(c.closeChan)
 	})
-}
-
-// markAsEOL marks this clientConn as end of life.
-func (c *clientConn) markAsEOL() {
-	c.qm.Lock()
-	c.markEOL = true
-	c.qm.Unlock()
 }
 
 func (c *clientConn) onGoingQuery() int {
