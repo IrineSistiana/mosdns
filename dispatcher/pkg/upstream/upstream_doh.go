@@ -32,7 +32,7 @@ var (
 	bufPool512 = pool.NewBytesBufPool(512)
 )
 
-func (u *FastUpstream) exchangeDoH(q *dns.Msg) (r *dns.Msg, err error) {
+func (u *FastUpstream) exchangeDoH(ctx context.Context, q *dns.Msg) (r *dns.Msg, err error) {
 
 	rRaw, buf, err := pool.PackBuffer(q)
 	if err != nil {
@@ -59,17 +59,35 @@ func (u *FastUpstream) exchangeDoH(q *dns.Msg) (r *dns.Msg, err error) {
 	p += copy(urlBuf[p:], "?dns=")
 	base64.RawURLEncoding.Encode(urlBuf[p:], rRaw)
 
-	ctx, cancel := context.WithTimeout(context.Background(), u.getReadTimeout())
-	defer cancel()
-
-	r, err = u.doHTTP(ctx, utils.BytesToStringUnsafe(urlBuf))
-	if err != nil {
-		return nil, err
+	type result struct {
+		r   *dns.Msg
+		err error
 	}
 
-	// change the id back
-	r.Id = q.Id
-	return r, nil
+	resChan := make(chan *result, 1)
+	go func() {
+		// We overwrite the ctx with a fixed timout context here.
+		// Because the http package may close the underlay connection
+		// if the context is done before the query is completed. This
+		// reduces the connection reuse rate.
+		ctx, cancel := context.WithTimeout(context.Background(), u.getReadTimeout())
+		defer cancel()
+		r, err = u.doHTTP(ctx, utils.BytesToStringUnsafe(urlBuf))
+		resChan <- &result{r: r, err: err}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case res := <-resChan:
+		r := res.r
+		err := res.err
+		if err != nil {
+			return nil, err
+		}
+		r.Id = q.Id
+		return r, nil
+	}
 }
 
 func (u *FastUpstream) doHTTP(ctx context.Context, url string) (*dns.Msg, error) {

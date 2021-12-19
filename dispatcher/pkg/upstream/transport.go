@@ -18,6 +18,7 @@
 package upstream
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/pool"
@@ -117,6 +118,12 @@ type dialCall struct {
 }
 
 func (t *Transport) Exchange(q *dns.Msg) (r *dns.Msg, err error) {
+	ctx, cancel := context.WithTimeout(context.Background(), t.timeout())
+	defer cancel()
+	return t.ExchangeContext(ctx, q)
+}
+
+func (t *Transport) ExchangeContext(ctx context.Context, q *dns.Msg) (r *dns.Msg, err error) {
 	t.initOnce.Do(t.init)
 
 	if t.IdleTimeout <= 0 { // no keep alive
@@ -126,18 +133,18 @@ func (t *Transport) Exchange(q *dns.Msg) (r *dns.Msg, err error) {
 	start := time.Now()
 	retry := 0
 	for {
-		conn, reusedConn, qId, err := t.getConn()
+		conn, reusedConn, qId, err := t.getConn(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("no available connection, %w", err)
 		}
 
 		if !reusedConn {
-			return conn.exchange(q, qId)
+			return conn.exchange(ctx, q, qId)
 		}
 
-		r, err = conn.exchange(q, qId)
+		r, err = conn.exchange(ctx, q, qId)
 		if err != nil {
-			if time.Since(start) < time.Millisecond*200 && retry <= 1 {
+			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) && time.Since(start) < time.Millisecond*200 && retry <= 1 {
 				retry++
 				continue
 			}
@@ -172,7 +179,7 @@ func (t *Transport) removeConn(conn *clientConn) {
 	t.cm.Unlock()
 }
 
-func (t *Transport) getConn() (conn *clientConn, reusedConn bool, qId uint16, err error) {
+func (t *Transport) getConn(ctx context.Context) (conn *clientConn, reusedConn bool, qId uint16, err error) {
 	t.cm.Lock()
 	var availableConn *clientConn
 	for c := range t.conns {
@@ -226,11 +233,9 @@ func (t *Transport) getConn() (conn *clientConn, reusedConn bool, qId uint16, er
 		return nil, false, 0, errConnExhausted
 	}
 
-	timer := pool.GetTimer(t.timeout())
-	defer pool.ReleaseTimer(timer)
 	select {
-	case <-timer.C:
-		return nil, false, 0, errDialTimeout
+	case <-ctx.Done():
+		return nil, false, 0, ctx.Err()
 	case <-dCall.done:
 		c := dCall.c
 		err := dCall.err
@@ -295,7 +300,7 @@ func newClientConn(t *Transport, c net.Conn) *clientConn {
 	}
 }
 
-func (c *clientConn) exchange(q *dns.Msg, qId uint16) (*dns.Msg, error) {
+func (c *clientConn) exchange(ctx context.Context, q *dns.Msg, qId uint16) (*dns.Msg, error) {
 	resChan := make(chan *dns.Msg, 1)
 	c.qm.Lock()
 	if c.markEOL {
@@ -340,6 +345,8 @@ func (c *clientConn) exchange(q *dns.Msg, qId uint16) (*dns.Msg, error) {
 	select {
 	case <-timer.C:
 		return nil, errReadTimeout
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	case r := <-resChan:
 		if r != nil {
 			r.Id = q.Id

@@ -273,19 +273,23 @@ func (u *FastUpstream) Address() string {
 }
 
 func (u *FastUpstream) Exchange(q *dns.Msg) (r *dns.Msg, err error) {
-	return u.exchange(q)
+	return u.exchange(context.Background(), q)
 }
 
-func (u *FastUpstream) exchange(q *dns.Msg) (*dns.Msg, error) {
+func (u *FastUpstream) ExchangeContext(ctx context.Context, q *dns.Msg) (r *dns.Msg, err error) {
+	return u.exchange(ctx, q)
+}
+
+func (u *FastUpstream) exchange(ctx context.Context, q *dns.Msg) (*dns.Msg, error) {
 	var r *dns.Msg
 	var err error
 	switch u.protocol {
 	case protocolUDP:
-		r, err = u.exchangeUDP(q)
+		r, err = u.exchangeUDP(ctx, q)
 	case protocolTCP, protocolDoT:
-		r, err = u.exchangeTCP(q)
+		r, err = u.exchangeTCP(ctx, q)
 	case protocolDoH:
-		r, err = u.exchangeDoH(q)
+		r, err = u.exchangeDoH(ctx, q)
 	default:
 		err = fmt.Errorf("fastUpstream: invalid protocol %d", u.protocol)
 	}
@@ -329,10 +333,10 @@ func (u *FastUpstream) dialContext(ctx context.Context, network string) (net.Con
 	return d.DialContext(ctx, network, addr)
 }
 
-func (u *FastUpstream) exchangeTCP(q *dns.Msg) (r *dns.Msg, err error) {
-	return u.tcpTransport.Exchange(q)
+func (u *FastUpstream) exchangeTCP(ctx context.Context, q *dns.Msg) (r *dns.Msg, err error) {
+	return u.tcpTransport.ExchangeContext(ctx, q)
 }
 
-func (u *FastUpstream) exchangeUDP(q *dns.Msg) (r *dns.Msg, err error) {
-	return u.udpTransport.Exchange(q)
+func (u *FastUpstream) exchangeUDP(ctx context.Context, q *dns.Msg) (r *dns.Msg, err error) {
+	return u.udpTransport.ExchangeContext(ctx, q)
 }
