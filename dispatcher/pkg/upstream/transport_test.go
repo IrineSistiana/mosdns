@@ -2,31 +2,28 @@ package upstream
 
 import (
 	"errors"
+	"fmt"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/dnsutils"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"io"
 	"net"
+	"sync"
 	"testing"
 	"time"
 )
-
-type dummyV struct {
-	id uint64
-}
 
 func TestTransport_Exchange(t1 *testing.T) {
 	dial := func() (net.Conn, error) {
 		c1, c2 := net.Pipe()
 		go func() {
-			buf := make([]byte, 16)
 			for {
-				n, readErr := c2.Read(buf)
-				if n > 0 {
-					_, writeErr := c2.Write(buf[:n])
-					if writeErr != nil {
-						return
-					}
+				m, _, readErr := dnsutils.ReadMsgFromTCP(c2)
+				if m != nil {
+					go func() {
+						time.Sleep(time.Millisecond * 50)
+						dnsutils.WriteMsgToTCP(c2, m)
+					}()
 				}
 				if readErr != nil {
 					return
@@ -68,6 +65,7 @@ func TestTransport_Exchange(t1 *testing.T) {
 	tests := []struct {
 		name    string
 		fields  fields
+		N       int
 		wantErr bool
 	}{
 		{
@@ -78,6 +76,7 @@ func TestTransport_Exchange(t1 *testing.T) {
 				ReadFunc:    read,
 				IdleTimeout: 0,
 			},
+			N:       16,
 			wantErr: false,
 		},
 		{
@@ -86,9 +85,10 @@ func TestTransport_Exchange(t1 *testing.T) {
 				DialFunc:    dial,
 				WriteFunc:   write,
 				ReadFunc:    read,
-				IdleTimeout: time.Millisecond * 100,
+				IdleTimeout: time.Millisecond * 1000,
 				MaxConns:    2,
 			},
+			N:       16,
 			wantErr: false,
 		},
 		{
@@ -99,6 +99,7 @@ func TestTransport_Exchange(t1 *testing.T) {
 				ReadFunc:    read,
 				IdleTimeout: time.Millisecond * 100,
 			},
+			N:       16,
 			wantErr: true,
 		},
 		{
@@ -109,6 +110,7 @@ func TestTransport_Exchange(t1 *testing.T) {
 				ReadFunc:    read,
 				IdleTimeout: time.Millisecond * 100,
 			},
+			N:       16,
 			wantErr: true,
 		},
 		{
@@ -119,6 +121,7 @@ func TestTransport_Exchange(t1 *testing.T) {
 				ReadFunc:    readErr,
 				IdleTimeout: time.Millisecond * 100,
 			},
+			N:       16,
 			wantErr: true,
 		},
 		{
@@ -129,6 +132,7 @@ func TestTransport_Exchange(t1 *testing.T) {
 				ReadFunc:    readTimeout,
 				IdleTimeout: time.Millisecond * 100,
 			},
+			N:       16,
 			wantErr: true,
 		},
 	}
@@ -136,13 +140,14 @@ func TestTransport_Exchange(t1 *testing.T) {
 	for _, tt := range tests {
 		t1.Run(tt.name, func(t1 *testing.T) {
 			t := &Transport{
-				Logger:      zap.NewNop(),
-				DialFunc:    tt.fields.DialFunc,
-				WriteFunc:   tt.fields.WriteFunc,
-				ReadFunc:    tt.fields.ReadFunc,
-				MaxConns:    tt.fields.MaxConns,
-				IdleTimeout: tt.fields.IdleTimeout,
-				Timeout:     time.Millisecond * 100,
+				Logger:          zap.NewNop(),
+				DialFunc:        tt.fields.DialFunc,
+				WriteFunc:       tt.fields.WriteFunc,
+				ReadFunc:        tt.fields.ReadFunc,
+				MaxConns:        tt.fields.MaxConns,
+				IdleTimeout:     tt.fields.IdleTimeout,
+				MaxQueryPerConn: 8,
+				Timeout:         time.Millisecond * 100,
 			}
 
 			if tt.wantErr {
@@ -152,21 +157,33 @@ func TestTransport_Exchange(t1 *testing.T) {
 				}
 				return
 			}
+			wg := new(sync.WaitGroup)
+			for i := 0; i < tt.N; i++ {
 
-			for id := uint16(0); id < 16; id++ {
-				v := &dns.Msg{}
-				v.Id = id
-				gotR, err := t.Exchange(v)
-				if (err != nil) != tt.wantErr {
-					t1.Errorf("Exchange() error = %v, wantErr %v", err, tt.wantErr)
-					return
-				}
+				wg.Add(1)
+				i := i
+				go func() {
+					defer wg.Done()
+					v := new(dns.Msg)
+					qName := fmt.Sprintf("%d.", i)
+					v.SetQuestion(qName, dns.TypeA)
+					gotR, err := t.Exchange(v)
+					if (err != nil) != tt.wantErr {
+						t1.Errorf("Exchange() error = %v, wantErr %v", err, tt.wantErr)
+						return
+					}
 
-				if gotR.Id != id {
-					t1.Errorf("Exchange() gotR.Id = %v, want %v", gotR.Id, id)
+					if gotName := gotR.Question[0].Name; gotName != qName {
+						t1.Errorf("Exchange() gotName = %v, want %v", gotName, qName)
+					}
+				}()
+
+				if t1.Failed() {
+					break
 				}
 			}
 
+			wg.Wait()
 			time.Sleep(tt.fields.IdleTimeout + time.Millisecond*200)
 
 			t.cm.Lock()
