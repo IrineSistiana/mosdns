@@ -186,16 +186,17 @@ func main() {
 		if len(*configPath) != 0 {
 			svcConfig.Arguments = append(svcConfig.Arguments, "-c", *configPath)
 		}
-		if len(*dir) == 0 {
-			svcConfig.Arguments = append(svcConfig.Arguments, "-dir2exe")
-		} else {
-			wd, err := os.Getwd()
+
+		var wd string
+		if len(*dir) > 0 {
+			wd = *dir
+		} else { // set service wd to current wd.
+			wd, err = os.Getwd()
 			if err != nil {
 				mlog.S().Fatalf("failed to get working dir: %v", err)
 			}
-			mlog.S().Infof("setting mosdns working dir to %s", wd)
-			svcConfig.Arguments = append(svcConfig.Arguments, "-dir", wd)
 		}
+		svcConfig.Arguments = append(svcConfig.Arguments, "-dir", wd)
 		err = s.Install()
 	case "uninstall":
 		err = s.Uninstall()
