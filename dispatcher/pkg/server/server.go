@@ -18,202 +18,112 @@
 package server
 
 import (
-	"context"
 	"crypto/tls"
 	"errors"
-	"fmt"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/server/dns_handler"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/utils"
 	"go.uber.org/zap"
-	"net"
+	"io"
 	"net/http"
 	"sync"
 	"time"
 )
 
-// Server errors
 var (
-	ErrServerClosed  = errors.New("server closed")
-	ErrServerStarted = errors.New("server has been started")
+	ErrServerClosed = errors.New("server closed")
+
+	nopLogger = zap.NewNop()
 )
 
+// Server is a DNS server.
+// It's functions, Server.ServeUDP etc., will block and
+// close the net.Listener/net.PacketConn and always return
+// a non-nil error. If Server was closed, the returned err
+// will be ErrServerClosed.
 type Server struct {
-	protocol    string
-	handler     dns_handler.Handler // UDP, TCP, DoT
-	httpHandler http.Handler        // DoH, HTTP
+	// DNSHandler is the dns handler required by UDP, TCP, DoT server.
+	DNSHandler dns_handler.Handler
 
-	tlsConfig *tls.Config
-	key, cert string
+	// HttpHandler is the http handler required by HTTP, DoH server.
+	HttpHandler http.Handler
 
-	queryTimeout time.Duration // default is defaultQueryTimeout.
-	idleTimeout  time.Duration // default is defaultIdleTimeout.
+	// TLSConfig is required by DoT, DoH server.
+	// It must contain at least one certificate. If not, caller should use
+	// Cert, Key to load a certificate from disk.
+	TLSConfig *tls.Config
 
-	logger *zap.Logger
+	// Certificate files to start DoT, DoH server.
+	// Only useful if there is no server certificate specified in TLSConfig.
+	Cert, Key string
 
-	addr string
+	// IdleTimeout limits the maximum time period that a connection
+	// can idle. Default is defaultIdleTimeout.
+	IdleTimeout time.Duration
 
-	mu         sync.Mutex
-	listener   net.Listener
-	packetConn net.PacketConn
-	started    bool
-	closed     bool
+	// Logger optionally specifies logger for the server logging.
+	// A nil Logger will disables the logging.
+	Logger *zap.Logger
+
+	m               sync.Mutex
+	closed          bool
+	listenerTracker map[*io.Closer]struct{}
 }
 
-func NewServer(protocol, addr string, options ...ServerOption) *Server {
-	s := new(Server)
-	s.protocol = protocol
-	s.addr = addr
-	for _, op := range options {
-		op(s)
+// getLogger always returns a non-nil logger.
+func (s *Server) getLogger() *zap.Logger {
+	if l := s.Logger; l != nil {
+		return l
 	}
-
-	if s.logger == nil {
-		s.logger = zap.NewNop()
-	}
-	return s
-}
-
-func (s *Server) getQueryTimeout() time.Duration {
-	if t := s.queryTimeout; t > 0 {
-		return t
-	}
-	return defaultQueryTimeout
+	return nopLogger
 }
 
 func (s *Server) getIdleTimeout() time.Duration {
-	if t := s.idleTimeout; t > 0 {
+	if t := s.IdleTimeout; t > 0 {
 		return t
 	}
-	return defaultIdleTimeout
+	return defaultTCPIdleTimeout
 }
 
-// Start starts the udp server.
-// Start always returns an non-nil err.
-// After Close(), an ErrServerClosed will be returned.
-func (s *Server) Start() error {
-	s.mu.Lock()
-	if s.closed {
-		s.mu.Unlock()
-		return ErrServerClosed
-	}
-	if s.started {
-		s.mu.Unlock()
-		return ErrServerStarted
-	}
-	s.started = true
-	s.mu.Unlock()
-
-	defer s.Close()
-
-	var serverErr error
-	switch s.protocol {
-	case "udp":
-		if err := s.initPacketConn(); err != nil {
-			return err
-		}
-		serverErr = s.startUDP()
-	case "tcp":
-		if err := s.initListener(); err != nil {
-			return err
-		}
-		serverErr = s.startTCP()
-	case "dot", "tls":
-		if err := s.initListener(); err != nil {
-			return err
-		}
-		serverErr = s.startDoT()
-	case "doh", "https":
-		if err := s.initListener(); err != nil {
-			return err
-		}
-		serverErr = s.startDoH()
-	case "http":
-		if err := s.initListener(); err != nil {
-			return err
-		}
-		serverErr = s.startHttp()
-	default:
-		return fmt.Errorf("unknown protocol %s", s.protocol)
-	}
-
-	if s.isClosed() {
-		return ErrServerClosed
-	}
-	return serverErr
-}
-
-func (s *Server) initListener() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.listener != nil {
-		return nil
-	}
-
-	l, err := net.Listen("tcp", s.addr)
-	if err != nil {
-		return err
-	}
-	s.listener = l
-	return nil
-}
-
-func (s *Server) initPacketConn() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.packetConn != nil {
-		return nil
-	}
-
-	c, err := net.ListenPacket("udp", s.addr)
-	if err != nil {
-		return err
-	}
-	s.packetConn = c
-	return nil
-}
-
-func (s *Server) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.closed = true
-
-	if s.listener != nil {
-		s.listener.Close()
-	}
-	if s.packetConn != nil {
-		s.packetConn.Close()
-	}
-	return nil
-}
-
-func (s *Server) handleQuery(ctx context.Context, qCtx *handler.Context, w dns_handler.ResponseWriter) {
-	queryCtx, cancel := context.WithTimeout(ctx, s.getQueryTimeout())
-	defer cancel()
-	s.handler.ServeDNS(queryCtx, qCtx, w)
-}
-
-func (s *Server) isClosed() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+// Closed returns true if server was closed.
+func (s *Server) Closed() bool {
+	s.m.Lock()
+	defer s.m.Unlock()
 	return s.closed
 }
 
-func (s *Server) isStarted() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.started
+// trackCloser adds or removes c to the Server and return true if Server is not closed.
+// We use a pointer in case the underlying value is incomparable.
+func (s *Server) trackCloser(c *io.Closer, add bool) bool {
+	s.m.Lock()
+	defer s.m.Unlock()
+
+	if s.listenerTracker == nil {
+		s.listenerTracker = make(map[*io.Closer]struct{})
+	}
+
+	if add {
+		if s.closed {
+			return false
+		}
+		s.listenerTracker[c] = struct{}{}
+	} else {
+		delete(s.listenerTracker, c)
+	}
+	return true
 }
 
-func (s *Server) getListener() net.Listener {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.listener
-}
+// Close closes the Server and all its inner listeners.
+func (s *Server) Close() error {
+	s.m.Lock()
+	defer s.m.Unlock()
+	s.closed = true
 
-func (s *Server) getPacketConn() net.PacketConn {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.packetConn
+	errs := new(utils.Errors)
+	for closer := range s.listenerTracker {
+		if err := (*closer).Close(); err != nil {
+			errs.Append(err)
+		}
+	}
+
+	return errs.Build()
 }

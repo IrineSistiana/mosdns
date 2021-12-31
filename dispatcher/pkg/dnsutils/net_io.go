@@ -55,9 +55,26 @@ func (e *IOErr) Unwrap() error {
 	return e.err
 }
 
+// ReadRawUDPMsgFrom reads dns msg from c in a wire format.
+// The bufSize should not be greater than dns.MaxMsgSize.
+// Typically, IPv4UdpMaxPayload is big enough.
+func ReadRawUDPMsgFrom(c net.PacketConn, bufSize int) ([]byte, net.Addr, int, error) {
+	buf := pool.GetBuf(bufSize)
+	defer pool.ReleaseBuf(buf)
+
+	n, from, err := c.ReadFrom(buf)
+	if err != nil {
+		return nil, from, n, err
+	}
+
+	m := make([]byte, n)
+	copy(m, buf)
+	return m, from, n, nil
+}
+
 // ReadUDPMsgFrom reads dns msg from c in a wire format.
 // The bufSize should not be greater than dns.MaxMsgSize.
-// Typically IPv4UdpMaxPayload is big enough.
+// Typically, IPv4UdpMaxPayload is big enough.
 // An io err will be wrapped into an IOErr.
 // IsIOErr(err) can check and unwrap the inner io err.
 func ReadUDPMsgFrom(c net.PacketConn, bufSize int) (m *dns.Msg, from net.Addr, n int, err error) {
@@ -70,11 +87,6 @@ func ReadUDPMsgFrom(c net.PacketConn, bufSize int) (m *dns.Msg, from net.Addr, n
 		return
 	}
 
-	if n < 12 {
-		err = dns.ErrShortRead
-		return
-	}
-
 	m = new(dns.Msg)
 	err = m.Unpack(buf[:n])
 	if err != nil {
@@ -83,21 +95,34 @@ func ReadUDPMsgFrom(c net.PacketConn, bufSize int) (m *dns.Msg, from net.Addr, n
 	return
 }
 
-// ReadMsgFromUDP See ReadUDPMsgFrom.
-func ReadMsgFromUDP(c io.Reader, bufSize int) (m *dns.Msg, n int, err error) {
+// ReadRawMsgFromUDP reads dns msg from c in a wire format.
+// The bufSize should not be greater than dns.MaxMsgSize.
+// Typically, IPv4UdpMaxPayload is big enough.
+func ReadRawMsgFromUDP(c io.Reader, bufSize int) ([]byte, int, error) {
 	buf := pool.GetBuf(bufSize)
 	defer pool.ReleaseBuf(buf)
 
-	n, err = c.Read(buf)
+	n, err := c.Read(buf)
+	if err != nil {
+		return nil, n, err
+	}
+	m := make([]byte, n)
+	copy(m, buf)
+	return m, n, nil
+}
+
+// ReadMsgFromUDP See ReadUDPMsgFrom.
+func ReadMsgFromUDP(c io.Reader, bufSize int) (*dns.Msg, int, error) {
+	buf := pool.GetBuf(bufSize)
+	defer pool.ReleaseBuf(buf)
+
+	n, err := c.Read(buf)
 	if err != nil {
 		err = WrapIOErr(err)
 		return nil, n, err
 	}
-	if n < 12 {
-		return nil, n, dns.ErrShortRead
-	}
 
-	m = new(dns.Msg)
+	m := new(dns.Msg)
 	err = m.Unpack(buf[:n])
 	if err != nil {
 		return nil, n, err
@@ -118,13 +143,9 @@ func WriteMsgToUDP(c io.Writer, m *dns.Msg) (n int, err error) {
 	return WriteRawMsgToUDP(c, mRaw)
 }
 
-// WriteRawMsgToUDP See WriteMsgToUDP.
+// WriteRawMsgToUDP writes b to c.
 func WriteRawMsgToUDP(c io.Writer, b []byte) (n int, err error) {
-	n, err = c.Write(b)
-	if err != nil {
-		err = WrapIOErr(err)
-	}
-	return
+	return c.Write(b)
 }
 
 // WriteUDPMsgTo See WriteMsgToUDP.
@@ -142,15 +163,45 @@ func WriteUDPMsgTo(m *dns.Msg, c net.PacketConn, to net.Addr) (n int, err error)
 	return
 }
 
+// ReadRawMsgFromTCP reads msg from c in RFC 7766 format.
+// n represents how many bytes are read from c.
+// This includes two-octet length field.
+func ReadRawMsgFromTCP(c io.Reader) ([]byte, int, error) {
+	n := 0
+	lengthRaw := make([]byte, 2)
+	nh, err := io.ReadFull(c, lengthRaw)
+	n += nh
+	if err != nil {
+		return nil, n, err
+	}
+
+	// dns length
+	length := binary.BigEndian.Uint16(lengthRaw)
+
+	buf := pool.GetBuf(int(length))
+	defer pool.ReleaseBuf(buf)
+
+	nm, err := io.ReadFull(c, buf)
+	n += nm
+	if err != nil {
+		return nil, n, err
+	}
+
+	m := make([]byte, nm)
+	copy(m, buf)
+	return m, n, nil
+}
+
 // ReadMsgFromTCP reads msg from c in RFC 7766 format.
 // n represents how many bytes are read from c.
 // This includes two-octet length field.
 // An io err will be wrapped into an IOErr.
 // IsIOErr(err) can check and unwrap the inner io err.
-func ReadMsgFromTCP(c io.Reader) (m *dns.Msg, n int, err error) {
+func ReadMsgFromTCP(c io.Reader) (*dns.Msg, int, error) {
+	n := 0
 	lengthRaw := make([]byte, 2)
-	n1, err := io.ReadFull(c, lengthRaw)
-	n = n + n1
+	nh, err := io.ReadFull(c, lengthRaw)
+	n += nh
 	if err != nil {
 		err = WrapIOErr(err)
 		return nil, n, err
@@ -158,21 +209,18 @@ func ReadMsgFromTCP(c io.Reader) (m *dns.Msg, n int, err error) {
 
 	// dns length
 	length := binary.BigEndian.Uint16(lengthRaw)
-	if length < 12 {
-		return nil, n, dns.ErrShortRead
-	}
 
 	buf := pool.GetBuf(int(length))
 	defer pool.ReleaseBuf(buf)
 
-	n2, err := io.ReadFull(c, buf)
-	n = n + n2
+	nm, err := io.ReadFull(c, buf)
+	n += nm
 	if err != nil {
 		err = WrapIOErr(err)
 		return nil, n, err
 	}
 
-	m = new(dns.Msg)
+	m := new(dns.Msg)
 	err = m.Unpack(buf)
 	if err != nil {
 		return nil, n, err

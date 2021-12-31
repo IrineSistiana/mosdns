@@ -103,26 +103,23 @@ func TestUDPServer(t *testing.T) {
 		server *Server
 	}{
 		{
-			name:   "with PacketConn",
-			server: NewServer("udp", "", WithHandler(dnsHandler), WithPacketConn(getUDPListener(t))),
-		},
-		{
-			name:   "with addr",
-			server: NewServer("udp", "127.0.0.1:0", WithHandler(dnsHandler)),
+			name:   "",
+			server: &Server{DNSHandler: dnsHandler},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			l := getUDPListener(t)
 			go func() {
-				if err := tt.server.Start(); err != ErrServerClosed {
+				if err := tt.server.ServeUDP(l); err != ErrServerClosed {
 					t.Error(err)
 				}
 			}()
 			defer tt.server.Close()
 
 			time.Sleep(time.Millisecond * 50)
-			addr := tt.server.getPacketConn().LocalAddr().String()
+			addr := l.LocalAddr().String()
 			c, err := net.Dial("udp", addr)
 			if err != nil {
 				t.Fatal(err)
@@ -139,71 +136,48 @@ func TestUDPServer(t *testing.T) {
 	}
 }
 
-func TestTCPServer(t *testing.T) {
+func TestTCPDoTServer(t *testing.T) {
 	dnsHandler := &dns_handler.DummyServerHandler{T: t}
 	tests := []struct {
 		name   string
+		scheme string
 		server *Server
 	}{
 		{
-			name: "tcp with listener",
-			server: NewServer(
-				"tcp",
-				"",
-				WithHandler(dnsHandler),
-				WithListener(getListener(t)),
-			),
+			name:   "tcp",
+			scheme: "tcp",
+			server: &Server{DNSHandler: dnsHandler},
 		},
 		{
-			name: "tcp with addr",
-			server: NewServer(
-				"tcp",
-				"127.0.0.1:0",
-				WithHandler(dnsHandler),
-			),
+			name:   "dot with tls config",
+			scheme: "tls",
+			server: &Server{DNSHandler: dnsHandler, TLSConfig: getTLSConfig(t)},
 		},
 		{
-			name: "dot with listener",
-			server: NewServer(
-				"dot",
-				"",
-				WithHandler(dnsHandler),
-				WithListener(getListener(t)),
-				WithTLSConfig(getTLSConfig(t)),
-			),
-		},
-		{
-			name: "dot with cert and key",
-			server: NewServer(
-				"dot",
-				"",
-				WithHandler(dnsHandler),
-				WithListener(getListener(t)),
-				WithCertificate("./testdata/test.test.cert", "./testdata/test.test.key"),
-			),
-		},
-		{
-			name: "dot with addr",
-			server: NewServer(
-				"dot",
-				"127.0.0.1:0",
-				WithHandler(dnsHandler),
-				WithTLSConfig(getTLSConfig(t)),
-			),
+			name:   "dot with cert and key",
+			scheme: "tls",
+			server: &Server{DNSHandler: dnsHandler, Cert: "./testdata/test.test.cert", Key: "./testdata/test.test.key"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			l := getListener(t)
 			go func() {
-				if err := tt.server.Start(); err != ErrServerClosed {
+				var err error
+				if tt.scheme == "tcp" {
+					err = tt.server.ServeTCP(l)
+				} else {
+					err = tt.server.ServeTLS(l)
+				}
+				if err != ErrServerClosed {
 					t.Error(err)
 				}
 			}()
 			defer tt.server.Close()
 
 			time.Sleep(time.Millisecond * 50)
-			addr := tt.server.getListener().Addr().String()
+			addr := l.Addr().String()
 			c, err := net.Dial("tcp", addr)
 			if err != nil {
 				t.Fatal(err)
@@ -211,11 +185,7 @@ func TestTCPServer(t *testing.T) {
 			defer c.Close()
 			writeJunkData(c)
 
-			prefix := "tcp"
-			if tt.server.protocol == "dot" {
-				prefix = "tls"
-			}
-			u, err := upstream.AddressToUpstream(prefix+"://"+addr, opt)
+			u, err := upstream.AddressToUpstream(tt.scheme+"://"+addr, opt)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -226,63 +196,43 @@ func TestTCPServer(t *testing.T) {
 
 func TestDoHServer(t *testing.T) {
 	dnsHandler := &dns_handler.DummyServerHandler{T: t}
+	httpHandler := &http_handler.Handler{
+		DNSHandler: dnsHandler,
+		Path:       "/dns-query",
+	}
 	tests := []struct {
 		name   string
 		server *Server
 	}{
 		{
-			name: "doh with listener",
-			server: NewServer(
-				"doh",
-				"",
-				WithHttpHandler(http_handler.NewHandler(dnsHandler, http_handler.WithPath("/dns-query"))),
-				WithListener(getListener(t)),
-				WithTLSConfig(getTLSConfig(t)),
-			),
-		},
-		{
-			name: "doh with address",
-			server: NewServer(
-				"doh",
-				"127.0.0.1:0",
-				WithHttpHandler(http_handler.NewHandler(dnsHandler, http_handler.WithPath("/dns-query"))),
-				WithTLSConfig(getTLSConfig(t)),
-			),
+			name: "doh with tls config",
+			server: &Server{
+				HttpHandler: httpHandler,
+				TLSConfig:   getTLSConfig(t),
+			},
 		},
 		{
 			name: "doh with cert and key",
-			server: NewServer(
-				"doh",
-				"",
-				WithHttpHandler(http_handler.NewHandler(dnsHandler, http_handler.WithPath("/dns-query"))),
-				WithListener(getListener(t)),
-				WithCertificate("./testdata/test.test.cert", "./testdata/test.test.key"),
-			),
-		},
-		{
-			name: "doh without url path",
-			server: NewServer(
-				"doh",
-				"",
-				WithHttpHandler(http_handler.NewHandler(dnsHandler)),
-				WithListener(getListener(t)),
-				WithCertificate("./testdata/test.test.cert", "./testdata/test.test.key"),
-			),
+			server: &Server{
+				HttpHandler: httpHandler,
+				Cert:        "./testdata/test.test.cert", Key: "./testdata/test.test.key",
+			},
 		},
 		// TODO: Add http test.
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			l := getListener(t)
 			go func() {
-				if err := tt.server.Start(); err != ErrServerClosed {
+				if err := tt.server.ServeHTTPS(l); err != ErrServerClosed {
 					t.Error(err)
 				}
 			}()
 			defer tt.server.Close()
 
 			time.Sleep(time.Millisecond * 50)
-			u, err := upstream.AddressToUpstream("https://"+tt.server.getListener().Addr().String()+"/dns-query", opt)
+			u, err := upstream.AddressToUpstream("https://"+l.Addr().String()+"/dns-query", opt)
 			if err != nil {
 				t.Fatal(err)
 			}

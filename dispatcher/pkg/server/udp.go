@@ -20,10 +20,11 @@ package server
 import (
 	"context"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/server/dns_handler"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
+	"io"
 	"net"
 	"time"
 )
@@ -42,43 +43,44 @@ func getMaxSizeFromQuery(m *dns.Msg) int {
 	}
 }
 
-func (u *udpResponseWriter) Write(m *dns.Msg) (n int, err error) {
-	m.Truncate(u.maxSize)
-	return dnsutils.WriteUDPMsgTo(m, u.c, u.to)
+func (u *udpResponseWriter) Write(m []byte) (n int, err error) {
+	return u.c.WriteTo(m, u.to)
 }
 
-// startUDP always returns a non-nil error.
-func (s *Server) startUDP() error {
-	c := s.packetConn
+func (s *Server) ServeUDP(c net.PacketConn) error {
+	ol := &onceClosePackageConn{PacketConn: c}
+	defer ol.Close()
+
+	closer := io.Closer(ol)
+	if ok := s.trackCloser(&closer, true); !ok {
+		return ErrServerClosed
+	}
+	defer s.trackCloser(&closer, false)
 
 	listenerCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	for {
-		q, from, _, err := dnsutils.ReadUDPMsgFrom(c, dnsutils.IPv4UdpMaxPayload)
+		m, from, _, err := dnsutils.ReadRawUDPMsgFrom(c, 4096)
 		if err != nil {
-			if ioErr := dnsutils.IsIOErr(err); ioErr != nil {
-				if netErr, ok := ioErr.(net.Error); ok && netErr.Temporary() { // is a temporary net err
-					s.logger.Warn("listener temporary err", zap.Error(err))
-					time.Sleep(time.Second * 5)
-					continue
-				} else { // unexpected io err
-					return fmt.Errorf("unexpected listener err: %w", err)
-				}
-			} else { // not an io err, maybe caused by an invalid msg.
-				s.logger.Warn("udp read err", zap.Error(err))
+			if netErr, ok := err.(net.Error); ok && netErr.Temporary() { // is a temporary net err
+				s.getLogger().Warn("listener temporary err", zap.Error(err))
+				time.Sleep(time.Second * 5)
 				continue
+			} else { // unexpected io err
+				if s.Closed() {
+					return ErrServerClosed
+				}
+				return fmt.Errorf("unexpected listener err: %w", err)
 			}
 		}
 
 		go func() {
 			w := &udpResponseWriter{
-				c:       c,
-				to:      from,
-				maxSize: getMaxSizeFromQuery(q),
+				c:  ol,
+				to: from,
 			}
-			qCtx := handler.NewContext(q, from)
-			s.handleQuery(listenerCtx, qCtx, w)
+			s.DNSHandler.ServeDNS(listenerCtx, &dns_handler.Request{Msg: m, From: from}, w)
 		}()
 	}
 }

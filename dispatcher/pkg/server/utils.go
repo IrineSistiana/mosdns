@@ -15,33 +15,35 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package http_handler
+package server
 
-import "time"
+import (
+	"net"
+	"sync"
+)
 
-type Option func(h *Handler)
-
-// WithPath sets the server entry point url path.
-// If empty, Handler will not check the request path.
-func WithPath(s string) Option {
-	return func(h *Handler) {
-		h.path = s
-	}
+type onceCloseListener struct {
+	net.Listener
+	once     sync.Once
+	closeErr error
 }
 
-// WithClientSrcIPHeader sets the header that Handler can read client's
-// source IP when server is behind a proxy.
-// e.g. "X-Forwarded-For" (nginx).
-func WithClientSrcIPHeader(s string) Option {
-	return func(h *Handler) {
-		h.clientSrcIPHeader = s
-	}
+func (oc *onceCloseListener) Close() error {
+	oc.once.Do(func() {
+		oc.closeErr = oc.Listener.Close()
+	})
+	return oc.closeErr
 }
 
-// WithTimeout sets the query maximum executing time.
-// Default is defaultTimeout.
-func WithTimeout(d time.Duration) Option {
-	return func(h *Handler) {
-		h.timeout = d
-	}
+type onceClosePackageConn struct {
+	net.PacketConn
+	once     sync.Once
+	closeErr error
+}
+
+func (oc *onceClosePackageConn) Close() error {
+	oc.once.Do(func() {
+		oc.closeErr = oc.PacketConn.Close()
+	})
+	return oc.closeErr
 }

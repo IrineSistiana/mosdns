@@ -18,13 +18,10 @@
 package http_handler
 
 import (
-	"context"
+	"bytes"
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/dnsutils"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/pool"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/server/dns_handler"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
@@ -32,77 +29,68 @@ import (
 	"io"
 	"net/http"
 	"sync"
-	"time"
 )
 
-const (
-	defaultTimeout = time.Second * 5
+var (
+	nopLogger = zap.NewNop()
 )
 
 type Handler struct {
-	dnsHandler        dns_handler.Handler
-	path              string
-	clientSrcIPHeader string
-	timeout           time.Duration
+	// DNSHandler is required.
+	DNSHandler dns_handler.Handler
 
-	logger *zap.Logger
+	// Path specifies the query endpoint. If it is empty, Handler
+	// will ignore the request path.
+	Path string
+
+	// SrcIPHeader specifies the header that contain client source address.
+	// e.g. "X-Forwarded-For".
+	SrcIPHeader string
+
+	// Logger specifies the logger which Handler writes its log to.
+	Logger *zap.Logger
 }
 
-func NewHandler(dnsHandler dns_handler.Handler, options ...Option) *Handler {
-	h := new(Handler)
-	h.dnsHandler = dnsHandler
-	for _, op := range options {
-		op(h)
+func (h *Handler) logger() *zap.Logger {
+	if h.Logger != nil {
+		return h.Logger
 	}
-
-	if h.logger == nil {
-		h.logger = zap.NewNop()
-	}
-	return h
+	return nopLogger
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// check url path
-	if len(h.path) != 0 && req.URL.Path != h.path {
+	if len(h.Path) != 0 && req.URL.Path != h.Path {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 
 	// read remote addr
 	remoteAddr := req.RemoteAddr
-	if len(h.clientSrcIPHeader) != 0 {
-		if ip := req.Header.Get(h.clientSrcIPHeader); len(ip) != 0 {
+	if len(h.SrcIPHeader) != 0 {
+		if ip := req.Header.Get(h.SrcIPHeader); len(ip) != 0 {
 			remoteAddr = ip + ":0"
 		}
 	}
 
 	// read msg
-	q, err := ReadMsgFromReq(req)
+	m, err := ReadMsgFromReq(req)
 	if err != nil {
-		h.logger.Warn("invalid request", zap.String("from", remoteAddr), zap.String("url", req.RequestURI), zap.String("method", req.Method), zap.Error(err))
+		h.logger().Warn("invalid request", zap.String("from", remoteAddr), zap.String("url", req.RequestURI), zap.String("method", req.Method), zap.Error(err))
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	qCtx := handler.NewContext(q, utils.NewNetAddr(remoteAddr, req.URL.Scheme))
-	ctx, cancel := context.WithTimeout(req.Context(), h.getTimeout())
-	defer cancel()
-	h.dnsHandler.ServeDNS(ctx, qCtx, &httpDnsRespWriter{httpRespWriter: w})
+	h.DNSHandler.ServeDNS(
+		req.Context(),
+		&dns_handler.Request{Msg: m, From: utils.NewNetAddr(remoteAddr, req.URL.Scheme)},
+		&httpDnsRespWriter{httpRespWriter: w},
+	)
 }
 
-func (h *Handler) getTimeout() time.Duration {
-	if t := h.timeout; t > 0 {
-		return t
-	}
-	return defaultTimeout
-}
+var errInvalidMediaType = errors.New("missing or invalid media type header")
 
-var errInvalidMediaType = errors.New("missing or invalid header media type")
-
-func ReadMsgFromReq(req *http.Request) (*dns.Msg, error) {
-	var b []byte
-	var err error
-
+func ReadMsgFromReq(req *http.Request) ([]byte, error) {
 	switch req.Method {
 	case http.MethodGet:
 		// Check accept header
@@ -116,19 +104,14 @@ func ReadMsgFromReq(req *http.Request) (*dns.Msg, error) {
 		}
 		msgSize := base64.RawURLEncoding.DecodedLen(len(s))
 		if msgSize > dns.MaxMsgSize {
-			return nil, fmt.Errorf("query length %d is too big", msgSize)
+			return nil, fmt.Errorf("msg length %d is too big", msgSize)
 		}
-		msgBuf := pool.GetBuf(msgSize)
-		defer pool.ReleaseBuf(msgBuf)
-		strBuf := readBufPool.Get()
-		defer readBufPool.Release(strBuf)
 
-		strBuf.WriteString(s)
-		n, err := base64.RawURLEncoding.Decode(msgBuf, strBuf.Bytes())
+		b, err := base64.RawURLEncoding.DecodeString(s)
 		if err != nil {
-			return nil, fmt.Errorf("failed to decode query: %w", err)
+			return nil, fmt.Errorf("failed to decode base64 query: %w", err)
 		}
-		b = msgBuf[:n]
+		return b, nil
 
 	case http.MethodPost:
 		// Check Content-Type header
@@ -136,35 +119,25 @@ func ReadMsgFromReq(req *http.Request) (*dns.Msg, error) {
 			return nil, errInvalidMediaType
 		}
 
-		buf := readBufPool.Get()
-		defer readBufPool.Release(buf)
-
-		_, err = buf.ReadFrom(io.LimitReader(req.Body, dns.MaxMsgSize))
+		buf := bytes.NewBuffer(make([]byte, 64))
+		_, err := buf.ReadFrom(io.LimitReader(req.Body, dns.MaxMsgSize))
 		if err != nil {
 			return nil, fmt.Errorf("failed to read request body: %w", err)
 		}
-		b = buf.Bytes()
+		return buf.Bytes(), nil
 	default:
 		return nil, fmt.Errorf("unsupported method: %s", req.Method)
 	}
-
-	q := new(dns.Msg)
-	if err := q.Unpack(b); err != nil {
-		return nil, fmt.Errorf("invalid request: %w", err)
-	}
-	return q, nil
 }
-
-var readBufPool = pool.NewBytesBufPool(512)
 
 type httpDnsRespWriter struct {
 	setMediaTypeOnce sync.Once
 	httpRespWriter   http.ResponseWriter
 }
 
-func (h *httpDnsRespWriter) Write(m *dns.Msg) (n int, err error) {
+func (h *httpDnsRespWriter) Write(m []byte) (n int, err error) {
 	h.setMediaTypeOnce.Do(func() {
 		h.httpRespWriter.Header().Set("Content-Type", "application/dns-message")
 	})
-	return dnsutils.WriteMsgToUDP(h.httpRespWriter, m)
+	return h.httpRespWriter.Write(m)
 }

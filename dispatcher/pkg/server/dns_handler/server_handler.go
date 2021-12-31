@@ -21,20 +21,52 @@ import (
 	"context"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/concurrent_limiter"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/pool"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
+	"net"
 	"sync"
 	"testing"
+	"time"
 )
 
+const (
+	defaultQueryTimeout = time.Second * 5
+)
+
+// Handler handles dns query.
 type Handler interface {
-	// ServeDNS uses ctx to control deadline, exchanges qCtx, and writes response to w.
-	ServeDNS(ctx context.Context, qCtx *handler.Context, w ResponseWriter)
+	// ServeDNS handles r and writes response to w.
+	ServeDNS(ctx context.Context, r *Request, w ResponseWriter)
+}
+
+// Request represents a request from client.
+type Request struct {
+	// Msg is the dns message in wire format.
+	Msg []byte
+
+	// From is the client address.
+	// If the address is unknown, it will be UnknownAddr.
+	From net.Addr
+}
+
+var (
+	UnknownAddr = unknownAddr{}
+)
+
+type unknownAddr struct{}
+
+func (u unknownAddr) Network() string {
+	return "unknown"
+}
+
+func (u unknownAddr) String() string {
+	return "unknown"
 }
 
 // ResponseWriter can write msg to the client.
 type ResponseWriter interface {
-	Write(m *dns.Msg) (n int, err error)
+	Write(m []byte) (n int, err error)
 }
 
 type DefaultHandler struct {
@@ -43,6 +75,10 @@ type DefaultHandler struct {
 
 	// Entry is the entry ExecutablePlugin's tag. This cannot be nil.
 	Entry handler.ExecutableChainNode
+
+	// QueryTimeout limits the timeout value of each query.
+	// Default is defaultQueryTimeout.
+	QueryTimeout time.Duration
 
 	// ConcurrentLimit controls the max concurrent queries for the DefaultHandler.
 	// If ConcurrentLimit <= 0, means no limit.
@@ -54,25 +90,32 @@ type DefaultHandler struct {
 	// RecursionAvailable sets the dns.Msg.RecursionAvailable flag globally.
 	RecursionAvailable bool
 
-	initOnce sync.Once // init the followings
-	logger   *zap.Logger
+	initOnce sync.Once                             // init limiter
 	limiter  *concurrent_limiter.ConcurrentLimiter // if it's nil, means no limit.
 }
 
-// ServeDNS
+var (
+	nopLogger = zap.NewNop()
+)
+
+// ServeDNS implements Handler.
 // If entry returns an error, a SERVFAIL response will be sent back to client.
 // If concurrentLimit is reached, the query will block and wait available token until ctx is done.
-func (h *DefaultHandler) ServeDNS(ctx context.Context, qCtx *handler.Context, w ResponseWriter) {
+func (h *DefaultHandler) ServeDNS(ctx context.Context, r *Request, w ResponseWriter) {
 	h.initOnce.Do(func() {
-		if h.Logger != nil {
-			h.logger = h.Logger
-		} else {
-			h.logger = zap.NewNop()
-		}
 		if h.ConcurrentLimit > 0 {
 			h.limiter = concurrent_limiter.NewConcurrentLimiter(h.ConcurrentLimit)
 		}
 	})
+
+	// apply timeout to ctx
+	ddl := time.Now().Add(h.queryTimeout())
+	ctxDdl, ok := ctx.Deadline()
+	if ok && ctxDdl.After(ddl) {
+		newCtx, cancel := context.WithDeadline(ctx, ddl)
+		defer cancel()
+		ctx = newCtx
+	}
 
 	if h.limiter != nil {
 		if int(h.limiter.Running()) > h.limiter.Max() { // too many waiting query, silently drop it.
@@ -87,30 +130,57 @@ func (h *DefaultHandler) ServeDNS(ctx context.Context, qCtx *handler.Context, w 
 		}
 	}
 
+	q := new(dns.Msg)
+	if err := q.Unpack(r.Msg); err != nil {
+		h.logger().Warn("failed to unpack request message", zap.Stringer("from", r.From))
+		return
+	}
+	qCtx := handler.NewContext(q, r.From)
 	err := handler.ExecChainNode(ctx, qCtx, h.Entry)
 	if err != nil {
-		h.logger.Warn("entry returned an err", qCtx.InfoField(), zap.Error(err))
+		h.logger().Warn("entry returned an err", qCtx.InfoField(), zap.Error(err))
 	} else {
-		h.logger.Debug("entry returned", qCtx.InfoField(), zap.Stringer("status", qCtx.Status()))
+		h.logger().Debug("entry returned", qCtx.InfoField(), zap.Stringer("status", qCtx.Status()))
 	}
 
-	var r *dns.Msg
+	var rm *dns.Msg
 	if err != nil || qCtx.Status() == handler.ContextStatusServerFailed {
-		r = new(dns.Msg)
-		r.SetReply(qCtx.Q())
-		r.Rcode = dns.RcodeServerFailure
+		rm = new(dns.Msg)
+		rm.SetReply(q)
+		rm.Rcode = dns.RcodeServerFailure
 	} else {
-		r = qCtx.R()
+		rm = qCtx.R()
 	}
 
-	if r != nil {
+	if rm != nil {
 		if h.RecursionAvailable {
-			r.RecursionAvailable = true
+			rm.RecursionAvailable = true
 		}
-		if _, err := w.Write(r); err != nil {
-			h.logger.Warn("write response", qCtx.InfoField(), zap.Error(err))
+		raw, buf, err := pool.PackBuffer(rm)
+		if err != nil {
+			h.logger().Warn("failed to pack response message", qCtx.InfoField(), zap.Error(err))
+			return
+		}
+		defer pool.ReleaseBuf(buf)
+
+		if _, err := w.Write(raw); err != nil {
+			h.logger().Warn("failed to write response", qCtx.InfoField(), zap.Error(err))
 		}
 	}
+}
+
+func (h *DefaultHandler) queryTimeout() time.Duration {
+	if t := h.QueryTimeout; t > 0 {
+		return t
+	}
+	return defaultQueryTimeout
+}
+
+func (h *DefaultHandler) logger() *zap.Logger {
+	if l := h.Logger; l != nil {
+		return l
+	}
+	return nopLogger
 }
 
 type DummyServerHandler struct {
@@ -119,18 +189,29 @@ type DummyServerHandler struct {
 	WantErr error
 }
 
-func (d *DummyServerHandler) ServeDNS(_ context.Context, qCtx *handler.Context, w ResponseWriter) {
-	var r *dns.Msg
+func (d *DummyServerHandler) ServeDNS(_ context.Context, r *Request, w ResponseWriter) {
+	var resp *dns.Msg
 	if d.WantMsg != nil {
-		r = d.WantMsg.Copy()
-		r.Id = qCtx.Q().Id
+		resp = d.WantMsg.Copy()
+		resp.Id = uint16(r.Msg[0])<<8 + uint16(r.Msg[1])
 	} else {
-		r = new(dns.Msg)
-		r.SetReply(qCtx.Q())
+		q := new(dns.Msg)
+		if err := q.Unpack(r.Msg); err != nil {
+			return
+		}
+		resp = new(dns.Msg)
+		resp.SetReply(q)
 	}
 
-	_, err := w.Write(r)
+	raw, err := resp.Pack()
 	if err != nil {
-		d.T.Errorf("DummyServerHandler: %v", err)
+		d.T.Error(err)
+		return
+	}
+
+	_, err = w.Write(raw)
+	if err != nil {
+		d.T.Error(err)
+		return
 	}
 }

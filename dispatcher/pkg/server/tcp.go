@@ -19,67 +19,54 @@ package server
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/dnsutils"
-	"github.com/miekg/dns"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/server/dns_handler"
 	"go.uber.org/zap"
+	"io"
 	"net"
 	"time"
 )
 
 const (
 	serverTCPWriteTimeout = time.Second
+	defaultTCPIdleTimeout = time.Second * 10
 )
 
 type tcpResponseWriter struct {
 	c net.Conn
 }
 
-func (t *tcpResponseWriter) Write(m *dns.Msg) (n int, err error) {
+func (t *tcpResponseWriter) Write(m []byte) (n int, err error) {
 	t.c.SetWriteDeadline(time.Now().Add(serverTCPWriteTimeout))
-	return dnsutils.WriteMsgToTCP(t.c, m)
+	return dnsutils.WriteRawMsgToTCP(t.c, m)
 }
 
-// startTCP always returns a non-nil error.
-func (s *Server) startTCP() error {
-	return s.serveTCP(s.listener)
-}
+func (s *Server) ServeTCP(l net.Listener) error {
+	ol := &onceCloseListener{Listener: l}
+	defer ol.Close()
 
-// startDoT always returns a non-nil error.
-func (s *Server) startDoT() error {
-	var tlsConfig *tls.Config
-	if s.tlsConfig != nil {
-		tlsConfig = s.tlsConfig.Clone()
-	} else {
-		tlsConfig = new(tls.Config)
+	closer := io.Closer(ol)
+	if ok := s.trackCloser(&closer, true); !ok {
+		return ErrServerClosed
 	}
+	defer s.trackCloser(&closer, false)
 
-	if len(s.key)+len(s.cert) != 0 {
-		cert, err := tls.LoadX509KeyPair(s.cert, s.key)
-		if err != nil {
-			return err
-		}
-		tlsConfig.Certificates = append(tlsConfig.Certificates, cert)
-	}
-
-	return s.serveTCP(tls.NewListener(s.listener, tlsConfig))
-}
-
-func (s *Server) serveTCP(l net.Listener) error {
 	listenerCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	for {
-		c, err := l.Accept()
+		c, err := ol.Accept()
 		if err != nil {
 			netErr, ok := err.(net.Error)
 			if ok && netErr.Temporary() {
-				s.logger.Warn("listener temporary err", zap.Error(err))
+				s.getLogger().Warn("listener temporary err", zap.Error(err))
 				time.Sleep(time.Second * 5)
 				continue
 			} else {
+				if s.Closed() {
+					return ErrServerClosed
+				}
 				return fmt.Errorf("unexpected listener err: %w", err)
 			}
 		}
@@ -91,14 +78,13 @@ func (s *Server) serveTCP(l net.Listener) error {
 
 			for {
 				c.SetReadDeadline(time.Now().Add(s.getIdleTimeout()))
-				q, _, err := dnsutils.ReadMsgFromTCP(c)
+				req, _, err := dnsutils.ReadRawMsgFromTCP(c)
 				if err != nil {
 					return // read err, close the connection
 				}
 
 				go func() {
-					qCtx := handler.NewContext(q, c.RemoteAddr())
-					s.handleQuery(tcpConnCtx, qCtx, &tcpResponseWriter{c: c})
+					s.DNSHandler.ServeDNS(tcpConnCtx, &dns_handler.Request{Msg: req, From: c.RemoteAddr()}, &tcpResponseWriter{c: c})
 				}()
 			}
 		}()

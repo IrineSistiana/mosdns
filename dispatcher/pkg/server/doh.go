@@ -18,27 +18,61 @@
 package server
 
 import (
+	"go.uber.org/zap"
+	"golang.org/x/net/http2"
+	"io"
+	"net"
 	"net/http"
 	"time"
 )
 
-// startDoH always returns a non-nil error.
-func (s *Server) startDoH() error {
-	return s.buildHttpServer().ServeTLS(s.listener, s.cert, s.key)
-}
-
-// startHttp always returns a non-nil error.
-func (s *Server) startHttp() error {
-	return s.buildHttpServer().Serve(s.listener)
-}
-
-func (s *Server) buildHttpServer() *http.Server {
+func (s *Server) newHTTPServer() *http.Server {
 	return &http.Server{
-		Handler:        s.httpHandler,
-		TLSConfig:      s.tlsConfig,
+		Handler:        s.HttpHandler,
 		ReadTimeout:    time.Second * 5,
 		WriteTimeout:   time.Second * 5,
 		IdleTimeout:    s.getIdleTimeout(),
 		MaxHeaderBytes: 2048,
 	}
+}
+
+func (s *Server) ServeHTTP(l net.Listener) error {
+	ol := &onceCloseListener{Listener: l}
+	defer ol.Close()
+
+	hs := s.newHTTPServer()
+	closer := io.Closer(hs)
+	if ok := s.trackCloser(&closer, true); !ok {
+		return ErrServerClosed
+	}
+	defer s.trackCloser(&closer, false)
+
+	err := hs.Serve(ol)
+	if err == http.ErrServerClosed { // Replace http.ErrServerClosed with our ErrServerClosed
+		return ErrServerClosed
+	}
+	return err
+}
+
+func (s *Server) ServeHTTPS(l net.Listener) error {
+	ol := &onceCloseListener{Listener: l}
+	defer ol.Close()
+
+	hs := s.newHTTPServer()
+	hs.TLSConfig = s.TLSConfig.Clone()
+	if err := http2.ConfigureServer(hs, &http2.Server{IdleTimeout: s.getIdleTimeout()}); err != nil {
+		s.getLogger().Warn("failed to set up http2 support", zap.Error(err))
+	}
+
+	closer := io.Closer(hs)
+	if ok := s.trackCloser(&closer, true); !ok {
+		return ErrServerClosed
+	}
+	defer s.trackCloser(&closer, false)
+
+	err := hs.ServeTLS(ol, s.Cert, s.Key)
+	if err == http.ErrServerClosed { // Replace http.ErrServerClosed with our ErrServerClosed
+		return ErrServerClosed
+	}
+	return err
 }

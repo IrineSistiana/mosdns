@@ -73,7 +73,7 @@ func NewAllocator(maxPoolBitsLen int) *Allocator {
 
 // Get returns a []byte from pool with most appropriate cap
 func (alloc *Allocator) Get(size int) []byte {
-	if size <= 0 {
+	if size < 0 {
 		panic(fmt.Sprintf("Allocator Get: negtive slice size %d", size))
 	}
 
