@@ -30,6 +30,7 @@ func init() {
 	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 
 	handler.MustRegPlugin(&end{BP: handler.NewBP("_end", PluginType)})
+	handler.MustRegPlugin(&end{BP: handler.NewBP("_return", PluginType)})
 }
 
 var _ handler.ExecutablePlugin = (*sequence)(nil)
@@ -76,6 +77,6 @@ type end struct {
 	*handler.BP
 }
 
-func (n *end) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
+func (n *end) Exec(_ context.Context, _ *handler.Context, _ handler.ExecutableChainNode) error {
 	return nil
 }
