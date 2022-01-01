@@ -44,7 +44,8 @@ type fastForward struct {
 	*handler.BP
 	args *Args
 
-	upstream *bundled_upstream.BundledUpstream
+	upstreamBundle  *bundled_upstream.BundledUpstream
+	trackedUpstream []upstream.Upstream
 }
 
 type Args struct {
@@ -124,9 +125,10 @@ func newFastForward(bp *handler.BP, args *Args) (*fastForward, error) {
 		}
 
 		us = append(us, wu)
+		f.trackedUpstream = append(f.trackedUpstream, u)
 	}
 
-	f.upstream = bundled_upstream.NewBundledUpstream(us, bp.L())
+	f.upstreamBundle = bundled_upstream.NewBundledUpstream(us, bp.L())
 	return f, nil
 }
 
@@ -175,12 +177,19 @@ func (f *fastForward) Exec(ctx context.Context, qCtx *handler.Context, next hand
 }
 
 func (f *fastForward) exec(ctx context.Context, qCtx *handler.Context) (err error) {
-	r, err := f.upstream.ExchangeParallel(ctx, qCtx)
+	r, err := f.upstreamBundle.ExchangeParallel(ctx, qCtx)
 	if err != nil {
 		qCtx.SetResponse(nil, handler.ContextStatusServerFailed)
 		return err
 	}
 
 	qCtx.SetResponse(r, handler.ContextStatusResponded)
+	return nil
+}
+
+func (f *fastForward) Shutdown() error {
+	for _, u := range f.trackedUpstream {
+		u.CloseIdleConnections()
+	}
 	return nil
 }
