@@ -20,10 +20,8 @@ package upstream
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/dnsutils"
-	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/proxy"
@@ -37,59 +35,68 @@ import (
 )
 
 const (
-	dialTimeout         = time.Second * 5
-	generalReadTimeout  = time.Second * 5
 	generalWriteTimeout = time.Second * 1
 	tlsHandshakeTimeout = time.Second * 5
 )
 
-type protocol uint8
-
-const (
-	protocolUDP protocol = iota
-	protocolTCP
-	protocolDoT
-	protocolDoH
+var (
+	nopLogger = zap.NewNop()
 )
 
-type FastUpstream struct {
-	rawAddr string // original addr passed in NewFastUpstream()
+// Upstream represents a DNS upstream.
+type Upstream interface {
+	// ExchangeContext exchanges query message q to the upstream, and returns
+	// response.
+	ExchangeContext(ctx context.Context, q []byte) ([]byte, error)
 
-	protocol    protocol
-	dialAddr    string // Upstream "host:port" address to dial connections.
-	altDialAddr string // set by WithDialAddr. Has higher priority than dialAddr.
-	serverName  string // dot server name
-	url         string // doh url
-
-	socks5 string // socks5 server ip address. Used by tcp, dot, doh.
-
-	// readTimeout
-	// In "udp", "tcp", "dot", it's read timeout.
-	// In "doh", it's a time limit for the query, including dialing connections.
-	// Default is generalReadTimeout.
-	readTimeout time.Duration
-
-	// idleTimeout used by "tcp", "dot", "doh" to control connection idle timeout.
-	// Default: "tcp" & "dot": 0 (disable connection reuse), "doh": 30s.
-	idleTimeout time.Duration
-
-	// maxConns limits the total number of connections,
-	// including connections in the dialing states.
-	// Used by "udp"( when falling back to tcp), "tcp", "dot", "doh". Default: 1.
-	maxConns int
-
-	rootCAs            *x509.CertPool
-	insecureSkipVerify bool // Used by "dot", "doh". Skip tls verification.
-
-	logger       *zap.Logger
-	udpTransport *Transport   // used by udp
-	tcpTransport *Transport   // used by tcp, dot.
-	httpClient   *http.Client // used by doh.
+	// CloseIdleConnections closes any connections in the Upstream which
+	// now sitting idle. It does not interrupt any connections currently in use.
+	CloseIdleConnections()
 }
 
-func NewFastUpstream(addr string, options ...Option) (*FastUpstream, error) {
-	u := new(FastUpstream)
-	u.rawAddr = addr
+type Opt struct {
+	// DialAddr specifies the address the upstream will
+	// actually dial to.
+	DialAddr string
+
+	// Socks5 specifies the socks5 proxy server that the upstream
+	// will connect though. Currently, only tcp, dot, doh upstream support Socks5 proxy.
+	Socks5 string
+
+	// IdleTimeout used by tcp, dot, doh to control connection idle timeout.
+	// Default: tcp & dot: 0 (disable connection reuse), doh: 30s.
+	IdleTimeout time.Duration
+
+	// MaxConns limits the total number of connections,
+	// including connections in the dialing states.
+	// Used by tcp, dot, doh. Default: 1.
+	MaxConns int
+
+	// TLSConfig specifies the tls.Config that the TLS client will use.
+	// Used by dot, doh.
+	TLSConfig *tls.Config
+
+	// Logger specifies the logger that the upstream will use.
+	Logger *zap.Logger
+}
+
+func dialTCP(ctx context.Context, addr, socks5 string) (net.Conn, error) {
+	if len(socks5) > 0 {
+		socks5Dialer, err := proxy.SOCKS5("tcp", socks5, nil, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to init socks5 dialer: %w", err)
+		}
+		return socks5Dialer.(proxy.ContextDialer).DialContext(ctx, "tcp", addr)
+	}
+
+	d := net.Dialer{}
+	return d.DialContext(ctx, "tcp", addr)
+}
+
+func NewUpstream(addr string, opt *Opt) (Upstream, error) {
+	if opt == nil {
+		opt = new(Opt)
+	}
 
 	// parse protocol and server addr
 	if !strings.Contains(addr, "://") {
@@ -99,244 +106,123 @@ func NewFastUpstream(addr string, options ...Option) (*FastUpstream, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid server address, %w", err)
 	}
-	protocol, ok := parseScheme(addrURL.Scheme)
-	if !ok {
-		return nil, fmt.Errorf("invalid scheme [%s]", addrURL.Scheme)
-	}
-	u.protocol = protocol
 
-	switch protocol {
-	case protocolUDP, protocolTCP:
-		u.dialAddr = tryAddDefaultPort(addrURL.Host, 53)
-	case protocolDoT:
-		u.dialAddr = tryAddDefaultPort(addrURL.Host, 853)
-		u.serverName = addrURL.Hostname()
-	case protocolDoH:
-		u.dialAddr = tryAddDefaultPort(addrURL.Host, 443)
-		u.url = addrURL.String()
-	}
-
-	// apply options
-	for _, op := range options {
-		if err := op(u); err != nil {
-			return nil, err
-		}
-	}
-
-	// logger cannot be nil
-	if u.logger == nil {
-		u.logger = zap.NewNop()
-	}
-
-	// udpTransport
-	if u.protocol == protocolUDP {
-		u.udpTransport = &Transport{
-			Logger: u.logger,
-			DialFunc: func() (net.Conn, error) {
-				return u.dialTimeout("udp", dialTimeout)
+	switch addrURL.Scheme {
+	case "", "udp":
+		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 53)
+		t := &Transport{
+			Logger: opt.Logger,
+			DialFunc: func(ctx context.Context) (net.Conn, error) {
+				d := net.Dialer{}
+				return d.DialContext(ctx, "udp", dialAddr)
 			},
-			WriteFunc: dnsutils.WriteMsgToUDP,
-			ReadFunc: func(c io.Reader) (m *dns.Msg, n int, err error) {
-				return dnsutils.ReadMsgFromUDP(c, dnsutils.IPv4UdpMaxPayload)
+			WriteFunc: dnsutils.WriteRawMsgToUDP,
+			ReadFunc: func(c io.Reader) ([]byte, int, error) {
+				return dnsutils.ReadRawMsgFromUDP(c, dnsutils.IPv4UdpMaxPayload)
 			},
-			MaxConns:    1,
-			IdleTimeout: time.Second * 30,
-			Timeout:     u.getReadTimeout(),
+			IdleTimeout: time.Second * 60,
 		}
-	}
+		return t, nil
+	case "tcp":
+		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 53)
+		t := &Transport{
+			Logger: opt.Logger,
+			DialFunc: func(ctx context.Context) (net.Conn, error) {
+				return dialTCP(ctx, dialAddr, opt.Socks5)
+			},
+			WriteFunc:   dnsutils.WriteRawMsgToTCP,
+			ReadFunc:    dnsutils.ReadRawMsgFromTCP,
+			IdleTimeout: opt.IdleTimeout,
+		}
+		return t, nil
+	case "tls":
+		var tlsConfig *tls.Config
+		if opt.TLSConfig != nil {
+			tlsConfig = opt.TLSConfig.Clone()
+		} else {
+			tlsConfig = new(tls.Config)
+		}
+		if len(tlsConfig.ServerName) == 0 {
+			tlsConfig.ServerName = tryRemovePort(addrURL.Host)
+		}
 
-	// tcpTransport
-	if u.protocol == protocolTCP || u.protocol == protocolDoT {
-		var dialFunc func() (net.Conn, error)
-		if u.protocol == protocolDoT {
-			tlsConfig := new(tls.Config)
-			tlsConfig.ServerName = u.serverName
-			tlsConfig.RootCAs = u.rootCAs
-			tlsConfig.InsecureSkipVerify = u.insecureSkipVerify
-
-			dialFunc = func() (net.Conn, error) {
-				c, err := u.dialTimeout("tcp", dialTimeout)
+		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 853)
+		t := &Transport{
+			Logger: opt.Logger,
+			DialFunc: func(ctx context.Context) (net.Conn, error) {
+				conn, err := dialTCP(ctx, dialAddr, opt.Socks5)
 				if err != nil {
 					return nil, err
 				}
-				tlsConn := tls.Client(c, tlsConfig)
-				c.SetDeadline(time.Now().Add(tlsHandshakeTimeout))
-				if err := tlsConn.Handshake(); err != nil {
-					c.Close()
+				tlsConn := tls.Client(conn, tlsConfig)
+				if err := tlsConn.HandshakeContext(ctx); err != nil {
+					tlsConn.Close()
 					return nil, err
 				}
-				c.SetDeadline(time.Time{})
 				return tlsConn, nil
-			}
-		} else {
-			dialFunc = func() (net.Conn, error) {
-				return u.dialTimeout("tcp", dialTimeout)
-			}
+			},
+			WriteFunc:   dnsutils.WriteRawMsgToTCP,
+			ReadFunc:    dnsutils.ReadRawMsgFromTCP,
+			IdleTimeout: opt.IdleTimeout,
+		}
+		return t, nil
+	case "https":
+		idleConnTimeout := time.Second * 30
+		if opt.IdleTimeout > 0 {
+			idleConnTimeout = opt.IdleTimeout
+		}
+		maxConn := 1
+		if opt.MaxConns > 0 {
+			maxConn = opt.MaxConns
 		}
 
-		u.tcpTransport = &Transport{
-			Logger:      u.logger,
-			DialFunc:    dialFunc,
-			WriteFunc:   dnsutils.WriteMsgToTCP,
-			ReadFunc:    dnsutils.ReadMsgFromTCP,
-			MaxConns:    u.getMaxConns(),
-			IdleTimeout: u.getIdleTimeout(),
-			Timeout:     u.getReadTimeout(),
-		}
-	}
-
-	// httpClient
-	if u.protocol == protocolDoH {
+		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 443)
 		t := &http.Transport{
 			DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) { // overwrite server addr
-				return u.dialContext(ctx, network)
+				return dialTCP(ctx, dialAddr, opt.Socks5)
 			},
-			TLSClientConfig: &tls.Config{
-				RootCAs:            u.rootCAs,
-				InsecureSkipVerify: u.insecureSkipVerify,
-			},
-			TLSHandshakeTimeout:   tlsHandshakeTimeout,
-			IdleConnTimeout:       u.getIdleTimeout(),
-			ResponseHeaderTimeout: u.getReadTimeout(),
+			TLSClientConfig:     opt.TLSConfig,
+			TLSHandshakeTimeout: tlsHandshakeTimeout,
+			IdleConnTimeout:     idleConnTimeout,
+
 			// MaxConnsPerHost and MaxIdleConnsPerHost should be equal.
 			// Otherwise, it might seriously affect the efficiency of connection reuse.
-			MaxConnsPerHost:     u.getMaxConns(),
-			MaxIdleConnsPerHost: u.getMaxConns(),
+			MaxConnsPerHost:     maxConn,
+			MaxIdleConnsPerHost: maxConn,
 		}
+
 		t2, err := http2.ConfigureTransports(t)
 		if err != nil {
-			u.logger.Error("http2.ConfigureTransports", zap.Error(err))
+			return nil, fmt.Errorf("failed to upgrade http2 support, %w", err)
 		}
+		t2.ReadIdleTimeout = time.Second * 30
+		t2.PingTimeout = time.Second * 5
 
-		if t2 != nil {
-			t2.ReadIdleTimeout = time.Second * 30
-			t2.PingTimeout = time.Second * 5
-		}
-
-		u.httpClient = &http.Client{
-			Transport: t,
-		}
+		return &DoH{
+			EndPoint: addr,
+			Client:   &http.Client{Transport: t},
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported protocol [%s]", addrURL.Scheme)
 	}
-
-	return u, nil
 }
 
-func tryAddDefaultPort(addr string, port int) string {
+func getDialAddrWithPort(host, dialAddr string, defaultPort int) string {
+	addr := host
+	if len(dialAddr) > 0 {
+		addr = dialAddr
+	}
 	_, _, err := net.SplitHostPort(addr)
 	if err != nil { // no port, add it.
-		return net.JoinHostPort(addr, strconv.Itoa(port))
+		return net.JoinHostPort(addr, strconv.Itoa(defaultPort))
 	}
 	return addr
 }
 
-func parseScheme(s string) (protocol, bool) {
-	switch s {
-	case "", "udp":
-		return protocolUDP, true
-	case "tcp":
-		return protocolTCP, true
-	case "tls":
-		return protocolDoT, true
-	case "https":
-		return protocolDoH, true
-	default:
-		return 0, false
-	}
-}
-
-func (u *FastUpstream) getReadTimeout() time.Duration {
-	if d := u.readTimeout; d > 0 {
-		return d
-	}
-	return generalReadTimeout
-}
-
-func (u *FastUpstream) getIdleTimeout() time.Duration {
-	if d := u.idleTimeout; d > 0 {
-		return d
-	}
-	if u.protocol == protocolDoH {
-		return time.Second * 30
-	}
-	return 0
-}
-
-func (u *FastUpstream) getMaxConns() int {
-	if n := u.maxConns; n > 0 {
-		return n
-	}
-	return 1
-}
-
-func (u *FastUpstream) Address() string {
-	return u.rawAddr
-}
-
-func (u *FastUpstream) Exchange(q *dns.Msg) (r *dns.Msg, err error) {
-	return u.exchange(context.Background(), q)
-}
-
-func (u *FastUpstream) ExchangeContext(ctx context.Context, q *dns.Msg) (r *dns.Msg, err error) {
-	return u.exchange(ctx, q)
-}
-
-func (u *FastUpstream) exchange(ctx context.Context, q *dns.Msg) (*dns.Msg, error) {
-	var r *dns.Msg
-	var err error
-	switch u.protocol {
-	case protocolUDP:
-		r, err = u.exchangeUDP(ctx, q)
-	case protocolTCP, protocolDoT:
-		r, err = u.exchangeTCP(ctx, q)
-	case protocolDoH:
-		r, err = u.exchangeDoH(ctx, q)
-	default:
-		err = fmt.Errorf("fastUpstream: invalid protocol %d", u.protocol)
-	}
+func tryRemovePort(s string) string {
+	host, _, err := net.SplitHostPort(s)
 	if err != nil {
-		return nil, err
+		return s
 	}
-	return r, nil
-}
-
-// dialTimeout: see dialContext.
-func (u *FastUpstream) dialTimeout(network string, timeout time.Duration) (net.Conn, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	return u.dialContext(ctx, network)
-}
-
-// dialContext connects to the server.
-// If network is "tcp", "tcp4", "tcp6", and FastUpstream.socks5 is not empty, it will
-// dial through the socks5 server.
-func (u *FastUpstream) dialContext(ctx context.Context, network string) (net.Conn, error) {
-	var addr string
-	if len(u.altDialAddr) != 0 {
-		addr = u.altDialAddr
-	} else {
-		addr = u.dialAddr
-	}
-
-	if len(u.socks5) != 0 {
-		switch network {
-		case "tcp", "tcp4", "tcp6":
-			socks5Dialer, err := proxy.SOCKS5("tcp", u.socks5, nil, nil)
-			if err != nil {
-				return nil, fmt.Errorf("failed to init socks5 dialer: %w", err)
-			}
-			return socks5Dialer.(proxy.ContextDialer).DialContext(ctx, "tcp", addr)
-		}
-	}
-
-	d := net.Dialer{}
-	return d.DialContext(ctx, network, addr)
-}
-
-func (u *FastUpstream) exchangeTCP(ctx context.Context, q *dns.Msg) (r *dns.Msg, err error) {
-	return u.tcpTransport.ExchangeContext(ctx, q)
-}
-
-func (u *FastUpstream) exchangeUDP(ctx context.Context, q *dns.Msg) (r *dns.Msg, err error) {
-	return u.udpTransport.ExchangeContext(ctx, q)
+	return host
 }

@@ -19,11 +19,13 @@ package fastforward
 
 import (
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/bundled_upstream"
+	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/pool"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/upstream"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
@@ -88,34 +90,37 @@ func newFastForward(bp *handler.BP, args *Args) (*fastForward, error) {
 		}
 	}
 
-	for i, config := range args.Upstream {
-		if len(config.Addr) == 0 {
+	for i, c := range args.Upstream {
+		if len(c.Addr) == 0 {
 			return nil, errors.New("missing server addr")
 		}
 
-		if i == 0 { // Set first upstream as trusted upstream.
-			config.Trusted = true
+		opt := &upstream.Opt{
+			DialAddr:    c.DialAddr,
+			Socks5:      c.Socks5,
+			IdleTimeout: time.Duration(c.IdleTimeout) * time.Second,
+			MaxConns:    c.MaxConns,
+			TLSConfig: &tls.Config{
+				InsecureSkipVerify: c.InsecureSkipVerify,
+				RootCAs:            rootCAs,
+			},
+			Logger: bp.L(),
 		}
 
-		u, err := upstream.NewFastUpstream(
-			config.Addr,
-			upstream.WithDialAddr(config.DialAddr),
-			upstream.WithSocks5(config.Socks5),
-			upstream.WithReadTimeout(time.Duration(args.Timeout)*time.Second),
-			upstream.WithIdleTimeout(time.Duration(config.IdleTimeout)*time.Second),
-			upstream.WithMaxConns(config.MaxConns),
-			upstream.WithInsecureSkipVerify(config.InsecureSkipVerify),
-			upstream.WithRootCAs(rootCAs),
-			upstream.WithLogger(bp.L()),
-		)
+		u, err := upstream.NewUpstream(c.Addr, opt)
 
 		if err != nil {
 			return nil, fmt.Errorf("failed to init upstream: %w", err)
 		}
 
 		wu := &upstreamWrapper{
-			trusted: config.Trusted,
+			address: c.Addr,
+			trusted: c.Trusted,
 			u:       u,
+		}
+
+		if i == 0 { // Set first upstream as trusted upstream.
+			wu.trusted = true
 		}
 
 		us = append(us, wu)
@@ -126,16 +131,30 @@ func newFastForward(bp *handler.BP, args *Args) (*fastForward, error) {
 }
 
 type upstreamWrapper struct {
+	address string
 	trusted bool
-	u       *upstream.FastUpstream
+	u       upstream.Upstream
 }
 
 func (u *upstreamWrapper) Exchange(ctx context.Context, q *dns.Msg) (*dns.Msg, error) {
-	return u.u.ExchangeContext(ctx, q)
+	qRaw, buf, err := pool.PackBuffer(q)
+	if err != nil {
+		return nil, err
+	}
+	defer pool.ReleaseBuf(buf)
+	rRaw, err := u.u.ExchangeContext(ctx, qRaw)
+	if err != nil {
+		return nil, err
+	}
+	r := new(dns.Msg)
+	if err := r.Unpack(rRaw); err != nil {
+		return nil, err
+	}
+	return r, nil
 }
 
 func (u *upstreamWrapper) Address() string {
-	return u.u.Address()
+	return u.address
 }
 
 func (u *upstreamWrapper) Trusted() bool {

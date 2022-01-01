@@ -1,6 +1,7 @@
 package upstream
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/dnsutils"
@@ -13,8 +14,8 @@ import (
 	"time"
 )
 
-func TestTransport_Exchange(t1 *testing.T) {
-	dial := func() (net.Conn, error) {
+func TestTransport_Exchange(t *testing.T) {
+	dial := func(ctx context.Context) (net.Conn, error) {
 		c1, c2 := net.Pipe()
 		go func() {
 			for {
@@ -33,31 +34,31 @@ func TestTransport_Exchange(t1 *testing.T) {
 		return c1, nil
 	}
 
-	dialErr := func() (net.Conn, error) {
+	dialErr := func(ctx context.Context) (net.Conn, error) {
 		return nil, errors.New("dial err")
 	}
 
-	write := dnsutils.WriteMsgToTCP
+	write := dnsutils.WriteRawMsgToTCP
 
-	read := dnsutils.ReadMsgFromTCP
+	read := dnsutils.ReadRawMsgFromTCP
 
-	writeErr := func(c io.Writer, v *dns.Msg) (n int, err error) {
+	writeErr := func(c io.Writer, m []byte) (n int, err error) {
 		return 0, errors.New("write err")
 	}
 
-	readErr := func(c io.Reader) (v *dns.Msg, n int, err error) {
+	readErr := func(c io.Reader) (m []byte, n int, err error) {
 		return nil, 0, errors.New("read err")
 	}
 
-	readTimeout := func(c io.Reader) (v *dns.Msg, n int, err error) {
+	readTimeout := func(c io.Reader) (m []byte, n int, err error) {
 		time.Sleep(time.Second * 10)
 		return nil, 0, errors.New("read err")
 	}
 
 	type fields struct {
-		DialFunc    func() (net.Conn, error)
-		WriteFunc   func(c io.Writer, v *dns.Msg) (n int, err error)
-		ReadFunc    func(c io.Reader) (v *dns.Msg, n int, err error)
+		DialFunc    func(ctx context.Context) (net.Conn, error)
+		WriteFunc   func(c io.Writer, m []byte) (n int, err error)
+		ReadFunc    func(c io.Reader) (m []byte, n int, err error)
 		MaxConns    int
 		IdleTimeout time.Duration
 	}
@@ -85,10 +86,10 @@ func TestTransport_Exchange(t1 *testing.T) {
 				DialFunc:    dial,
 				WriteFunc:   write,
 				ReadFunc:    read,
-				IdleTimeout: time.Millisecond * 1000,
-				MaxConns:    2,
+				IdleTimeout: time.Millisecond * 100,
+				MaxConns:    5,
 			},
-			N:       16,
+			N:       32,
 			wantErr: false,
 		},
 		{
@@ -138,8 +139,8 @@ func TestTransport_Exchange(t1 *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t1.Run(tt.name, func(t1 *testing.T) {
-			t := &Transport{
+		t.Run(tt.name, func(t *testing.T) {
+			transport := &Transport{
 				Logger:          zap.NewNop(),
 				DialFunc:        tt.fields.DialFunc,
 				WriteFunc:       tt.fields.WriteFunc,
@@ -147,54 +148,75 @@ func TestTransport_Exchange(t1 *testing.T) {
 				MaxConns:        tt.fields.MaxConns,
 				IdleTimeout:     tt.fields.IdleTimeout,
 				MaxQueryPerConn: 8,
-				Timeout:         time.Millisecond * 100,
 			}
 
+			ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*100)
+			defer cancel()
+
 			if tt.wantErr {
-				_, err := t.Exchange(&dns.Msg{})
+				q := new(dns.Msg)
+				q.SetQuestion(".", dns.TypeA)
+				raw, err := q.Pack()
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, err = transport.ExchangeContext(ctx, raw)
 				if err == nil {
-					t1.Fatal("want err, but got nil err")
+					t.Fatal("want err, but got nil err")
 				}
 				return
 			}
 			wg := new(sync.WaitGroup)
 			for i := 0; i < tt.N; i++ {
-
 				wg.Add(1)
 				i := i
 				go func() {
 					defer wg.Done()
-					v := new(dns.Msg)
+					q := new(dns.Msg)
 					qName := fmt.Sprintf("%d.", i)
-					v.SetQuestion(qName, dns.TypeA)
-					gotR, err := t.Exchange(v)
+					q.SetQuestion(qName, dns.TypeA)
+					raw, err := q.Pack()
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*100)
+					defer cancel()
+
+					gotR, err := transport.ExchangeContext(ctx, raw)
 					if (err != nil) != tt.wantErr {
-						t1.Errorf("Exchange() error = %v, wantErr %v", err, tt.wantErr)
+						t.Errorf("Exchange() error = %v, wantErr %v", err, tt.wantErr)
 						return
 					}
 
-					if gotName := gotR.Question[0].Name; gotName != qName {
-						t1.Errorf("Exchange() gotName = %v, want %v", gotName, qName)
+					r := new(dns.Msg)
+					if err := r.Unpack(gotR); err != nil {
+						t.Error(err)
+						return
+					}
+
+					if gotName := r.Question[0].Name; gotName != qName {
+						t.Errorf("Exchange() gotName = %v, want %v", gotName, qName)
 					}
 				}()
 
-				if t1.Failed() {
+				if t.Failed() {
 					break
 				}
 			}
 
 			wg.Wait()
-			time.Sleep(tt.fields.IdleTimeout + time.Millisecond*200)
+			time.Sleep(tt.fields.IdleTimeout + time.Millisecond*100)
 
-			t.cm.Lock()
-			if n := len(t.conns); n != 0 {
-				t1.Errorf("len(t.conns), want 0, got %d", n)
+			transport.cm.Lock()
+			if n := len(transport.clientConns); n != 0 {
+				t.Errorf("len(t.clientConns), want 0, got %d", n)
 			}
 
-			if n := len(t.dialingCalls); n != 0 {
-				t1.Errorf("len(t.conns), want 0, got %d", n)
+			if n := len(transport.dCalls); n != 0 {
+				t.Errorf("len(t.clientConns), want 0, got %d", n)
 			}
-			t.cm.Unlock()
+			transport.cm.Unlock()
 		})
 	}
 }

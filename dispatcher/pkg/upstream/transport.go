@@ -22,23 +22,22 @@ import (
 	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/pool"
-	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 var (
-	errReadTimeout   = errors.New("read timeout")
 	errIdCollision   = errors.New("id collision")
 	errEOL           = errors.New("end of life")
 	errConnExhausted = errors.New("connection exhausted")
 )
 
 var (
-	defaultReadTimeout     = time.Second * 5
+	defaultDialTimeout     = time.Second * 5
 	defaultMaxConns        = 1
 	defaultMaxQueryPerConn = uint16(65535)
 )
@@ -48,15 +47,20 @@ type Transport struct {
 	Logger *zap.Logger
 
 	// The following funcs cannot be nil.
-	DialFunc  func() (net.Conn, error)
-	WriteFunc func(c io.Writer, m *dns.Msg) (n int, err error)
-	ReadFunc  func(c io.Reader) (m *dns.Msg, n int, err error)
+	DialFunc  func(ctx context.Context) (net.Conn, error)
+	WriteFunc func(c io.Writer, m []byte) (int, error)
+	ReadFunc  func(c io.Reader) ([]byte, int, error)
+
+	// DialTimeout specifies the timeout for DialFunc.
+	// Default is defaultDialTimeout.
+	DialTimeout time.Duration
+
 	// MaxConns controls the maximum connections Transport can open.
 	// It includes dialing connections.
 	// Default is 1.
 	MaxConns int
 
-	// MaxConns controls the maximum queries that one connection
+	// MaxQueryPerConn controls the maximum queries that one connection
 	// handled. The connection will be closed if it reached the limit.
 	// Default is 65535.
 	MaxQueryPerConn uint16
@@ -65,23 +69,23 @@ type Transport struct {
 	// If IdleTimeout <= 0, Transport will not reuse connections.
 	IdleTimeout time.Duration
 
-	// Timeout controls the read timeout for each read operation.
-	// Default is defaultReadTimeout.
-	Timeout time.Duration
-
-	initOnce sync.Once
-	logger   *zap.Logger // a non-nil logger
-
-	cm           sync.Mutex // protect the following maps
-	conns        map[*clientConn]struct{}
-	dialingCalls map[*dialCall]struct{}
+	cm          sync.Mutex // protect the following lazy init fields
+	clientConns map[*clientConn]struct{}
+	dCalls      map[*dialCall]struct{}
 }
 
-func (t *Transport) timeout() time.Duration {
-	if t := t.Timeout; t > 0 {
+func (t *Transport) logger() *zap.Logger {
+	if l := t.Logger; l != nil {
+		return l
+	}
+	return nopLogger
+}
+
+func (t *Transport) dialTimeout() time.Duration {
+	if t := t.DialTimeout; t > 0 {
 		return t
 	}
-	return defaultReadTimeout
+	return defaultDialTimeout
 }
 
 func (t *Transport) maxConns() int {
@@ -98,35 +102,9 @@ func (t *Transport) maxQueryPerConn() uint16 {
 	return defaultMaxQueryPerConn
 }
 
-func (t *Transport) init() {
-	if logger := t.Logger; logger != nil {
-		t.logger = logger
-	} else {
-		t.logger = zap.NewNop()
-	}
-
-	t.conns = make(map[*clientConn]struct{})
-	t.dialingCalls = make(map[*dialCall]struct{})
-}
-
-type dialCall struct {
-	waitingQId uint16
-	done       chan struct{}
-	c          *clientConn // will be ready after done is closed.
-	err        error
-}
-
-func (t *Transport) Exchange(q *dns.Msg) (r *dns.Msg, err error) {
-	ctx, cancel := context.WithTimeout(context.Background(), t.timeout())
-	defer cancel()
-	return t.ExchangeContext(ctx, q)
-}
-
-func (t *Transport) ExchangeContext(ctx context.Context, q *dns.Msg) (r *dns.Msg, err error) {
-	t.initOnce.Do(t.init)
-
+func (t *Transport) ExchangeContext(ctx context.Context, q []byte) ([]byte, error) {
 	if t.IdleTimeout <= 0 { // no keep alive
-		return t.exchangeNoKeepAlive(q)
+		return t.exchangeNoKeepAlive(ctx, q)
 	}
 
 	start := time.Now()
@@ -141,7 +119,7 @@ func (t *Transport) ExchangeContext(ctx context.Context, q *dns.Msg) (r *dns.Msg
 			return conn.exchange(ctx, q, qId)
 		}
 
-		r, err = conn.exchange(ctx, q, qId)
+		r, err := conn.exchange(ctx, q, qId)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) && time.Since(start) < time.Millisecond*200 && retry <= 1 {
 				retry++
@@ -153,14 +131,28 @@ func (t *Transport) ExchangeContext(ctx context.Context, q *dns.Msg) (r *dns.Msg
 	}
 }
 
-func (t *Transport) exchangeNoKeepAlive(q *dns.Msg) (*dns.Msg, error) {
-	conn, err := t.DialFunc()
+func (t *Transport) CloseIdleConnections() {
+	t.cm.Lock()
+	defer t.cm.Unlock()
+
+	for conn := range t.clientConns {
+		if conn.onGoingQuery() == 0 {
+			conn.closeAndCleanup(errEOL)
+		}
+	}
+}
+
+func (t *Transport) exchangeNoKeepAlive(ctx context.Context, q []byte) ([]byte, error) {
+	conn, err := t.DialFunc(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close()
 
-	conn.SetDeadline(time.Now().Add(t.timeout()))
+	if ddl, ok := ctx.Deadline(); ok {
+		conn.SetDeadline(ddl)
+	}
+
 	_, err = t.WriteFunc(conn, q)
 	if err != nil {
 		return nil, err
@@ -174,18 +166,27 @@ func (t *Transport) exchangeNoKeepAlive(q *dns.Msg) (*dns.Msg, error) {
 
 func (t *Transport) removeConn(conn *clientConn) {
 	t.cm.Lock()
-	delete(t.conns, conn)
+	delete(t.clientConns, conn)
 	t.cm.Unlock()
+}
+
+type dialCall struct {
+	waitingQId uint16 // indicates how many queries are there waiting.
+
+	done chan struct{}
+	c    *clientConn // will be ready after done is closed.
+	err  error
 }
 
 func (t *Transport) getConn(ctx context.Context) (conn *clientConn, reusedConn bool, qId uint16, err error) {
 	t.cm.Lock()
+
 	var availableConn *clientConn
-	for c := range t.conns {
-		if c.qId >= t.maxQueryPerConn() { // This connection has serverd too many queries.
+	for c := range t.clientConns {
+		if c.qId >= t.maxQueryPerConn() { // This connection has served too many queries.
 			// Note: the connection will close and clean up itself after its last query finished.
 			// We can't close it here. Some queries may still on that connection.
-			delete(t.conns, c)
+			delete(t.clientConns, c)
 			continue
 		}
 		availableConn = c
@@ -200,7 +201,7 @@ func (t *Transport) getConn(ctx context.Context) (conn *clientConn, reusedConn b
 	}
 
 	var dCall *dialCall
-	if len(t.conns)+len(t.dialingCalls) >= t.maxConns() {
+	if len(t.clientConns)+len(t.dCalls) >= t.maxConns() {
 		// We have reached the limit and can't open a new connection.
 		if availableConn != nil { // We will reuse the connection.
 			availableConn.qId++
@@ -209,9 +210,9 @@ func (t *Transport) getConn(ctx context.Context) (conn *clientConn, reusedConn b
 			return availableConn, true, qId, nil
 		}
 
-		// No connection is available. Only dialingCalls.
-		// Wait a ongoing dial to complete.
-		for call := range t.dialingCalls {
+		// No connection is available. Only dCalls.
+		// Wait an ongoing dial to complete.
+		for call := range t.dCalls {
 			if call.waitingQId >= t.maxQueryPerConn() { // To many waiting queries
 				continue
 			}
@@ -222,8 +223,8 @@ func (t *Transport) getConn(ctx context.Context) (conn *clientConn, reusedConn b
 		}
 	} else {
 		// No idle connection. Still can dial a new connection.
-		// Dial it now, to enlarge the capacity.
-		dCall = t.startDial()
+		// Dial it now. More connection, more stability.
+		dCall = t.asyncDialLocked()
 		qId = 0
 	}
 	t.cm.Unlock()
@@ -245,31 +246,42 @@ func (t *Transport) getConn(ctx context.Context) (conn *clientConn, reusedConn b
 	}
 }
 
-// startDial: It must be called when t.cm is locked.
-func (t *Transport) startDial() *dialCall {
+// asyncDialLocked dials server in another goroutine.
+// It must be called when t.cm is locked.
+func (t *Transport) asyncDialLocked() *dialCall {
 	dCall := new(dialCall)
 	dCall.done = make(chan struct{})
-	t.dialingCalls[dCall] = struct{}{} // add it to dialingCalls
+	if t.dCalls == nil {
+		t.dCalls = make(map[*dialCall]struct{})
+	}
+	t.dCalls[dCall] = struct{}{} // add it to dCalls
 
 	go func() {
-		c, err := t.DialFunc()
+		ctx, cancel := context.WithTimeout(context.Background(), t.dialTimeout())
+		defer cancel()
+		c, err := t.DialFunc(ctx)
 		if err != nil {
 			dCall.err = err
 			close(dCall.done)
 			t.cm.Lock()
-			delete(t.dialingCalls, dCall)
+			delete(t.dCalls, dCall)
 			t.cm.Unlock()
 			return
 		}
 		dConn := newClientConn(t, c)
 		dCall.c = dConn
 		close(dCall.done)
+
 		t.cm.Lock()
+		delete(t.dCalls, dCall)
 		dConn.qId = dCall.waitingQId
-		t.conns[dConn] = struct{}{} // add dConn to conns
-		delete(t.dialingCalls, dCall)
+		if t.clientConns == nil {
+			t.clientConns = make(map[*clientConn]struct{})
+		}
+		t.clientConns[dConn] = struct{}{} // add dConn to clientConns
 		t.cm.Unlock()
 
+		t.logger().Debug("new connection established", zap.Uint32("id", dConn.connId))
 		dConn.readLoop() // no need to start a new goroutine
 	}()
 	return dCall
@@ -282,25 +294,31 @@ type clientConn struct {
 	c net.Conn
 
 	qm      sync.RWMutex
-	queue   map[uint16]chan *dns.Msg
+	queue   map[uint16]chan []byte
 	markEOL bool
 
 	cleanOnce sync.Once
 	closeChan chan struct{}
 	closeErr  error // will be ready after clientConn is closed
+
+	connId uint32 // Only for logging.
 }
+
+var connIdCounter uint32
 
 func newClientConn(t *Transport, c net.Conn) *clientConn {
 	return &clientConn{
 		t:         t,
 		c:         c,
-		queue:     make(map[uint16]chan *dns.Msg),
+		queue:     make(map[uint16]chan []byte),
 		closeChan: make(chan struct{}),
+
+		connId: atomic.AddUint32(&connIdCounter, 1),
 	}
 }
 
-func (c *clientConn) exchange(ctx context.Context, q *dns.Msg, qId uint16) (*dns.Msg, error) {
-	resChan := make(chan *dns.Msg, 1)
+func (c *clientConn) exchange(ctx context.Context, q []byte, qId uint16) ([]byte, error) {
+	resChan := make(chan []byte, 1)
 
 	c.qm.Lock()
 	if qId >= c.t.maxQueryPerConn() {
@@ -325,40 +343,38 @@ func (c *clientConn) exchange(ctx context.Context, q *dns.Msg, qId uint16) (*dns
 		}
 	}()
 
-	qWithNewId := new(dns.Msg)
-	*qWithNewId = *q
-	qWithNewId.Id = qId
+	var buf []byte
+	if l := len(q); l <= 512 {
+		buf = pool.GetBuf(l)
+		defer pool.ReleaseBuf(buf)
+	} else {
+		buf = make([]byte, l)
+	}
+	copy(buf, q)
+	setMsgId(buf, qId)
+
 	c.c.SetWriteDeadline(time.Now().Add(generalWriteTimeout))
-	_, err := c.t.WriteFunc(c.c, qWithNewId)
+	_, err := c.t.WriteFunc(c.c, buf)
 	if err != nil {
-		c.closeAndCleanup(err) // abort this connection.
+		// Write error usually is fatal. Abort and close this connection.
+		c.closeAndCleanup(err)
 		return nil, err
 	}
 
-	timer := pool.GetTimer(c.t.timeout())
-	defer pool.ReleaseTimer(timer)
-
 	select {
-	case <-timer.C:
-		return nil, errReadTimeout
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case r := <-resChan:
-		if r != nil {
-			r.Id = q.Id
-		}
+		setMsgId(r, getMsgId(q))
 		return r, nil
 	case <-c.closeChan:
 		return nil, c.closeErr
 	}
 }
 
-func (c *clientConn) notifyExchange(r *dns.Msg) {
-	if r == nil {
-		return
-	}
+func (c *clientConn) notifyExchange(r []byte) {
 	c.qm.RLock()
-	resChan, ok := c.queue[r.Id]
+	resChan, ok := c.queue[getMsgId(r)]
 	c.qm.RUnlock()
 	if ok {
 		select {
@@ -388,6 +404,8 @@ func (c *clientConn) closeAndCleanup(err error) {
 		c.c.Close()
 		c.closeErr = err
 		close(c.closeChan)
+
+		c.t.logger().Debug("connection closed", zap.Uint32("id", c.connId), zap.Error(err))
 	})
 }
 

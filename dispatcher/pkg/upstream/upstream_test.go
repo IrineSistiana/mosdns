@@ -18,6 +18,7 @@
 package upstream
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -120,11 +121,13 @@ func Test_fastUpstream(t *testing.T) {
 							bigMsg:  bigMsg,
 						})
 						defer shutdownServer()
-						u, err := NewFastUpstream(
+						u, err := NewUpstream(
 							scheme+"://"+addr,
-							WithIdleTimeout(idleTimeout),
-							WithMaxConns(5),
-							WithInsecureSkipVerify(true),
+							&Opt{
+								IdleTimeout: time.Second,
+								MaxConns:    5,
+								TLSConfig:   &tls.Config{InsecureSkipVerify: true},
+							},
 						)
 						if err != nil {
 							t.Fatal(err)
@@ -141,7 +144,7 @@ func Test_fastUpstream(t *testing.T) {
 	}
 }
 
-func testUpstream(u *FastUpstream) error {
+func testUpstream(u Upstream) error {
 	wg := sync.WaitGroup{}
 	errs := make([]error, 0)
 	errsLock := sync.Mutex{}
@@ -166,18 +169,20 @@ func testUpstream(u *FastUpstream) error {
 
 			q := new(dns.Msg)
 			q.SetQuestion("example.com.", dns.TypeA)
-			var (
-				r   *dns.Msg
-				err error
-			)
-
-			r, err = u.Exchange(q)
+			qRaw, err := q.Pack()
+			if err != nil {
+				logErr(err)
+				return
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			rRaw, err := u.ExchangeContext(ctx, qRaw)
 
 			if err != nil {
 				logErr(err)
 				return
 			}
-			if r.Id != q.Id {
+			if getMsgId(rRaw) != q.Id {
 				logErr(dns.ErrId)
 				return
 			}

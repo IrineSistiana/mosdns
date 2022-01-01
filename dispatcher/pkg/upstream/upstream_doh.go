@@ -26,41 +26,57 @@ import (
 	"github.com/miekg/dns"
 	"io"
 	"net/http"
+	"time"
 )
 
+const (
+	defaultDoHTimeout = time.Second * 5
+)
+
+// DoH is a DNS-over-HTTPS (RFC 8484) upstream.
+type DoH struct {
+	// EndPoint is the DoH server URL.
+	EndPoint string
+	// Client is a http.Client that sends http requests.
+	Client *http.Client
+}
+
+func (u *DoH) CloseIdleConnections() {
+	u.Client.CloseIdleConnections()
+}
+
 var (
+	allocator  = pool.NewAllocator(9) // 512 bytes
 	bufPool512 = pool.NewBytesBufPool(512)
 )
 
-func (u *FastUpstream) exchangeDoH(ctx context.Context, q *dns.Msg) (r *dns.Msg, err error) {
+func (u *DoH) ExchangeContext(ctx context.Context, q []byte) ([]byte, error) {
+	buf := allocator.Get(len(q))
+	defer allocator.Release(buf)
 
-	rRaw, buf, err := pool.PackBuffer(q)
-	if err != nil {
-		return nil, err
-	}
-	defer pool.ReleaseBuf(buf)
+	copy(buf, q)
 
 	// In order to maximize HTTP cache friendliness, DoH clients using media
 	// formats that include the ID field from the DNS message header, such
 	// as "application/dns-message", SHOULD use a DNS ID of 0 in every DNS
 	// request.
 	// https://tools.ietf.org/html/rfc8484#section-4.1
-	rRaw[0] = 0
-	rRaw[1] = 0
+	buf[0] = 0
+	buf[1] = 0
 
-	urlLen := len(u.url) + 5 + base64.RawURLEncoding.EncodedLen(len(rRaw))
+	urlLen := len(u.EndPoint) + 5 + base64.RawURLEncoding.EncodedLen(len(buf))
 	urlBuf := make([]byte, urlLen)
 
 	// Padding characters for base64url MUST NOT be included.
 	// See: https://tools.ietf.org/html/rfc8484#section-6.
 	// That's why we use base64.RawURLEncoding.
 	p := 0
-	p += copy(urlBuf[p:], u.url)
+	p += copy(urlBuf[p:], u.EndPoint)
 	p += copy(urlBuf[p:], "?dns=")
-	base64.RawURLEncoding.Encode(urlBuf[p:], rRaw)
+	base64.RawURLEncoding.Encode(urlBuf[p:], buf)
 
 	type result struct {
-		r   *dns.Msg
+		r   []byte
 		err error
 	}
 
@@ -70,9 +86,9 @@ func (u *FastUpstream) exchangeDoH(ctx context.Context, q *dns.Msg) (r *dns.Msg,
 		// Because the http package may close the underlay connection
 		// if the context is done before the query is completed. This
 		// reduces the connection reuse rate.
-		ctx, cancel := context.WithTimeout(context.Background(), u.getReadTimeout())
+		ctx, cancel := context.WithTimeout(context.Background(), defaultDoHTimeout)
 		defer cancel()
-		r, err = u.doHTTP(ctx, utils.BytesToStringUnsafe(urlBuf))
+		r, err := u.doHTTP(ctx, utils.BytesToStringUnsafe(urlBuf))
 		resChan <- &result{r: r, err: err}
 	}()
 
@@ -85,19 +101,19 @@ func (u *FastUpstream) exchangeDoH(ctx context.Context, q *dns.Msg) (r *dns.Msg,
 		if err != nil {
 			return nil, err
 		}
-		r.Id = q.Id
+		setMsgId(r, getMsgId(q))
 		return r, nil
 	}
 }
 
-func (u *FastUpstream) doHTTP(ctx context.Context, url string) (*dns.Msg, error) {
+func (u *DoH) doHTTP(ctx context.Context, url string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("interal err: NewRequestWithContext: %w", err)
 	}
 
 	req.Header["Accept"] = []string{"application/dns-message"}
-	resp, err := u.httpClient.Do(req)
+	resp, err := u.Client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("http request failed: %w", err)
 	}
@@ -115,9 +131,7 @@ func (u *FastUpstream) doHTTP(ctx context.Context, url string) (*dns.Msg, error)
 		return nil, fmt.Errorf("failed to read http body: %w", err)
 	}
 
-	r := new(dns.Msg)
-	if err := r.Unpack(bb.Bytes()); err != nil {
-		return nil, fmt.Errorf("invalid reply: %w", err)
-	}
+	r := make([]byte, bb.Len())
+	copy(r, bb.Bytes())
 	return r, nil
 }
