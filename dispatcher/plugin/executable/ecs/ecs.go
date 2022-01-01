@@ -33,7 +33,7 @@ const PluginType = "ecs"
 func init() {
 	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 
-	handler.MustRegPlugin(&noECS{BP: handler.NewBP("_no_ecs", PluginType)}, true)
+	handler.MustRegPlugin(&noECS{BP: handler.NewBP("_no_ecs", PluginType)})
 }
 
 var _ handler.ExecutablePlugin = (*ecsPlugin)(nil)

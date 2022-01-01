@@ -72,8 +72,10 @@ func Test_ParallelNode(t *testing.T) {
 				WantR:     tt.r2,
 				WantErr:   tt.e2,
 			}
-			handler.MustRegPlugin(p1, false)
-			handler.MustRegPlugin(p2, false)
+
+			handler.PurgePluginRegister()
+			handler.MustRegPlugin(p1)
+			handler.MustRegPlugin(p2)
 
 			qCtx := handler.NewContext(new(dns.Msg), nil)
 			err := handler.ExecChainNode(ctx, qCtx, handler.WrapExecutable(parallelNode))

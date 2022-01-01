@@ -31,129 +31,64 @@ type NewArgsFunc func() interface{}
 // args is the object created by NewArgsFunc.
 type NewPluginFunc func(bp *BP, args interface{}) (p Plugin, err error)
 
-type typeInfo struct {
-	newPlugin NewPluginFunc
-	newArgs   NewArgsFunc
+type TypeInfo struct {
+	NewPlugin NewPluginFunc
+	NewArgs   NewArgsFunc
 }
 
 var (
-	// pluginTypeRegister stores init funcs for certain plugin types
-	pluginTypeRegister = make(map[string]typeInfo)
+	// typeRegister stores init funcs for certain plugin types
+	typeRegister struct {
+		sync.RWMutex
+		m map[string]TypeInfo
+	}
 
-	pluginTagRegister = newPluginRegister()
+	tagRegister struct {
+		sync.RWMutex
+		m map[string]*PluginWrapper
+	}
 )
 
-type pluginRegister struct {
-	sync.RWMutex
-	register map[string]*PluginWrapper
-}
+// RegInitFunc registers the type.
+// If the type has been registered. RegInitFunc will panic.
+func RegInitFunc(typ string, initFunc NewPluginFunc, argsType NewArgsFunc) {
+	typeRegister.Lock()
+	defer typeRegister.Unlock()
 
-func newPluginRegister() *pluginRegister {
-	return &pluginRegister{
-		register: make(map[string]*PluginWrapper),
-	}
-}
-
-func (r *pluginRegister) regPlugin(p Plugin, errIfDup bool) error {
-	r.Lock()
-
-	tag := p.Tag()
-	oldWrapper, dup := r.register[tag]
-
-	if dup && errIfDup {
-		r.Unlock()
-		return fmt.Errorf("plugin tag %s has been registered", tag)
-	}
-	r.register[tag] = NewPluginWrapper(p)
-	r.Unlock()
-
-	if dup {
-		mlog.L().Info("plugin overwritten", zap.String("tag", tag))
-		r.tryShutdownService(oldWrapper)
-	}
-	return nil
-}
-
-func (r *pluginRegister) getPlugin(tag string) (p *PluginWrapper, err error) {
-	r.RLock()
-	defer r.RUnlock()
-	p, ok := r.register[tag]
-	if !ok {
-		return nil, fmt.Errorf("plugin tag %s not defined", tag)
-	}
-	return p, nil
-}
-
-func (r *pluginRegister) delPlugin(tag string) {
-	r.Lock()
-	p, ok := r.register[tag]
-	if !ok {
-		r.Unlock()
-		return
-	}
-	delete(r.register, tag)
-	r.Unlock()
-
-	r.tryShutdownService(p)
-	return
-}
-
-func (r *pluginRegister) tryShutdownService(oldWrapper *PluginWrapper) {
-	tag := oldWrapper.GetPlugin().Tag()
-	if oldWrapper.Is(PITService) {
-		mlog.L().Info("shutting down old service", zap.String("tag", tag))
-		if err := oldWrapper.Shutdown(); err != nil {
-			panic(fmt.Sprintf("service %s failed to shutdown: %v", tag, err))
-		}
-		mlog.L().Info("old service exited", zap.String("tag", tag))
-	}
-}
-
-func (r *pluginRegister) getPluginAll() []Plugin {
-	r.RLock()
-	defer r.RUnlock()
-
-	t := make([]Plugin, 0, len(r.register))
-	for _, pw := range r.register {
-		t = append(t, pw.GetPlugin())
-	}
-	return t
-}
-
-func (r *pluginRegister) purge() {
-	r.Lock()
-	r.register = make(map[string]*PluginWrapper)
-	r.Unlock()
-}
-
-// RegInitFunc registers this plugin type.
-// This should only be called in init() from the plugin package.
-// Duplicate plugin types are not allowed.
-func RegInitFunc(pluginType string, initFunc NewPluginFunc, argsType NewArgsFunc) {
-	_, ok := pluginTypeRegister[pluginType]
+	_, ok := typeRegister.m[typ]
 	if ok {
-		panic(fmt.Sprintf("duplicate plugin type [%s]", pluginType))
+		panic(fmt.Sprintf("duplicate plugin type [%s]", typ))
 	}
-	pluginTypeRegister[pluginType] = typeInfo{
-		newPlugin: initFunc,
-		newArgs:   argsType,
+
+	if typeRegister.m == nil {
+		typeRegister.m = make(map[string]TypeInfo)
+	}
+	typeRegister.m[typ] = TypeInfo{
+		NewPlugin: initFunc,
+		NewArgs:   argsType,
 	}
 }
 
-// InitAndRegPlugin inits and registers this plugin globally.
-// This is a help func of NewPlugin + RegPlugin.
-func InitAndRegPlugin(c *Config, errIfDup bool) (err error) {
-	p, err := NewPlugin(c)
-	if err != nil {
-		return fmt.Errorf("failed to init plugin [%s], %w", c.Tag, err)
-	}
-
-	return RegPlugin(p, errIfDup)
+// DelInitFunc deletes the init func for this plugin type.
+// It is a noop if pluginType is not registered.
+func DelInitFunc(typ string) {
+	typeRegister.Lock()
+	defer typeRegister.Unlock()
+	delete(typeRegister.m, typ)
 }
 
-// NewPlugin creates a registered Plugin from c.
+// GetInitFunc gets the registered type init func.
+func GetInitFunc(typ string) (TypeInfo, bool) {
+	typeRegister.RLock()
+	defer typeRegister.RUnlock()
+
+	info, ok := typeRegister.m[typ]
+	return info, ok
+}
+
+// NewPlugin initialize a Plugin from c.
 func NewPlugin(c *Config) (p Plugin, err error) {
-	typeInfo, ok := pluginTypeRegister[c.Type]
+	typeInfo, ok := GetInitFunc(c.Type)
 	if !ok {
 		return nil, fmt.Errorf("plugin type %s not defined", c.Type)
 	}
@@ -161,75 +96,100 @@ func NewPlugin(c *Config) (p Plugin, err error) {
 	bp := NewBP(c.Tag, c.Type)
 
 	// parse args
-	if typeInfo.newArgs != nil {
-		args := typeInfo.newArgs()
+	if typeInfo.NewArgs != nil {
+		args := typeInfo.NewArgs()
 		err = WeakDecode(c.Args, args)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode plugin args: %w", err)
 		}
-		return typeInfo.newPlugin(bp, args)
+		return typeInfo.NewPlugin(bp, args)
 	}
 
-	return typeInfo.newPlugin(bp, c.Args)
+	return typeInfo.NewPlugin(bp, c.Args)
 }
 
-// RegPlugin registers Plugin p. If errIfDup is true and Plugin.Tag()
-// is duplicated, an err will be returned. If old plugin is a Service,
-// RegPlugin will call Service.Shutdown(). If this failed, RegPlugin will panic.
-func RegPlugin(p Plugin, errIfDup bool) error {
-	return pluginTagRegister.regPlugin(p, errIfDup)
+// RegPlugin registers Plugin p.
+// RegPlugin will not register p and returns false if the tag of p
+// has already been registered.
+func RegPlugin(p Plugin) bool {
+	tagRegister.Lock()
+	defer tagRegister.Unlock()
+
+	if tagRegister.m == nil {
+		tagRegister.m = make(map[string]*PluginWrapper)
+	}
+
+	tag := p.Tag()
+	_, dup := tagRegister.m[tag]
+	if dup {
+		return false
+	}
+	tagRegister.m[tag] = NewPluginWrapper(p)
+	return true
 }
 
-// MustRegPlugin: see RegPlugin.
-// MustRegPlugin will panic if any err occurred.
-func MustRegPlugin(p Plugin, errIfDup bool) {
-	err := pluginTagRegister.regPlugin(p, errIfDup)
-	if err != nil {
-		panic(err.Error())
+// MustRegPlugin will panic the tag of p has already been registered.
+func MustRegPlugin(p Plugin) {
+	if !RegPlugin(p) {
+		panic(fmt.Sprintf("tag [%s] has already been registered", p.Tag()))
 	}
 }
 
-// GetPlugin returns the plugin. If the tag is not registered, an err
-// will be returned.
+// GetPlugin gets a registered PluginWrapper.
 // Also see PluginWrapper.
-func GetPlugin(tag string) (p *PluginWrapper, err error) {
-	return pluginTagRegister.getPlugin(tag)
+func GetPlugin(tag string) (p *PluginWrapper) {
+	tagRegister.RLock()
+	defer tagRegister.RUnlock()
+	return tagRegister.m[tag]
 }
 
-// DelPlugin deletes this plugin.
-// If this plugin is a Service, DelPlugin will call Service.Shutdown().
-// DelPlugin will panic if Service.Shutdown() returns an err.
+// DelPlugin deletes this plugin tag.
+// It is a noop if tag is not registered.
 func DelPlugin(tag string) {
-	pluginTagRegister.delPlugin(tag)
+	tagRegister.Lock()
+	defer tagRegister.Unlock()
+
+	delete(tagRegister.m, tag)
 }
 
 // GetPluginAll returns all registered plugins.
-// This should only be used in testing or debugging.
 func GetPluginAll() []Plugin {
-	return pluginTagRegister.getPluginAll()
+	tagRegister.RLock()
+	defer tagRegister.RUnlock()
+
+	var p []Plugin
+	for _, pw := range tagRegister.m {
+		p = append(p, pw.Plugin)
+	}
+	return p
 }
 
 // GetConfigurablePluginTypes returns all plugin types which are configurable.
-// This should only be used in testing or debugging.
 func GetConfigurablePluginTypes() []string {
-	b := make([]string, 0, len(pluginTypeRegister))
-	for typ := range pluginTypeRegister {
-		b = append(b, typ)
+	typeRegister.RLock()
+	defer typeRegister.RUnlock()
+
+	var t []string
+	for typ := range typeRegister.m {
+		t = append(t, typ)
 	}
-	return b
+	return t
 }
 
 // PurgePluginRegister should only be used in testing.
 func PurgePluginRegister() {
-	pluginTagRegister.purge()
+	tagRegister.Lock()
+	tagRegister.m = make(map[string]*PluginWrapper)
+	tagRegister.Unlock()
 }
 
 // BP represents a basic plugin, which implements Plugin.
 // It also has an internal logger, for convenience.
 type BP struct {
 	tag, typ string
-	l        *zap.Logger
-	s        *zap.SugaredLogger
+
+	l *zap.Logger
+	s *zap.SugaredLogger
 }
 
 // NewBP creates a new BP and initials its logger.
@@ -244,6 +204,10 @@ func (p *BP) Tag() string {
 
 func (p *BP) Type() string {
 	return p.typ
+}
+
+func (p *BP) Shutdown() error {
+	return nil
 }
 
 func (p *BP) L() *zap.Logger {

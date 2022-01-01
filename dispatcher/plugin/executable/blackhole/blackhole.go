@@ -31,10 +31,10 @@ const PluginType = "blackhole"
 func init() {
 	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 
-	handler.MustRegPlugin(preset(handler.NewBP("_drop_response", PluginType), &Args{RCode: -1}), true)
-	handler.MustRegPlugin(preset(handler.NewBP("_block_with_empty_response", PluginType), &Args{RCode: dns.RcodeSuccess}), true)
-	handler.MustRegPlugin(preset(handler.NewBP("_block_with_servfail", PluginType), &Args{RCode: dns.RcodeServerFailure}), true)
-	handler.MustRegPlugin(preset(handler.NewBP("_block_with_nxdomain", PluginType), &Args{RCode: dns.RcodeNameError}), true)
+	handler.MustRegPlugin(preset(handler.NewBP("_drop_response", PluginType), &Args{RCode: -1}))
+	handler.MustRegPlugin(preset(handler.NewBP("_block_with_empty_response", PluginType), &Args{RCode: dns.RcodeSuccess}))
+	handler.MustRegPlugin(preset(handler.NewBP("_block_with_servfail", PluginType), &Args{RCode: dns.RcodeServerFailure}))
+	handler.MustRegPlugin(preset(handler.NewBP("_block_with_nxdomain", PluginType), &Args{RCode: dns.RcodeNameError}))
 }
 
 var _ handler.ExecutablePlugin = (*blackhole)(nil)

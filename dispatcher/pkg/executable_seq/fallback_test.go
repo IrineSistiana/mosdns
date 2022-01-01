@@ -82,8 +82,9 @@ func Test_FallbackECS_fallback(t *testing.T) {
 				WantErr:   tt.e2,
 			}
 
-			handler.MustRegPlugin(p1, false)
-			handler.MustRegPlugin(p2, false)
+			handler.PurgePluginRegister()
+			handler.MustRegPlugin(p1)
+			handler.MustRegPlugin(p2)
 			qCtx := handler.NewContext(new(dns.Msg), nil)
 			err := handler.ExecChainNode(ctx, qCtx, handler.WrapExecutable(fallbackECS))
 			if tt.wantErr != (err != nil) {
@@ -160,8 +161,10 @@ func Test_FallbackECS_fast_fallback(t *testing.T) {
 				WantR:     tt.r2,
 				WantErr:   tt.e2,
 			}
-			handler.MustRegPlugin(p1, false)
-			handler.MustRegPlugin(p2, false)
+
+			handler.PurgePluginRegister()
+			handler.MustRegPlugin(p1)
+			handler.MustRegPlugin(p2)
 
 			ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 			defer cancel()

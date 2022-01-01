@@ -29,7 +29,7 @@ const PluginType = "sequence"
 func init() {
 	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 
-	handler.MustRegPlugin(&end{BP: handler.NewBP("_end", PluginType)}, true)
+	handler.MustRegPlugin(&end{BP: handler.NewBP("_end", PluginType)})
 }
 
 var _ handler.ExecutablePlugin = (*sequence)(nil)

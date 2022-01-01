@@ -143,44 +143,44 @@ exec:
 		BP:      handler.NewBP("not_matched", ""),
 		Matched: false,
 		WantErr: nil,
-	}, true)
+	})
 
 	// do something
 	handler.MustRegPlugin(&handler.DummyExecutablePlugin{
 		BP:      handler.NewBP("exec", ""),
 		WantErr: nil,
-	}, true)
+	})
 
 	handler.MustRegPlugin(&handler.DummyExecutablePlugin{
 		BP:      handler.NewBP("exec_target", ""),
 		WantR:   target,
 		WantErr: nil,
-	}, true)
+	})
 
 	// do something and skip the following sequence
 	handler.MustRegPlugin(&handler.DummyExecutablePlugin{
 		BP:       handler.NewBP("exec_skip", ""),
 		WantSkip: true,
-	}, true)
+	})
 
 	// matched
 	handler.MustRegPlugin(&handler.DummyMatcherPlugin{
 		BP:      handler.NewBP("matched", ""),
 		Matched: true,
 		WantErr: nil,
-	}, true)
+	})
 
 	// plugins should return an err.
 	handler.MustRegPlugin(&handler.DummyMatcherPlugin{
 		BP:      handler.NewBP("match_err", ""),
 		Matched: false,
 		WantErr: mErr,
-	}, true)
+	})
 
 	handler.MustRegPlugin(&handler.DummyExecutablePlugin{
 		BP:      handler.NewBP("exec_err", ""),
 		WantErr: eErr,
-	}, true)
+	})
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -261,23 +261,23 @@ exec:
 	handler.MustRegPlugin(&handler.DummyExecutablePlugin{
 		BP:      handler.NewBP("exec", ""),
 		WantErr: nil,
-	}, true)
+	})
 
 	handler.MustRegPlugin(&handler.DummyExecutablePlugin{
 		BP:      handler.NewBP("exec_target", ""),
 		WantR:   target,
 		WantErr: nil,
-	}, true)
+	})
 
 	handler.MustRegPlugin(&handler.DummyExecutablePlugin{
 		BP:       handler.NewBP("exec_skip", ""),
 		WantSkip: true,
-	}, true)
+	})
 
 	handler.MustRegPlugin(&handler.DummyExecutablePlugin{
 		BP:      handler.NewBP("exec_err", ""),
 		WantErr: eErr,
-	}, true)
+	})
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

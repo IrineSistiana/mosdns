@@ -23,6 +23,7 @@ import "context"
 type Plugin interface {
 	Tag() string
 	Type() string
+	Shutdown() error
 }
 
 // Executable represents something that is executable.
@@ -51,18 +52,6 @@ type Matcher interface {
 type MatcherPlugin interface {
 	Plugin
 	Matcher
-}
-
-// Service represents a background service.
-type Service interface {
-	// Shutdown and release resources.
-	Shutdown() error
-}
-
-// ServicePlugin represents a Plugin that is a Service.
-type ServicePlugin interface {
-	Plugin
-	Service
 }
 
 // ExecutableNodeWrapper wraps a Executable to a ExecutableChainNode.

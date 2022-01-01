@@ -43,11 +43,11 @@ func init() {
 	handler.MustRegPlugin(&Selector{
 		BP:   handler.NewBP("_prefer_ipv4", PluginType),
 		mode: modePreferIPv4,
-	}, true)
+	})
 	handler.MustRegPlugin(&Selector{
 		BP:   handler.NewBP("_prefer_ipv6", PluginType),
 		mode: modePreferIPv6,
-	}, true)
+	})
 }
 
 type Args struct {

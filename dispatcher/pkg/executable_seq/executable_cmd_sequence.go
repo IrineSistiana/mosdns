@@ -27,31 +27,28 @@ import (
 )
 
 // NewREPNode creates a RefExecPluginNode from tag.
-func NewREPNode(tag string) *RefExecPluginNode {
-	return &RefExecPluginNode{ref: tag}
+func NewREPNode(tag string) RefExecPluginNode {
+	return RefExecPluginNode(tag)
 }
 
 // RefExecPluginNode is a handler.ExecutablePlugin reference tag.
-type RefExecPluginNode struct {
-	ref string
-}
+type RefExecPluginNode string
 
-func (n *RefExecPluginNode) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) (err error) {
-	p, err := handler.GetPlugin(n.ref)
-	if err != nil {
-		return err
+func (n RefExecPluginNode) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
+	p := handler.GetPlugin(string(n))
+	if p == nil {
+		return fmt.Errorf("plugin [%s] is not registered", string(n))
 	}
-
 	return p.Exec(ctx, qCtx, next)
 }
 
 // RefMatcherPluginNode is a handler.MatcherPlugin reference tag.
 type RefMatcherPluginNode string
 
-func (ref RefMatcherPluginNode) Match(ctx context.Context, qCtx *handler.Context) (matched bool, err error) {
-	p, err := handler.GetPlugin(string(ref))
-	if err != nil {
-		return false, err
+func (n RefMatcherPluginNode) Match(ctx context.Context, qCtx *handler.Context) (bool, error) {
+	p := handler.GetPlugin(string(n))
+	if p == nil {
+		return false, fmt.Errorf("plugin [%s] is not registered", n)
 	}
 	return p.Match(ctx, qCtx)
 }
@@ -60,7 +57,7 @@ func (ref RefMatcherPluginNode) Match(ctx context.Context, qCtx *handler.Context
 // in can be: (a / a slice of) Executable,
 // (a / a slice of) string of registered handler.ExecutablePlugin tag,
 // (a / a slice of) map[string]interface{}, which can be parsed to FallbackConfig, ParallelConfig or IfNodeConfig,
-// a []interface{} that contains all of the above.
+// a []interface{} that contains all the above.
 func ParseExecutableNode(in interface{}, logger *zap.Logger) (handler.ExecutableChainNode, error) {
 	switch v := in.(type) {
 	case handler.ExecutableChainNode:

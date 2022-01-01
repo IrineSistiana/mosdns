@@ -27,9 +27,9 @@ import (
 const PluginType = "padding"
 
 func init() {
-	handler.MustRegPlugin(&PadQuery{BP: handler.NewBP("_pad_query", PluginType)}, true)
-	handler.MustRegPlugin(&ResponsePaddingHandler{BP: handler.NewBP("_enable_conditional_response_padding", PluginType)}, true)
-	handler.MustRegPlugin(&ResponsePaddingHandler{BP: handler.NewBP("_enable_response_padding", PluginType), Always: true}, true)
+	handler.MustRegPlugin(&PadQuery{BP: handler.NewBP("_pad_query", PluginType)})
+	handler.MustRegPlugin(&ResponsePaddingHandler{BP: handler.NewBP("_enable_conditional_response_padding", PluginType)})
+	handler.MustRegPlugin(&ResponsePaddingHandler{BP: handler.NewBP("_enable_response_padding", PluginType), Always: true})
 }
 
 var _ handler.ExecutablePlugin = (*PadQuery)(nil)

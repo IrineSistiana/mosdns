@@ -102,8 +102,13 @@ func loadConfig(f string, depth int) error {
 		}
 
 		mlog.L().Info("loading plugin", zap.String("tag", pluginConfig.Tag))
-		if err := handler.InitAndRegPlugin(pluginConfig, true); err != nil {
-			return fmt.Errorf("failed to load plugin  %s: %v", pluginConfig.Tag, err)
+		p, err := handler.NewPlugin(pluginConfig)
+		if err != nil {
+			return fmt.Errorf("failed to init plugin %s: %v", pluginConfig.Tag, err)
+		}
+		if !handler.RegPlugin(p) {
+			p.Shutdown()
+			return fmt.Errorf("plugin tag %s has been registered", pluginConfig.Tag)
 		}
 	}
 

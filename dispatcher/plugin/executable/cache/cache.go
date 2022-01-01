@@ -39,7 +39,7 @@ const (
 func init() {
 	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 
-	handler.MustRegPlugin(preset(handler.NewBP("_default_cache", PluginType), &Args{}), true)
+	handler.MustRegPlugin(preset(handler.NewBP("_default_cache", PluginType), &Args{}))
 }
 
 const (

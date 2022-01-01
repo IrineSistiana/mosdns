@@ -36,7 +36,7 @@ func init() {
 	handler.MustRegPlugin(&sleep{
 		BP: handler.NewBP("_sleep_500ms", PluginType),
 		d:  time.Millisecond * 500,
-	}, true)
+	})
 }
 
 // Args is the arguments of plugin. It will be decoded from yaml.
