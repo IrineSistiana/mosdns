@@ -104,6 +104,7 @@ func newFastForward(bp *handler.BP, args *Args) (*fastForward, error) {
 			TLSConfig: &tls.Config{
 				InsecureSkipVerify: c.InsecureSkipVerify,
 				RootCAs:            rootCAs,
+				ClientSessionCache: tls.NewLRUClientSessionCache(64),
 			},
 			Logger: bp.L(),
 		}
