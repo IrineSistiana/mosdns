@@ -202,6 +202,8 @@ func (sg *serverPlugin) startServer(c *ServerConfig, dnsHandler dns_handler.Hand
 		sg.L().Warn("the server timeout argument has been moved to plugin arguments and will not take effect", zap.String("proto", c.Protocol), zap.String("addr", c.Addr))
 	}
 
+	sg.L().Info("server started", zap.String("proto", c.Protocol), zap.String("addr", c.Addr))
+
 	if ok := sg.trackCloser(&closer, true); !ok {
 		return server.ErrServerClosed
 	}
