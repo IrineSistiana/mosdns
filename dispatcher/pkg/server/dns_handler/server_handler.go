@@ -132,7 +132,7 @@ func (h *DefaultHandler) ServeDNS(ctx context.Context, r *Request, w ResponseWri
 
 	q := new(dns.Msg)
 	if err := q.Unpack(r.Msg); err != nil {
-		h.logger().Warn("failed to unpack request message", zap.Stringer("from", r.From))
+		h.logger().Warn("failed to unpack request message", zap.Stringer("from", r.From), zap.Binary("data", r.Msg))
 		return
 	}
 	qCtx := handler.NewContext(q, r.From)
