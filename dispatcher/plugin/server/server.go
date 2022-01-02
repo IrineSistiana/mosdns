@@ -26,6 +26,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/server/dns_handler"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/server/http_handler"
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/utils"
+	"go.uber.org/zap"
 	"io"
 	"net"
 	"sync"
@@ -64,6 +65,9 @@ type ServerConfig struct {
 	URLPath             string `yaml:"url_path"`                // used by doh, http. If it's empty, any path will be handled.
 	GetUserIPFromHeader string `yaml:"get_user_ip_from_header"` // used by doh, http.
 
+	// Deprecated and will not take effect. Use Args.Timeout instead.
+	// TODO: Remove deprecated.
+	Timeout     uint `yaml:"timeout"`
 	IdleTimeout uint `yaml:"idle_timeout"` // (sec) used by tcp, dot, doh as connection idle timeout.
 }
 
@@ -191,6 +195,11 @@ func (sg *serverPlugin) startServer(c *ServerConfig, dnsHandler dns_handler.Hand
 		run = func() error { return s.ServeHTTPS(l) }
 	default:
 		return fmt.Errorf("unknown protocol: [%s]", c.Protocol)
+	}
+
+	// TODO: Remove deprecated.
+	if c.Timeout > 0 {
+		sg.L().Warn("the server timeout argument has been moved to plugin arguments and will not take effect", zap.String("proto", c.Protocol), zap.String("addr", c.Addr))
 	}
 
 	if ok := sg.trackCloser(&closer, true); !ok {
