@@ -54,6 +54,7 @@ type Args struct {
 	Redis             string `yaml:"redis"`
 	LazyCacheTTL      int    `yaml:"lazy_cache_ttl"`
 	LazyCacheReplyTTL int    `yaml:"lazy_cache_reply_ttl"`
+	CacheEverything   bool   `yaml:"cache_everything"`
 }
 
 type cachePlugin struct {
@@ -91,14 +92,17 @@ func newCachePlugin(bp *handler.BP, args *Args) (*cachePlugin, error) {
 	}, nil
 }
 
-func skip(q *dns.Msg) bool {
+func (c *cachePlugin) skip(q *dns.Msg) bool {
+	if c.args.CacheEverything {
+		return false
+	}
 	// We only cache simple queries.
 	return !(len(q.Question) == 1 && len(q.Answer)+len(q.Ns)+len(q.Extra) == 0)
 }
 
 func (c *cachePlugin) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
 	q := qCtx.Q()
-	if skip(q) {
+	if c.skip(q) {
 		c.L().Debug("skipped", qCtx.InfoField())
 		return handler.ExecChainNode(ctx, qCtx, next)
 	}
