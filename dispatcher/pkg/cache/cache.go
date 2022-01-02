@@ -19,22 +19,19 @@ package cache
 
 import (
 	"context"
-	"github.com/miekg/dns"
 	"io"
 	"time"
 )
 
-// Backend represents a DNS cache backend.
+// Backend represents a cache backend.
 type Backend interface {
-	// Get retrieves v from Backend. The returned v is a deepcopy of the original msg
-	// if the key is stored in the cache. Otherwise, v is nil.
-	// If allowExpired, v might be expired as long as the key is in the cache.
-	// Note: The caller should change the TTLs and id of v.
-	Get(ctx context.Context, key string, allowExpired bool) (v *dns.Msg, storedTime, expirationTime time.Time, err error)
+	// Get retrieves v from Backend. The returned v may be the original value. The caller should
+	// not modify it.
+	Get(ctx context.Context, key string) (v []byte, storedTime, expirationTime time.Time, err error)
 
-	// Store stores a deepcopy of v into Backend. v cannot be nil.
+	// Store stores a copy of v into Backend. v cannot be nil.
 	// If expirationTime is already passed, Store is a noop.
-	Store(ctx context.Context, key string, v *dns.Msg, storedTime, expirationTime time.Time) (err error)
+	Store(ctx context.Context, key string, v []byte, storedTime, expirationTime time.Time) error
 
 	// Closer closes the cache backend.
 	io.Closer

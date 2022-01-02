@@ -19,7 +19,6 @@ package redis_cache
 
 import (
 	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/pool"
-	"github.com/miekg/dns"
 	"reflect"
 	"testing"
 	"time"
@@ -30,16 +29,13 @@ func Test_RedisValue(t *testing.T) {
 		name           string
 		storedTime     time.Time
 		expirationTime time.Time
-		m              *dns.Msg
+		m              []byte
 	}{
-		{"test", time.Now(), time.Now().Add(time.Second), new(dns.Msg).SetQuestion("test.", dns.TypeA)},
+		{"test", time.Now(), time.Now().Add(time.Second), make([]byte, 1024)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			bytes, err := packRedisData(tt.storedTime, tt.expirationTime, tt.m)
-			if err != nil {
-				t.Fatal(err)
-			}
+			bytes := packRedisData(tt.storedTime, tt.expirationTime, tt.m)
 			defer pool.ReleaseBuf(bytes)
 
 			storedTime, expirationTime, m, err := unpackRedisValue(bytes)

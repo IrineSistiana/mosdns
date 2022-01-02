@@ -2,7 +2,6 @@ package mem_cache
 
 import (
 	"context"
-	"github.com/miekg/dns"
 	"strconv"
 	"sync"
 	"testing"
@@ -12,55 +11,56 @@ import (
 func Test_memCache(t *testing.T) {
 	ctx := context.Background()
 
-	c := NewMemCache(8, 16, -1)
-	for i := 0; i < 1024; i++ {
+	c := NewMemCache(1024, 0)
+	for i := 0; i < 128; i++ {
 		key := strconv.Itoa(i)
-		m := new(dns.Msg)
-		m.Id = uint16(i)
-		if err := c.Store(ctx, key, m, time.Now(), time.Now().Add(time.Millisecond*200)); err != nil {
+		if err := c.Store(ctx, key, []byte{byte(i)}, time.Now(), time.Now().Add(time.Millisecond*200)); err != nil {
 			t.Fatal(err)
 		}
 
-		v, _, _, err := c.Get(ctx, key, false)
+		v, _, _, err := c.Get(ctx, key)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		if v.Id != uint16(i) {
+		if v[0] != byte(i) {
 			t.Fatal("cache kv mismatched")
 		}
 	}
 
-	if c.len() > 8*16 {
+	for i := 0; i < 1024*4; i++ {
+		key := strconv.Itoa(i)
+		if err := c.Store(ctx, key, []byte{}, time.Now(), time.Now().Add(time.Millisecond*200)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if c.Len() > 1024 {
 		t.Fatal("cache overflow")
 	}
 }
 
 func Test_memCache_cleaner(t *testing.T) {
-	c := NewMemCache(2, 8, time.Millisecond*10)
+	c := NewMemCache(1024, time.Millisecond*10)
 	defer c.Close()
 	ctx := context.Background()
 	for i := 0; i < 64; i++ {
 		key := strconv.Itoa(i)
-		m := new(dns.Msg)
-		m.Id = uint16(i)
-		if err := c.Store(ctx, key, m, time.Now(), time.Now().Add(time.Millisecond*10)); err != nil {
+		if err := c.Store(ctx, key, make([]byte, 0), time.Now(), time.Now().Add(time.Millisecond*10)); err != nil {
 			t.Fatal(err)
 		}
 	}
 
 	time.Sleep(time.Millisecond * 100)
-	if c.len() != 0 {
+	if c.Len() != 0 {
 		t.Fatal()
 	}
 }
 
 func Test_memCache_race(t *testing.T) {
-	c := NewMemCache(32, 128, -1)
+	c := NewMemCache(1024, -1)
 	defer c.Close()
 	ctx := context.Background()
-
-	m := &dns.Msg{}
 
 	wg := sync.WaitGroup{}
 	for i := 0; i < 32; i++ {
@@ -68,19 +68,17 @@ func Test_memCache_race(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for i := 0; i < 256; i++ {
-				err := c.Store(ctx, strconv.Itoa(i), m, time.Now(), time.Now().Add(time.Minute))
+				err := c.Store(ctx, strconv.Itoa(i), []byte{}, time.Now(), time.Now().Add(time.Minute))
 				if err != nil {
 					t.Log(err)
 					t.FailNow()
 				}
-				v, _, _, err := c.Get(ctx, strconv.Itoa(i), false)
+				_, _, _, err = c.Get(ctx, strconv.Itoa(i))
 				if err != nil {
 					t.Log(err)
 					t.FailNow()
 				}
-
-				v.Id = uint16(i)
-				c.lru.Clean(cleanFunc)
+				c.lru.Clean(c.cleanFunc())
 			}
 		}()
 	}

@@ -43,7 +43,6 @@ func init() {
 }
 
 const (
-	defaultCacheSize         = 1024
 	defaultLazyUpdateTimeout = time.Second * 5
 	defaultEmptyAnswerTTL    = time.Second * 300
 )
@@ -78,13 +77,7 @@ func newCachePlugin(bp *handler.BP, args *Args) (*cachePlugin, error) {
 			return nil, err
 		}
 	} else {
-		if args.Size <= defaultCacheSize {
-			args.Size = defaultCacheSize
-		}
-
-		sizePerShard := args.Size / 32
-
-		c = mem_cache.NewMemCache(32, sizePerShard, 120*time.Second)
+		c = mem_cache.NewMemCache(args.Size, 0)
 	}
 
 	if args.LazyCacheReplyTTL <= 0 {
@@ -98,14 +91,14 @@ func newCachePlugin(bp *handler.BP, args *Args) (*cachePlugin, error) {
 	}, nil
 }
 
-func queryCachable(q *dns.Msg) bool {
+func skip(q *dns.Msg) bool {
 	// We only cache simple queries.
-	return len(q.Question) == 1 && len(q.Answer)+len(q.Ns)+len(q.Extra) == 0
+	return !(len(q.Question) == 1 && len(q.Answer)+len(q.Ns)+len(q.Extra) == 0)
 }
 
 func (c *cachePlugin) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
 	q := qCtx.Q()
-	if !queryCachable(q) {
+	if skip(q) {
 		c.L().Debug("skipped", qCtx.InfoField())
 		return handler.ExecChainNode(ctx, qCtx, next)
 	}
@@ -116,13 +109,17 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *handler.Context, next hand
 	}
 
 	// lookup in cache
-	r, storedTime, _, err := c.backend.Get(ctx, key, c.args.LazyCacheTTL > 0)
+	v, storedTime, _, err := c.backend.Get(ctx, key)
 	if err != nil {
 		return fmt.Errorf("unable to access cache, %w", err)
 	}
 
 	// cache hit
-	if r != nil {
+	if v != nil {
+		r := new(dns.Msg)
+		if err := r.Unpack(v); err != nil {
+			return fmt.Errorf("failed to unpack cached data, %w", err)
+		}
 		// change msg id to query
 		r.Id = q.Id
 
@@ -181,11 +178,11 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *handler.Context, next hand
 	// cache miss, run the entry and try to store its response.
 	c.L().Debug("cache miss", qCtx.InfoField())
 	err = handler.ExecChainNode(ctx, qCtx, next)
-	r = qCtx.R()
+	r := qCtx.R()
 	if r != nil {
 		err := c.tryStoreMsg(ctx, key, r)
 		if err != nil {
-			c.L().Warn("failed to store lazy cache", qCtx.InfoField(), zap.Error(err))
+			c.L().Warn("failed to store cache", qCtx.InfoField(), zap.Error(err))
 		}
 	}
 	return err
@@ -197,11 +194,12 @@ func (c *cachePlugin) tryStoreMsg(ctx context.Context, key string, r *dns.Msg) e
 		return nil
 	}
 
-	now := time.Now()
-	if len(r.Answer) == 0 { // handle msg without any answer
-		return c.backend.Store(ctx, key, r, now, now.Add(defaultEmptyAnswerTTL))
+	v, err := r.Pack()
+	if err != nil {
+		return fmt.Errorf("failed to pack msg, %w", err)
 	}
 
+	now := time.Now()
 	var expirationTime time.Time
 	if c.args.LazyCacheTTL > 0 {
 		expirationTime = now.Add(time.Duration(c.args.LazyCacheTTL) * time.Second)
@@ -212,7 +210,7 @@ func (c *cachePlugin) tryStoreMsg(ctx context.Context, key string, r *dns.Msg) e
 		}
 		expirationTime = now.Add(time.Duration(minTTL) * time.Second)
 	}
-	return c.backend.Store(ctx, key, r, now, expirationTime)
+	return c.backend.Store(ctx, key, v, now, expirationTime)
 }
 
 func preset(bp *handler.BP, args *Args) *cachePlugin {
