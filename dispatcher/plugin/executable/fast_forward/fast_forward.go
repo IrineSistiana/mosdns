@@ -50,8 +50,10 @@ type fastForward struct {
 
 type Args struct {
 	Upstream []*UpstreamConfig `yaml:"upstream"`
-	Timeout  int               `yaml:"timeout"`
-	CA       []string          `yaml:"ca"`
+
+	// Deprecated. TODO: Remove deprecated.
+	Timeout int      `yaml:"timeout"`
+	CA      []string `yaml:"ca"`
 }
 
 type UpstreamConfig struct {
@@ -130,6 +132,12 @@ func newFastForward(bp *handler.BP, args *Args) (*fastForward, error) {
 	}
 
 	f.upstreamBundle = bundled_upstream.NewBundledUpstream(us, bp.L())
+
+	// TODO: Remove deprecated.
+	if f.args.Timeout != 0 {
+		f.L().Warn("the timeout argument is deprecated and will not take effect and will be removed in future release")
+	}
+
 	return f, nil
 }
 
