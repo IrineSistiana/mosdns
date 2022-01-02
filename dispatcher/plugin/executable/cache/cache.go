@@ -213,6 +213,10 @@ func (c *cachePlugin) tryStoreMsg(ctx context.Context, key string, r *dns.Msg) e
 	return c.backend.Store(ctx, key, v, now, expirationTime)
 }
 
+func (c *cachePlugin) Shutdown() error {
+	return c.backend.Close()
+}
+
 func preset(bp *handler.BP, args *Args) *cachePlugin {
 	p, err := newCachePlugin(bp, args)
 	if err != nil {
