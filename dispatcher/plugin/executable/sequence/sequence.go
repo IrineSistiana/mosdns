@@ -30,9 +30,10 @@ const PluginType = "sequence"
 func init() {
 	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 
+	handler.MustRegPlugin(&_return{BP: handler.NewBP("_return", PluginType)})
+
 	// TODO: Remove deprecated.
 	handler.MustRegPlugin(&_end{BP: handler.NewBP("_end", PluginType)})
-	handler.MustRegPlugin(&_end{BP: handler.NewBP("_return", PluginType)})
 }
 
 var _ handler.ExecutablePlugin = (*sequence)(nil)
