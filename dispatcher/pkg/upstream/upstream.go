@@ -21,7 +21,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/dnsutils"
 	"go.uber.org/zap"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/proxy"

@@ -20,8 +20,8 @@ package server
 import (
 	"context"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/dnsutils"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/server/dns_handler"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/server/dns_handler"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"io"

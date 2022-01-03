@@ -19,8 +19,8 @@ package arbitrary
 
 import (
 	"context"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
-	arb "github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/arbitrary"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
+	arb "github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/arbitrary"
 )
 
 const PluginType = "arbitrary"

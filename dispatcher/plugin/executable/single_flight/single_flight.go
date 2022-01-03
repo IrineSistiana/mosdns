@@ -19,8 +19,8 @@ package single_flight
 
 import (
 	"context"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/single_flight"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/single_flight"
 )
 
 const (

@@ -19,9 +19,9 @@ package dual_selector
 
 import (
 	"context"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/dnsutils"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/pool"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/pool"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"time"

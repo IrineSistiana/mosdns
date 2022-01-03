@@ -19,9 +19,9 @@ package dns_handler
 
 import (
 	"context"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/concurrent_limiter"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/pool"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/concurrent_limiter"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/pool"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"net"

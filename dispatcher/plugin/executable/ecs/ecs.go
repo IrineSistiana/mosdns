@@ -20,9 +20,9 @@ package ecs
 import (
 	"context"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/dnsutils"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/utils"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"net"

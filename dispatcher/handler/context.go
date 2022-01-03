@@ -19,7 +19,7 @@ package handler
 
 import (
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/dnsutils"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"net"

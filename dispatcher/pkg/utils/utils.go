@@ -28,7 +28,7 @@ import (
 	"encoding/binary"
 	"encoding/pem"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
 	"github.com/miekg/dns"
 	"io/ioutil"
 	"math/big"

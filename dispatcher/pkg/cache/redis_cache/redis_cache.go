@@ -22,7 +22,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/pool"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/pool"
 	"github.com/go-redis/redis/v8"
 	"time"
 )

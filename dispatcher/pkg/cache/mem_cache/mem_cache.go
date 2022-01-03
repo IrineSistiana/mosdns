@@ -20,7 +20,7 @@ package mem_cache
 import (
 	"context"
 	"errors"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/concurrent_lru"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/concurrent_lru"
 	"sync"
 	"sync/atomic"
 	"time"

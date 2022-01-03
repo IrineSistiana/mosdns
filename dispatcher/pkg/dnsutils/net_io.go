@@ -20,7 +20,7 @@ package dnsutils
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/pool"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/pool"
 	"github.com/miekg/dns"
 	"io"
 	"net"

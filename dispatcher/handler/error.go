@@ -20,7 +20,7 @@ package handler
 import (
 	"errors"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/mlog"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/mlog"
 	"go.uber.org/zap"
 )
 

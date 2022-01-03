@@ -20,9 +20,9 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/coremain"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/mlog"
-	"github.com/IrineSistiana/mosdns/v2/tools"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/coremain"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/mlog"
+	"github.com/IrineSistiana/mosdns/v3/tools"
 	"github.com/kardianos/service"
 	"os"
 	"path/filepath"

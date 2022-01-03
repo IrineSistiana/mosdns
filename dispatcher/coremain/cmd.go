@@ -5,8 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/mlog"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/ext_exec"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/mlog"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/ext_exec"
 	"go.uber.org/zap"
 	"strings"
 )

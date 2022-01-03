@@ -20,7 +20,7 @@ package executable_seq
 import (
 	"context"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
 	"go.uber.org/zap"
 	"sync/atomic"
 )

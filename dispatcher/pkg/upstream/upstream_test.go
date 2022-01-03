@@ -22,7 +22,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/utils"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
 	"net"
 	"sync"

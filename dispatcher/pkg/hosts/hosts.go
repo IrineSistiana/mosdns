@@ -19,8 +19,8 @@ package hosts
 
 import (
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/dnsutils"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/matcher/domain"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/matcher/domain"
 	"github.com/miekg/dns"
 	"net"
 )

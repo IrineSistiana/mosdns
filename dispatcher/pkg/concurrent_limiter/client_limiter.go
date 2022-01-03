@@ -18,7 +18,7 @@
 package concurrent_limiter
 
 import (
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/concurrent_map"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/concurrent_map"
 )
 
 type ClientQueryLimiter struct {

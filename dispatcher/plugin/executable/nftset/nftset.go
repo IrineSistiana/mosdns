@@ -18,7 +18,7 @@
 package nftset
 
 import (
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
 )
 
 const PluginType = "nftset"

@@ -23,8 +23,8 @@ package nftset
 import (
 	"context"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/nftset_utils"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/nftset_utils"
 	"github.com/google/nftables"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"

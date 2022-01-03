@@ -18,7 +18,7 @@
 package concurrent_lru
 
 import (
-	lru2 "github.com/IrineSistiana/mosdns/v2/dispatcher/pkg/lru"
+	lru2 "github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/lru"
 	"hash/maphash"
 	"sync"
 )
