@@ -120,6 +120,7 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 			ReadFunc: func(c io.Reader) ([]byte, int, error) {
 				return dnsutils.ReadRawMsgFromUDP(c, dnsutils.IPv4UdpMaxPayload)
 			},
+			MaxConns:    opt.MaxConns,
 			IdleTimeout: time.Second * 60,
 		}
 		return t, nil
