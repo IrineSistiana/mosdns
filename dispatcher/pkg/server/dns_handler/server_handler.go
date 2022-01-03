@@ -46,22 +46,8 @@ type Request struct {
 	Msg []byte
 
 	// From is the client address.
-	// If the address is unknown, it will be UnknownAddr.
+	// If the address is unknown, it will be nil.
 	From net.Addr
-}
-
-var (
-	UnknownAddr = unknownAddr{}
-)
-
-type unknownAddr struct{}
-
-func (u unknownAddr) Network() string {
-	return "unknown"
-}
-
-func (u unknownAddr) String() string {
-	return "unknown"
 }
 
 // ResponseWriter can write msg to the client.
