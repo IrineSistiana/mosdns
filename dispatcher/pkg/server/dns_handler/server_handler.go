@@ -69,7 +69,7 @@ type DefaultHandler struct {
 	// ConcurrentLimit controls the max concurrent queries for the DefaultHandler.
 	// If ConcurrentLimit <= 0, means no limit.
 	// When calling DefaultHandler.ServeDNS(), if a query exceeds the limit, it will wait on a FIFO queue until
-	// - its ctx is done or currently there are more than 3 x ConcurrentLimit queries waiting -> The query will be dropped silently.
+	// - its ctx is done or currently there are more than 8 x ConcurrentLimit queries waiting -> The query will be dropped silently.
 	// - it can be proceeded -> Normal procedure.
 	ConcurrentLimit int
 
@@ -90,7 +90,7 @@ var (
 func (h *DefaultHandler) ServeDNS(ctx context.Context, r *Request, w ResponseWriter) {
 	h.initOnce.Do(func() {
 		if h.ConcurrentLimit > 0 {
-			h.limiter = concurrent_limiter.NewConcurrentLimiter(h.ConcurrentLimit)
+			h.limiter = concurrent_limiter.NewConcurrentLimiter(h.ConcurrentLimit, h.ConcurrentLimit*8)
 		}
 	})
 
@@ -104,13 +104,14 @@ func (h *DefaultHandler) ServeDNS(ctx context.Context, r *Request, w ResponseWri
 	}
 
 	if h.limiter != nil {
-		if int(h.limiter.Running()) > h.limiter.Max() { // too many waiting query, silently drop it.
+		if !h.limiter.Wait() { // too many waiting query, silently drop it.
 			return
 		}
+		defer h.limiter.WaitDone()
 
 		select {
-		case h.limiter.Wait() <- struct{}{}:
-			defer h.limiter.Done()
+		case h.limiter.Run() <- struct{}{}:
+			defer h.limiter.RunDone()
 		case <-ctx.Done():
 			return // ctx timeout, silently drop it.
 		}

@@ -18,56 +18,78 @@
 package concurrent_limiter
 
 import (
-	"fmt"
-	"sync/atomic"
+	"sync"
 )
 
 // ConcurrentLimiter is a soft limiter.
+// It can limit how many tasks are running and track how many tasks
+// are going to run.
 type ConcurrentLimiter struct {
-	max int
+	maxWaiting int
 
-	running int32
-	bucket  chan struct{}
+	wm            sync.Mutex
+	waiting       int
+	runningBucket chan struct{}
 }
 
-// NewConcurrentLimiter returns a ConcurrentLimiter, max must > 0.
-func NewConcurrentLimiter(max int) *ConcurrentLimiter {
-	if max <= 0 {
-		panic(fmt.Sprintf("ConcurrentLimiter: invalid max arg: %d", max))
+// NewConcurrentLimiter returns a ConcurrentLimiter that can limit
+// the number of running goroutine to the maxRunning and the number of
+// waiting goroutine to maxWaiting.
+// maxWaiting >= maxRunning > 0.
+func NewConcurrentLimiter(maxRunning, maxWaiting int) *ConcurrentLimiter {
+	if !(maxWaiting > 0) || !(maxWaiting >= maxRunning) {
+		panic("invalid args")
 	}
-
-	bucket := make(chan struct{}, max)
-	return &ConcurrentLimiter{max: max, bucket: bucket}
+	return &ConcurrentLimiter{maxWaiting: maxWaiting, runningBucket: make(chan struct{}, maxRunning)}
 }
 
-func (l *ConcurrentLimiter) Wait() chan<- struct{} {
-	r := atomic.AddInt32(&l.running, 1)
-	if r < 0 {
-		panic("ConcurrentLimiter: running overflow")
-	}
-	return l.bucket
+func (l *ConcurrentLimiter) Run() chan<- struct{} {
+	return l.runningBucket
 }
 
-func (l *ConcurrentLimiter) Done() {
-	r := atomic.AddInt32(&l.running, -1)
-	if r < 0 {
-		panic("ConcurrentLimiter: running overflow")
-	}
+// RunDone releases the permission.
+func (l *ConcurrentLimiter) RunDone() {
 	select {
-	case <-l.bucket:
+	case <-l.runningBucket:
 	default:
-		panic("ConcurrentLimiter: bucket overflow")
+		panic("bucket overflow")
 	}
 }
 
-func (l *ConcurrentLimiter) Available() int {
-	return cap(l.bucket) - len(l.bucket)
+func (l *ConcurrentLimiter) Wait() bool {
+	l.wm.Lock()
+	defer l.wm.Unlock()
+
+	if l.waiting >= l.maxWaiting {
+		return false
+	}
+	l.waiting++
+	return true
 }
 
-func (l *ConcurrentLimiter) Running() int32 {
-	return atomic.LoadInt32(&l.running)
+func (l *ConcurrentLimiter) WaitDone() {
+	l.wm.Lock()
+	defer l.wm.Unlock()
+	l.waiting--
+	if l.maxWaiting <= 0 {
+		panic("maxWaiting underflow")
+	}
 }
 
-func (l *ConcurrentLimiter) Max() int {
-	return l.max
+func (l *ConcurrentLimiter) AvailableRunning() int {
+	return cap(l.runningBucket) - len(l.runningBucket)
+}
+
+func (l *ConcurrentLimiter) AvailableWaiting() int {
+	l.wm.Lock()
+	defer l.wm.Unlock()
+	return l.maxWaiting - l.waiting
+}
+
+func (l *ConcurrentLimiter) MaxRunning() int {
+	return cap(l.runningBucket)
+}
+
+func (l *ConcurrentLimiter) MaxWaiting() int {
+	return l.maxWaiting
 }
