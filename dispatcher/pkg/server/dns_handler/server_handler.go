@@ -111,7 +111,7 @@ func (h *DefaultHandler) ServeDNS(ctx context.Context, r *Request, w ResponseWri
 	// apply timeout to ctx
 	ddl := time.Now().Add(h.queryTimeout())
 	ctxDdl, ok := ctx.Deadline()
-	if ok && ctxDdl.After(ddl) {
+	if !(ok && ctxDdl.Before(ddl)) {
 		newCtx, cancel := context.WithDeadline(ctx, ddl)
 		defer cancel()
 		ctx = newCtx
