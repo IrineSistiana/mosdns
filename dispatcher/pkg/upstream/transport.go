@@ -143,6 +143,8 @@ func (t *Transport) CloseIdleConnections() {
 }
 
 func (t *Transport) exchangeNoKeepAlive(ctx context.Context, q []byte) ([]byte, error) {
+	const defaultTimeout = time.Second * 5
+
 	conn, err := t.DialFunc(ctx)
 	if err != nil {
 		return nil, err
@@ -151,6 +153,8 @@ func (t *Transport) exchangeNoKeepAlive(ctx context.Context, q []byte) ([]byte, 
 
 	if ddl, ok := ctx.Deadline(); ok {
 		conn.SetDeadline(ddl)
+	} else {
+		conn.SetDeadline(time.Now().Add(defaultTimeout))
 	}
 
 	_, err = t.WriteFunc(conn, q)
