@@ -77,20 +77,20 @@ func (s *Server) ServeTCP(l net.Listener) error {
 			defer c.Close()
 			defer cancelConn()
 
+			firstReadTimeout := tcpFirstReadTimeout
+			idleTimeout := s.getIdleTimeout()
+			if idleTimeout < firstReadTimeout {
+				firstReadTimeout = idleTimeout
+			}
+
 			firstRead := true
 			for {
-				idleTimeout := s.getIdleTimeout()
 				if firstRead {
 					firstRead = false
-					firstReadTimeout := tcpFirstReadTimeout
-					if idleTimeout < firstReadTimeout {
-						firstReadTimeout = idleTimeout
-					}
 					c.SetReadDeadline(time.Now().Add(firstReadTimeout))
 				} else {
-					c.SetReadDeadline(time.Now().Add(s.getIdleTimeout()))
+					c.SetReadDeadline(time.Now().Add(idleTimeout))
 				}
-
 				req, _, err := dnsutils.ReadRawMsgFromTCP(c)
 				if err != nil {
 					return // read err, close the connection

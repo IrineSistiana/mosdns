@@ -28,11 +28,12 @@ import (
 
 func (s *Server) newHTTPServer() *http.Server {
 	return &http.Server{
-		Handler:        s.HttpHandler,
-		ReadTimeout:    time.Second * 5,
-		WriteTimeout:   time.Second * 5,
-		IdleTimeout:    s.getIdleTimeout(),
-		MaxHeaderBytes: 2048,
+		Handler:           s.HttpHandler,
+		ReadHeaderTimeout: time.Millisecond * 500,
+		ReadTimeout:       time.Second * 5,
+		WriteTimeout:      time.Second * 5,
+		IdleTimeout:       s.getIdleTimeout(),
+		MaxHeaderBytes:    2048,
 	}
 }
 
