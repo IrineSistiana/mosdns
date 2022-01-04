@@ -24,12 +24,12 @@ import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/server/dns_handler"
-	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 )
 
@@ -60,37 +60,58 @@ func (h *Handler) logger() *zap.Logger {
 	return nopLogger
 }
 
+func (h *Handler) warnErr(req *http.Request, msg string, err error) {
+	h.logger().Warn(msg, zap.String("from", req.RemoteAddr), zap.String("method", req.Method), zap.String("url", req.RequestURI), zap.Error(err))
+}
+
 func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// check url path
 	if len(h.Path) != 0 && req.URL.Path != h.Path {
 		w.WriteHeader(http.StatusNotFound)
+		h.warnErr(req, "invalid request", fmt.Errorf("invalid request path %s", h.Path))
 		return
-	}
-
-	// read remote addr
-	remoteAddr := req.RemoteAddr
-	if len(h.SrcIPHeader) != 0 {
-		if ip := req.Header.Get(h.SrcIPHeader); len(ip) != 0 {
-			remoteAddr = net.JoinHostPort(ip, ":0")
-		}
 	}
 
 	// read msg
 	m, err := ReadMsgFromReq(req)
 	if err != nil {
-		h.logger().Warn("invalid request", zap.String("from", remoteAddr), zap.String("url", req.RequestURI), zap.String("method", req.Method), zap.Error(err))
+		h.warnErr(req, "invalid request", err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	clientAddr := utils.NewNetAddr(remoteAddr, req.URL.Scheme)
+	// read remote addr
+	var clientIP net.IP
+	if header := h.SrcIPHeader; len(header) != 0 {
+		if xff := req.Header.Get(header); len(xff) != 0 {
+			clientIP = readClientIPFromXFF(xff)
+			if clientIP == nil {
+				h.warnErr(req, "failed to get client ip", fmt.Errorf("failed to prase header %s: %s", header, xff))
+			}
+		}
+	} else {
+		ip, _, _ := net.SplitHostPort(req.RemoteAddr)
+		if len(ip) > 0 {
+			clientIP = net.ParseIP(ip)
+		}
+		if clientIP == nil {
+			h.warnErr(req, "failed to get client ip", fmt.Errorf("failed to prase request remote addr %s", req.RemoteAddr))
+		}
+	}
 
 	h.DNSHandler.ServeDNS(
 		req.Context(),
 		m,
 		&httpDnsRespWriter{httpRespWriter: w},
-		&handler.RequestMeta{From: clientAddr},
+		&handler.RequestMeta{ClientIP: clientIP},
 	)
+}
+
+func readClientIPFromXFF(s string) net.IP {
+	if i := strings.IndexRune(s, ','); i > 0 {
+		return net.ParseIP(s[:i])
+	}
+	return net.ParseIP(s)
 }
 
 var errInvalidMediaType = errors.New("missing or invalid media type header")

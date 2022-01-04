@@ -19,13 +19,10 @@ package msg_matcher
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/matcher/domain"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/matcher/elem"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/matcher/netlist"
-	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
 	"net"
 )
@@ -38,22 +35,16 @@ func NewClientIPMatcher(ipMatcher netlist.Matcher) *ClientIPMatcher {
 	return &ClientIPMatcher{ipMatcher: ipMatcher}
 }
 
-var errNoClientAddr = errors.New("failed to get client address")
-
 func (m *ClientIPMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, err error) {
-	var addr net.Addr
+	var clientIP net.IP
 	if meta := qCtx.ReqMeta(); meta != nil {
-		addr = meta.From
+		clientIP = meta.ClientIP
 	}
-	if addr == nil {
-		return false, errNoClientAddr
+	if clientIP == nil {
+		return false, nil
 	}
 
-	ip := utils.GetIPFromAddr(addr)
-	if ip == nil {
-		return false, fmt.Errorf("client addr [%s] is invalid", addr)
-	}
-	return m.ipMatcher.Match(ip), nil
+	return m.ipMatcher.Match(clientIP), nil
 }
 
 type QNameMatcher struct {

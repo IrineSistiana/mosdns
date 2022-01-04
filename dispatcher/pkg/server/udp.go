@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"io"
@@ -80,7 +81,14 @@ func (s *Server) ServeUDP(c net.PacketConn) error {
 				c:  ol,
 				to: from,
 			}
-			s.DNSHandler.ServeDNS(listenerCtx, m, w, &handler.RequestMeta{From: from})
+
+			var meta *handler.RequestMeta
+			if clientIP := utils.GetIPFromAddr(from); clientIP != nil {
+				meta = &handler.RequestMeta{ClientIP: clientIP}
+			} else {
+				s.getLogger().Warn("failed to acquire client ip addr")
+			}
+			s.DNSHandler.ServeDNS(listenerCtx, m, w, meta) // meta maybe nil
 		}()
 	}
 }

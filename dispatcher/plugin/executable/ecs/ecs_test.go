@@ -63,18 +63,14 @@ func Test_ecsPlugin(t *testing.T) {
 				}
 			}
 
-			var clientAddr net.Addr
+			var ip net.IP
 			if len(tt.clientAddr) > 0 {
-				ip := net.ParseIP(tt.clientAddr)
+				ip = net.ParseIP(tt.clientAddr)
 				if ip == nil {
 					t.Fatal("invalid ip")
 				}
-				clientAddr = &net.TCPAddr{
-					IP:   ip,
-					Port: 0,
-				}
 			}
-			qCtx := handler.NewContext(q, &handler.RequestMeta{From: clientAddr})
+			qCtx := handler.NewContext(q, &handler.RequestMeta{ClientIP: ip})
 
 			next := handler.WrapExecutable(&handler.DummyExecutablePlugin{
 				BP:    handler.NewBP("next", PluginType),

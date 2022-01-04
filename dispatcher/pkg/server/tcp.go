@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/utils"
 	"go.uber.org/zap"
 	"io"
 	"net"
@@ -55,7 +56,6 @@ func (s *Server) ServeTCP(l net.Listener) error {
 
 	listenerCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
 	for {
 		c, err := ol.Accept()
 		if err != nil {
@@ -97,7 +97,18 @@ func (s *Server) ServeTCP(l net.Listener) error {
 				}
 
 				go func() {
-					s.DNSHandler.ServeDNS(tcpConnCtx, req, &tcpResponseWriter{c: c}, &handler.RequestMeta{From: c.RemoteAddr()})
+					var meta *handler.RequestMeta
+					if clientIP := utils.GetIPFromAddr(c.RemoteAddr()); clientIP != nil {
+						meta = &handler.RequestMeta{ClientIP: clientIP}
+					} else {
+						s.getLogger().Warn("failed to acquire client ip addr")
+					}
+					s.DNSHandler.ServeDNS(
+						tcpConnCtx,
+						req,
+						&tcpResponseWriter{c: c},
+						meta, // maybe nil
+					)
 				}()
 			}
 		}()

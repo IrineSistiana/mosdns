@@ -50,8 +50,8 @@ func GetIPFromAddr(addr net.Addr) (ip net.IP) {
 		return v.IP
 	case *net.IPNet:
 		return v.IP
-	case *NetAddr:
-		return v.IP()
+	case *net.IPAddr:
+		return v.IP
 	default:
 		return parseIPFromAddr(addr.String())
 	}
@@ -73,25 +73,6 @@ type NetAddr struct {
 
 	parseIPOnce sync.Once
 	ip          net.IP // will be non-nil if addr is an ip addr.
-}
-
-func NewNetAddr(addr string, network string) *NetAddr {
-	return &NetAddr{addr: addr, network: network}
-}
-
-func (n *NetAddr) Network() string {
-	return n.network
-}
-
-func (n *NetAddr) String() string {
-	return n.addr
-}
-
-func (n *NetAddr) IP() net.IP {
-	n.parseIPOnce.Do(func() {
-		n.ip = parseIPFromAddr(n.addr)
-	})
-	return n.ip
 }
 
 func parseIPFromAddr(s string) net.IP {

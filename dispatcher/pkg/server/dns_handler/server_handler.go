@@ -36,6 +36,7 @@ const (
 // Handler handles dns query.
 type Handler interface {
 	// ServeDNS handles r and writes response to w.
+	// meta may be nil.
 	ServeDNS(ctx context.Context, req []byte, w ResponseWriter, meta *handler.RequestMeta)
 }
 

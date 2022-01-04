@@ -30,8 +30,8 @@ import (
 
 // RequestMeta represents some metadata about the request.
 type RequestMeta struct {
-	// From contains the client address.
-	From net.Addr
+	// ClientIP contains the client ip address.
+	ClientIP net.IP
 }
 
 // Context is a query context that pass through plugins
@@ -108,8 +108,8 @@ func (ctx *Context) String() string {
 	} else {
 		question = "empty question"
 	}
-	if ctx.reqMeta.From != nil {
-		clientAddr = ctx.reqMeta.From.String()
+	if ctx.reqMeta.ClientIP != nil {
+		clientAddr = ctx.reqMeta.ClientIP.String()
 	} else {
 		clientAddr = "unknown client"
 	}

@@ -6,8 +6,8 @@ import (
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/matcher/domain"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/matcher/elem"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/matcher/netlist"
-	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
+	"net"
 	"testing"
 )
 
@@ -26,10 +26,9 @@ func TestClientIPMatcher_Match(t *testing.T) {
 	nl.Sort()
 
 	msg := new(dns.Msg)
-	meta1271 := &handler.RequestMeta{From: utils.NewNetAddr("127.0.0.1:0", "tcp")}
-	meta1281 := &handler.RequestMeta{From: utils.NewNetAddr("128.0.0.1:0", "tcp")}
+	meta1271 := &handler.RequestMeta{ClientIP: net.ParseIP("127.0.0.1")}
+	meta1281 := &handler.RequestMeta{ClientIP: net.ParseIP("128.0.0.1")}
 	metaNilAddr := &handler.RequestMeta{}
-	metaInvalidAddr := &handler.RequestMeta{From: utils.NewNetAddr("...", "tcp")}
 
 	tests := []struct {
 		name        string
@@ -40,9 +39,8 @@ func TestClientIPMatcher_Match(t *testing.T) {
 	}{
 		{"matched", fields{ipMatcher: nl}, args{handler.NewContext(msg, meta1271)}, true, false},
 		{"not matched", fields{ipMatcher: nl}, args{handler.NewContext(msg, meta1281)}, false, false},
-		{"no meta", fields{ipMatcher: nl}, args{handler.NewContext(msg, nil)}, false, true},
-		{"no addr", fields{ipMatcher: nl}, args{handler.NewContext(msg, metaNilAddr)}, false, true},
-		{"invalid addr", fields{ipMatcher: nl}, args{handler.NewContext(msg, metaInvalidAddr)}, false, true},
+		{"no meta", fields{ipMatcher: nl}, args{handler.NewContext(msg, nil)}, false, false},
+		{"no addr", fields{ipMatcher: nl}, args{handler.NewContext(msg, metaNilAddr)}, false, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

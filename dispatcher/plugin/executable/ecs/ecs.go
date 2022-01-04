@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/dnsutils"
-	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"net"
@@ -131,7 +130,7 @@ func (e *ecsPlugin) Exec(ctx context.Context, qCtx *handler.Context, next handle
 }
 
 var (
-	errNoClientAddr = errors.New("failed to get client address")
+	errNoClientAddr = errors.New("context doesn't have a client ip")
 )
 
 // addECS adds *dns.EDNS0_SUBNET record to q.
@@ -141,9 +140,9 @@ var (
 // have a *dns.EDNS0_SUBNET before.
 func (e *ecsPlugin) addECS(qCtx *handler.Context) (upgraded bool, newECS bool, err error) {
 	q := qCtx.Q()
-	var clientAddr net.Addr
+	var clientIP net.IP
 	if meta := qCtx.ReqMeta(); meta != nil {
-		clientAddr = meta.From
+		clientIP = meta.ClientIP
 	}
 
 	opt := q.IsEdns0()
@@ -155,20 +154,16 @@ func (e *ecsPlugin) addECS(qCtx *handler.Context) (upgraded bool, newECS bool, e
 
 	var ecs *dns.EDNS0_SUBNET
 	if e.args.Auto { // use client ip
-		if clientAddr == nil {
+		if clientIP == nil {
 			return false, false, errNoClientAddr
 		}
-		ip := utils.GetIPFromAddr(clientAddr)
-		if ip == nil {
-			return false, false, fmt.Errorf("failed to parse client ip address, the raw data is [%s]", clientAddr)
-		}
-		if ip4 := ip.To4(); ip4 != nil { // is ipv4
+		if ip4 := clientIP.To4(); ip4 != nil { // is ipv4
 			ecs = dnsutils.NewEDNS0Subnet(ip4, e.args.Mask4, false)
 		} else {
-			if ip6 := ip.To16(); ip6 != nil { // is ipv6
+			if ip6 := clientIP.To16(); ip6 != nil { // is ipv6
 				ecs = dnsutils.NewEDNS0Subnet(ip6, e.args.Mask6, true)
 			} else { // non
-				return false, false, fmt.Errorf("invalid client ip address [%s]", clientAddr)
+				return false, false, fmt.Errorf("invalid client ip address [%s]", clientIP)
 			}
 		}
 	} else { // use preset ip
