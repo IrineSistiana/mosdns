@@ -24,7 +24,7 @@ import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/utils"
 	"io"
-	"io/ioutil"
+	"os"
 	"strings"
 )
 
@@ -120,9 +120,9 @@ func LoadFromFile(l *List, file string) error {
 // LoadFromTextFile reads IP list from a text file.
 // It might modify the List and causes List unsorted.
 func LoadFromTextFile(l *List, file string) error {
-	b, err := ioutil.ReadFile(file)
+	b, err := os.ReadFile(file)
 	if err != nil {
 		return err
 	}
-	return LoadFromReader(l, bytes.NewBuffer(b))
+	return LoadFromReader(l, bytes.NewReader(b))
 }

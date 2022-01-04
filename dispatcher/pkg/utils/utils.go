@@ -31,9 +31,9 @@ import (
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/pool"
 	"github.com/miekg/dns"
-	"io/ioutil"
 	"math/big"
 	"net"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -120,7 +120,7 @@ func BytesToStringUnsafe(b []byte) string {
 func LoadCertPool(certs []string) (*x509.CertPool, error) {
 	rootCAs := x509.NewCertPool()
 	for _, cert := range certs {
-		b, err := ioutil.ReadFile(cert)
+		b, err := os.ReadFile(cert)
 		if err != nil {
 			return nil, err
 		}

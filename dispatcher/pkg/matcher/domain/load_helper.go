@@ -24,7 +24,7 @@ import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/utils"
 	"io"
-	"io/ioutil"
+	"os"
 	"strings"
 )
 
@@ -109,12 +109,12 @@ func LoadFromFile(m Matcher, file string, processAttr ProcessAttrFunc) error {
 }
 
 func LoadFromTextFile(m Matcher, file string, processAttr ProcessAttrFunc) error {
-	data, err := ioutil.ReadFile(file)
+	data, err := os.ReadFile(file)
 	if err != nil {
 		return err
 	}
 
-	return LoadFromTextReader(m, bytes.NewBuffer(data), processAttr)
+	return LoadFromTextReader(m, bytes.NewReader(data), processAttr)
 }
 
 func LoadFromTextReader(m Matcher, r io.Reader, processAttr ProcessAttrFunc) error {
