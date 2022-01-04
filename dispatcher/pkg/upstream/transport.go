@@ -143,29 +143,34 @@ func (t *Transport) CloseIdleConnections() {
 }
 
 func (t *Transport) exchangeNoKeepAlive(ctx context.Context, q []byte) ([]byte, error) {
-	const defaultTimeout = time.Second * 5
-
 	conn, err := t.DialFunc(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close()
 
-	if ddl, ok := ctx.Deadline(); ok {
-		conn.SetDeadline(ddl)
-	} else {
-		conn.SetDeadline(time.Now().Add(defaultTimeout))
-	}
-
 	_, err = t.WriteFunc(conn, q)
 	if err != nil {
 		return nil, err
 	}
-	r, _, err := t.ReadFunc(conn)
-	if err != nil {
-		return nil, err
+
+	type result struct {
+		m   []byte
+		err error
 	}
-	return r, nil
+
+	resChan := make(chan *result, 1)
+	go func() {
+		r, _, err := t.ReadFunc(conn)
+		resChan <- &result{r, err}
+	}()
+
+	select {
+	case res := <-resChan:
+		return res.m, res.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 func (t *Transport) removeConn(conn *clientConn) {
