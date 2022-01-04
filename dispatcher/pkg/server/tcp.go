@@ -31,6 +31,7 @@ import (
 const (
 	serverTCPWriteTimeout = time.Second
 	defaultTCPIdleTimeout = time.Second * 10
+	tcpFirstReadTimeout   = time.Millisecond * 500
 )
 
 type tcpResponseWriter struct {
@@ -76,8 +77,20 @@ func (s *Server) ServeTCP(l net.Listener) error {
 			defer c.Close()
 			defer cancelConn()
 
+			firstRead := true
 			for {
-				c.SetReadDeadline(time.Now().Add(s.getIdleTimeout()))
+				idleTimeout := s.getIdleTimeout()
+				if firstRead {
+					firstRead = false
+					firstReadTimeout := tcpFirstReadTimeout
+					if idleTimeout < firstReadTimeout {
+						firstReadTimeout = idleTimeout
+					}
+					c.SetReadDeadline(time.Now().Add(firstReadTimeout))
+				} else {
+					c.SetReadDeadline(time.Now().Add(s.getIdleTimeout()))
+				}
+
 				req, _, err := dnsutils.ReadRawMsgFromTCP(c)
 				if err != nil {
 					return // read err, close the connection
