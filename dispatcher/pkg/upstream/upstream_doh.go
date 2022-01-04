@@ -46,13 +46,12 @@ func (u *DoH) CloseIdleConnections() {
 }
 
 var (
-	allocator  = pool.NewAllocator(9) // 512 bytes
 	bufPool512 = pool.NewBytesBufPool(512)
 )
 
 func (u *DoH) ExchangeContext(ctx context.Context, q []byte) ([]byte, error) {
-	buf := allocator.Get(len(q))
-	defer allocator.Release(buf)
+	buf := pool.GetBuf(len(q))
+	defer pool.ReleaseBuf(buf)
 
 	copy(buf, q)
 

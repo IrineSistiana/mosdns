@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	// Since go 1.15, the go memory allocator is much more faster than a sync.Pool
+	// Since go 1.15, the go memory allocator is much faster than a sync.Pool
 	// when allocating small object.
 	ignoreSmallObj = 64
 )

@@ -200,23 +200,3 @@ func TestRemoveComment(t *testing.T) {
 		})
 	}
 }
-
-func TestIsIPAddr(t *testing.T) {
-	tests := []struct {
-		name string
-		s    string
-		want bool
-	}{
-		{"host", "dns.google", false},
-		{"host:port", "dns.google:53", false},
-		{"ip", "8.8.8.8", true},
-		{"ip:port", "8.8.8.8:53", true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := IsIPAddr(tt.s); got != tt.want {
-				t.Errorf("IsIPAddr() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}

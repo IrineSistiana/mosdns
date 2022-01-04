@@ -29,13 +29,13 @@ import (
 	"encoding/pem"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/pool"
 	"github.com/miekg/dns"
 	"io/ioutil"
 	"math/big"
 	"net"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 	"unsafe"
 )
@@ -66,15 +66,6 @@ func SplitSchemeAndHost(addr string) (protocol, host string) {
 	}
 }
 
-// NetAddr implements net.Addr interface.
-type NetAddr struct {
-	addr    string
-	network string
-
-	parseIPOnce sync.Once
-	ip          net.IP // will be non-nil if addr is an ip addr.
-}
-
 func parseIPFromAddr(s string) net.IP {
 	ipStr, _, err := net.SplitHostPort(s)
 	if err != nil {
@@ -96,14 +87,21 @@ func GetMsgKey(m *dns.Msg, salt uint16) (string, error) {
 
 // GetMsgKeyWithBytesSalt unpacks m and appends salt to the string.
 func GetMsgKeyWithBytesSalt(m *dns.Msg, salt []byte) (string, error) {
-	wireMsg, err := m.Pack()
+	wireMsg, buf, err := pool.PackBuffer(m)
 	if err != nil {
 		return "", err
 	}
+	defer pool.ReleaseBuf(buf)
+
 	wireMsg[0] = 0
 	wireMsg[1] = 0
-	wireMsg = append(wireMsg, salt...)
-	return BytesToStringUnsafe(wireMsg), nil
+
+	sb := new(strings.Builder)
+	sb.Grow(len(wireMsg) + len(salt))
+	sb.Write(wireMsg)
+	sb.Write(salt)
+
+	return sb.String(), nil
 }
 
 // GetMsgKeyWithInt64Salt unpacks m and appends salt to the string.
@@ -234,13 +232,4 @@ func BoolLogic(ctx context.Context, qCtx *handler.Context, fs []handler.Matcher,
 	}
 
 	return matched, nil
-}
-
-// IsIPAddr returns true is s is a IP address. s can contain ":port".
-func IsIPAddr(s string) bool {
-	host, _, err := net.SplitHostPort(s)
-	if err != nil {
-		return net.ParseIP(s) != nil
-	}
-	return net.ParseIP(host) != nil
 }
