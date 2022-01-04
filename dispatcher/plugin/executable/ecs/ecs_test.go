@@ -74,7 +74,7 @@ func Test_ecsPlugin(t *testing.T) {
 					Port: 0,
 				}
 			}
-			qCtx := handler.NewContext(q, clientAddr)
+			qCtx := handler.NewContext(q, &handler.RequestMeta{From: clientAddr})
 
 			next := handler.WrapExecutable(&handler.DummyExecutablePlugin{
 				BP:    handler.NewBP("next", PluginType),

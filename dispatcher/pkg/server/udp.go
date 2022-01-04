@@ -20,8 +20,8 @@ package server
 import (
 	"context"
 	"fmt"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/dnsutils"
-	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/server/dns_handler"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"io"
@@ -80,7 +80,7 @@ func (s *Server) ServeUDP(c net.PacketConn) error {
 				c:  ol,
 				to: from,
 			}
-			s.DNSHandler.ServeDNS(listenerCtx, &dns_handler.Request{Msg: m, From: from}, w)
+			s.DNSHandler.ServeDNS(listenerCtx, m, w, &handler.RequestMeta{From: from})
 		}()
 	}
 }

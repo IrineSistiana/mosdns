@@ -19,6 +19,7 @@ package ecs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/dnsutils"
@@ -107,9 +108,7 @@ func newPlugin(bp *handler.BP, args *Args) (p *ecsPlugin, err error) {
 // If an error occurred, Exec will just log it to internal logger.
 // It will never raise its own error.
 func (e *ecsPlugin) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
-	q := qCtx.Q()
-	clientAddr := qCtx.From()
-	upgraded, newECS, err := e.addECS(q, clientAddr)
+	upgraded, newECS, err := e.addECS(qCtx)
 	if err != nil {
 		e.L().Warn("internal err", zap.Error(err))
 	}
@@ -131,12 +130,22 @@ func (e *ecsPlugin) Exec(ctx context.Context, qCtx *handler.Context, next handle
 	return nil
 }
 
+var (
+	errNoClientAddr = errors.New("failed to get client address")
+)
+
 // addECS adds *dns.EDNS0_SUBNET record to q.
 // The clientAddr can be nil.
 // First returned bool: Whether the addECS upgraded the q to a EDNS0 enabled query.
 // Second returned bool: Whether the addECS added a *dns.EDNS0_SUBNET to q that didn't
 // have a *dns.EDNS0_SUBNET before.
-func (e *ecsPlugin) addECS(q *dns.Msg, clientAddr net.Addr) (upgraded bool, newECS bool, err error) {
+func (e *ecsPlugin) addECS(qCtx *handler.Context) (upgraded bool, newECS bool, err error) {
+	q := qCtx.Q()
+	var clientAddr net.Addr
+	if meta := qCtx.ReqMeta(); meta != nil {
+		clientAddr = meta.From
+	}
+
 	opt := q.IsEdns0()
 	hasECS := opt != nil && dnsutils.GetECS(opt) != nil
 	if hasECS && !e.args.ForceOverwrite {
@@ -145,7 +154,10 @@ func (e *ecsPlugin) addECS(q *dns.Msg, clientAddr net.Addr) (upgraded bool, newE
 	}
 
 	var ecs *dns.EDNS0_SUBNET
-	if e.args.Auto && clientAddr != nil { // use client ip
+	if e.args.Auto { // use client ip
+		if clientAddr == nil {
+			return false, false, errNoClientAddr
+		}
 		ip := utils.GetIPFromAddr(clientAddr)
 		if ip == nil {
 			return false, false, fmt.Errorf("failed to parse client ip address, the raw data is [%s]", clientAddr)

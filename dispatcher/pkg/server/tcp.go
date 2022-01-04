@@ -20,8 +20,8 @@ package server
 import (
 	"context"
 	"fmt"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/dnsutils"
-	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/server/dns_handler"
 	"go.uber.org/zap"
 	"io"
 	"net"
@@ -97,7 +97,7 @@ func (s *Server) ServeTCP(l net.Listener) error {
 				}
 
 				go func() {
-					s.DNSHandler.ServeDNS(tcpConnCtx, &dns_handler.Request{Msg: req, From: c.RemoteAddr()}, &tcpResponseWriter{c: c})
+					s.DNSHandler.ServeDNS(tcpConnCtx, req, &tcpResponseWriter{c: c}, &handler.RequestMeta{From: c.RemoteAddr()})
 				}()
 			}
 		}()

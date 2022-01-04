@@ -28,6 +28,12 @@ import (
 	"time"
 )
 
+// RequestMeta represents some metadata about the request.
+type RequestMeta struct {
+	// From contains the client address.
+	From net.Addr
+}
+
 // Context is a query context that pass through plugins
 // A Context will always have a non-nil Q.
 // Context MUST be created by NewContext.
@@ -37,7 +43,7 @@ type Context struct {
 	q             *dns.Msg
 	originalQuery *dns.Msg
 	id            uint32 // additional uint32 to distinguish duplicated msg
-	clientAddr    net.Addr
+	reqMeta       *RequestMeta
 
 	status ContextStatus
 	r      *dns.Msg
@@ -73,8 +79,7 @@ var id uint32
 
 // NewContext creates a new query Context.
 // q is the query dns msg. It cannot be nil, or NewContext will panic.
-// from is the client net.Addr. It can be nil.
-func NewContext(q *dns.Msg, from net.Addr) *Context {
+func NewContext(q *dns.Msg, meta *RequestMeta) *Context {
 	if q == nil {
 		panic("handler: query msg is nil")
 	}
@@ -82,7 +87,7 @@ func NewContext(q *dns.Msg, from net.Addr) *Context {
 	ctx := &Context{
 		q:             q,
 		originalQuery: q.Copy(),
-		clientAddr:    from,
+		reqMeta:       meta,
 		id:            atomic.AddUint32(&id, 1),
 		startTime:     time.Now(),
 
@@ -94,12 +99,22 @@ func NewContext(q *dns.Msg, from net.Addr) *Context {
 
 // String returns a short summery of its query.
 func (ctx *Context) String() string {
-	q := ctx.q
-	if len(q.Question) == 1 {
-		q := q.Question[0]
-		return fmt.Sprintf("%s %s %s %d %d %s", q.Name, dnsutils.QclassToString(q.Qclass), dnsutils.QtypeToString(q.Qtype), ctx.q.Id, ctx.id, ctx.clientAddr)
+	var question string
+	var clientAddr string
+
+	if len(ctx.q.Question) >= 1 {
+		q := ctx.q.Question[0]
+		question = fmt.Sprintf("%s %s %s", q.Name, dnsutils.QclassToString(q.Qclass), dnsutils.QtypeToString(q.Qtype))
+	} else {
+		question = "empty question"
 	}
-	return fmt.Sprintf("%v %d %d %s", ctx.q.Question, ctx.q.Id, ctx.id, ctx.clientAddr)
+	if ctx.reqMeta.From != nil {
+		clientAddr = ctx.reqMeta.From.String()
+	} else {
+		clientAddr = "unknown client"
+	}
+
+	return fmt.Sprintf("%s %d %d %s", question, ctx.q.Id, ctx.id, clientAddr)
 }
 
 // Q returns the query msg. It always returns a non-nil msg.
@@ -114,9 +129,11 @@ func (ctx *Context) OriginalQuery() *dns.Msg {
 	return ctx.q
 }
 
-// From returns the client net.Addr. It might be nil.
-func (ctx *Context) From() net.Addr {
-	return ctx.clientAddr
+// ReqMeta returns the request metadata. It might be nil.
+// The returned *RequestMeta is a reference. Caller must not
+// modify it or keep it.
+func (ctx *Context) ReqMeta() *RequestMeta {
+	return ctx.reqMeta
 }
 
 // R returns the response. It might be nil.
@@ -167,8 +184,9 @@ func (ctx *Context) CopyTo(d *Context) *Context {
 	d.startTime = ctx.startTime
 	d.q = ctx.q.Copy()
 	d.originalQuery = ctx.originalQuery
+	d.reqMeta = ctx.reqMeta
 	d.id = ctx.id
-	d.clientAddr = ctx.clientAddr
+
 	d.status = ctx.status
 	if r := ctx.r; r != nil {
 		d.r = r.Copy()

@@ -22,11 +22,13 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/server/dns_handler"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"io"
+	"net"
 	"net/http"
 	"sync"
 )
@@ -69,7 +71,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	remoteAddr := req.RemoteAddr
 	if len(h.SrcIPHeader) != 0 {
 		if ip := req.Header.Get(h.SrcIPHeader); len(ip) != 0 {
-			remoteAddr = ip + ":0"
+			remoteAddr = net.JoinHostPort(ip, ":0")
 		}
 	}
 
@@ -81,10 +83,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	clientAddr := utils.NewNetAddr(remoteAddr, req.URL.Scheme)
+
 	h.DNSHandler.ServeDNS(
 		req.Context(),
-		&dns_handler.Request{Msg: m, From: utils.NewNetAddr(remoteAddr, req.URL.Scheme)},
+		m,
 		&httpDnsRespWriter{httpRespWriter: w},
+		&handler.RequestMeta{From: clientAddr},
 	)
 }
 
