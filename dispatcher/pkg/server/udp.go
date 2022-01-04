@@ -23,7 +23,6 @@ import (
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/utils"
-	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"io"
 	"net"
@@ -31,17 +30,8 @@ import (
 )
 
 type udpResponseWriter struct {
-	c       net.PacketConn
-	to      net.Addr
-	maxSize int
-}
-
-func getMaxSizeFromQuery(m *dns.Msg) int {
-	if opt := m.IsEdns0(); opt != nil && opt.Hdr.Class > dns.MinMsgSize {
-		return int(opt.Hdr.Class)
-	} else {
-		return dns.MinMsgSize
-	}
+	c  net.PacketConn
+	to net.Addr
 }
 
 func (u *udpResponseWriter) Write(m []byte) (n int, err error) {
@@ -77,17 +67,14 @@ func (s *Server) ServeUDP(c net.PacketConn) error {
 		}
 
 		go func() {
-			w := &udpResponseWriter{
-				c:  ol,
-				to: from,
-			}
-
 			var meta *handler.RequestMeta
 			if clientIP := utils.GetIPFromAddr(from); clientIP != nil {
 				meta = &handler.RequestMeta{ClientIP: clientIP}
 			} else {
 				s.getLogger().Warn("failed to acquire client ip addr")
 			}
+
+			w := &udpResponseWriter{c: ol, to: from}
 			s.DNSHandler.ServeDNS(listenerCtx, m, w, meta) // meta maybe nil
 		}()
 	}
