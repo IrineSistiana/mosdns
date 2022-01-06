@@ -158,8 +158,13 @@ func (f *forwardPlugin) Exec(ctx context.Context, qCtx *handler.Context, next ha
 func (f *forwardPlugin) exec(ctx context.Context, qCtx *handler.Context) error {
 	var r *dns.Msg
 	var err error
-	if f.fastIPHandler != nil {
-		r, _, err = f.fastIPHandler.ExchangeFastest(qCtx.Q().Copy(), f.upstreams)
+	q := qCtx.Q()
+	if f.fastIPHandler != nil && len(q.Question) == 1 {
+		// Only call ExchangeFastest if the query has one question.
+		// ExchangeFastest will use the first question name as host name.
+		// It won't check questions range. So it will it panic if len(q.Question) == 0.
+		// Ref: https://github.com/IrineSistiana/mosdns/issues/240
+		r, _, err = f.fastIPHandler.ExchangeFastest(q.Copy(), f.upstreams)
 	} else {
 		r, err = f.bu.ExchangeParallel(ctx, qCtx)
 	}
