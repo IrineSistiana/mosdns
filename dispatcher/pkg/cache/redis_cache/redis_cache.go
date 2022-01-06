@@ -61,14 +61,16 @@ func (r *RedisCache) Get(ctx context.Context, key string) (v []byte, storedTime,
 }
 
 func (r *RedisCache) Store(ctx context.Context, key string, v []byte, storedTime, expirationTime time.Time) error {
-	if time.Now().After(expirationTime) {
+	now := time.Now()
+	ttl := expirationTime.Sub(now)
+	if ttl <= 0 { // For redis, zero ttl means the key has no expiration time.
 		return nil
 	}
 
 	data := packRedisData(storedTime, expirationTime, v)
 	defer pool.ReleaseBuf(data)
 
-	return r.client.Set(ctx, key, data, expirationTime.Sub(time.Now())).Err()
+	return r.client.Set(ctx, key, data, ttl).Err()
 }
 
 // Close closes the redis client.
