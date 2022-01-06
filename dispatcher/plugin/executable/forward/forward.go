@@ -116,12 +116,11 @@ func newForwarder(bp *handler.BP, args *Args) (*forwardPlugin, error) {
 		})
 	}
 
+	f.bu = bundled_upstream.NewBundledUpstream(bu, bp.L())
+
 	if args.FastestIP {
 		f.fastIPHandler = fastip.NewFastestAddr()
-	} else {
-		f.bu = bundled_upstream.NewBundledUpstream(bu, bp.L())
 	}
-
 	return f, nil
 }
 
