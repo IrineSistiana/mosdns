@@ -31,31 +31,35 @@ type SingleFlight struct {
 }
 
 func (sf *SingleFlight) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
-	key, err := utils.GetMsgKeyWithInt64Salt(qCtx.Q(), int64(reflect.ValueOf(next).Pointer()))
-	if err != nil {
-		return fmt.Errorf("failed to get msg key, %w", err)
+	if v := reflect.ValueOf(next); v.Kind() == reflect.Ptr {
+		key, err := utils.GetMsgKeyWithInt64Salt(qCtx.Q(), int64(v.Pointer()))
+		if err != nil {
+			return fmt.Errorf("failed to get msg key, %w", err)
+		}
+
+		qCtxCopy := qCtx.Copy()
+		v, err, _ := sf.g.Do(key, func() (interface{}, error) {
+			defer sf.g.Forget(key)
+			err := handler.ExecChainNode(ctx, qCtxCopy, next)
+			return qCtxCopy, err
+		})
+
+		if err != nil {
+			return err
+		}
+
+		qCtxUnsafe := v.(*handler.Context)
+
+		// Returned qCtxUnsafe may also be returned to other goroutines.
+		// Make a deep copy of it to qCtx. Then we can modify it safely.
+		qid := qCtx.Q().Id
+		qCtxUnsafe.CopyTo(qCtx)
+		if r := qCtx.R(); r != nil { // Make sure msg IDs are consistent.
+			r.Id = qid
+		}
+
+		return nil
 	}
 
-	qCtxCopy := qCtx.Copy()
-	v, err, _ := sf.g.Do(key, func() (interface{}, error) {
-		defer sf.g.Forget(key)
-		err := handler.ExecChainNode(ctx, qCtxCopy, next)
-		return qCtxCopy, err
-	})
-
-	if err != nil {
-		return err
-	}
-
-	qCtxUnsafe := v.(*handler.Context)
-
-	// Returned qCtxUnsafe may also be returned to other goroutines.
-	// Make a deep copy of it to qCtx. Then we can modify it safely.
-	qid := qCtx.Q().Id
-	qCtxUnsafe.CopyTo(qCtx)
-	if r := qCtx.R(); r != nil { // Make sure msg IDs are consistent.
-		r.Id = qid
-	}
-
-	return nil
+	return handler.ExecChainNode(ctx, qCtx, next)
 }
