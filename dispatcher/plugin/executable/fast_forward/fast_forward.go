@@ -159,7 +159,7 @@ func (u *upstreamWrapper) Exchange(ctx context.Context, q *dns.Msg) (*dns.Msg, e
 	}
 	r := new(dns.Msg)
 	if err := r.Unpack(rRaw); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to unpack response data [%x], %w", rRaw, err)
 	}
 	return r, nil
 }
