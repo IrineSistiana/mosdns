@@ -71,12 +71,14 @@ func Test_memCache_race(t *testing.T) {
 				err := c.Store(ctx, strconv.Itoa(i), []byte{}, time.Now(), time.Now().Add(time.Minute))
 				if err != nil {
 					t.Log(err)
-					t.FailNow()
+					t.Fail()
+					return
 				}
 				_, _, _, err = c.Get(ctx, strconv.Itoa(i))
 				if err != nil {
 					t.Log(err)
-					t.FailNow()
+					t.Fail()
+					return
 				}
 				c.lru.Clean(c.cleanFunc())
 			}

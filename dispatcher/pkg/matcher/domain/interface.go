@@ -19,7 +19,7 @@ package domain
 
 type Matcher interface {
 	// Match matches the domain s.
-	// s could be an fqdn or not, and should be case insensitive.
+	// s could be a fqdn or not, and should be case-insensitive.
 	Match(s string) (v interface{}, ok bool)
 	Len() int
 	Add(pattern string, v interface{}) error

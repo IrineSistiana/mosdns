@@ -106,7 +106,7 @@ func (bu *BundledUpstream) ExchangeParallel(ctx context.Context, qCtx *handler.C
 		}
 	}
 
-	// all upstreams failed or returned a error rcode
+	// all upstreams failed or returned an error rcode.
 	if candidateErrReply != nil {
 		bu.logger.Debug("candidate error response accepted", qCtx.InfoField(), zap.String("from", candidateErrReply.from.Address()))
 		return candidateErrReply.r, nil

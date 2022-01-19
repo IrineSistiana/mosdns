@@ -148,7 +148,7 @@ func (e *ecsPlugin) addECS(qCtx *handler.Context) (upgraded bool, newECS bool, e
 	opt := q.IsEdns0()
 	hasECS := opt != nil && dnsutils.GetECS(opt) != nil
 	if hasECS && !e.args.ForceOverwrite {
-		// Argument args.ForceOverwrite is disabled. q already has a edns0 subnet. Skip it.
+		// Argument args.ForceOverwrite is disabled. q already has an edns0 subnet. Skip it.
 		return false, false, nil
 	}
 

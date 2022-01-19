@@ -38,7 +38,7 @@ func (s *SetIPElem) String() string {
 }
 
 // NtSetHandler can add SetIPElem to corresponding set.
-// The table that contains this set must be a inet family table.
+// The table that contains this set must be an inet family table.
 // If the set has a 'interval' flag, the SetIPElem.Mask will be
 // applied.
 type NtSetHandler struct {

@@ -54,7 +54,7 @@ type IfNodeConfig struct {
 	// 	2. handler.Matcher.
 	// 	3. a slice of interface{} and contains above type. (In this case, the logic
 	// 		between multiple matchers is OR.)
-	// Must specify one condition. If both conditions are given, If takes the priority.
+	// Must specify one condition. If both conditions are given, 'If' takes the priority.
 	If    interface{} `yaml:"if"`     // logical OR
 	IfAnd interface{} `yaml:"if_and"` // logical AND
 

@@ -126,7 +126,7 @@ func newServerPlugin(bp *handler.BP, args *Args) (*serverPlugin, error) {
 
 	go func() {
 		if err := sg.waitErr(); err != nil {
-			handler.PluginFatalErr(bp.Tag(), fmt.Sprintf("server exited with err: %v", err))
+			bp.L().Fatal("server exited unexpectedly", zap.Error(err))
 		}
 	}()
 

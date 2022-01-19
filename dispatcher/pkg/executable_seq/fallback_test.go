@@ -49,7 +49,7 @@ func Test_FallbackECS_fallback(t *testing.T) {
 		{"failed 3", nil, nil, r2, nil, r2, false},
 		{"failed 3", r1, nil, nil, nil, r1, false}, // primary success
 		{"success 1 failed 2", r1, nil, nil, nil, r1, false},
-		{"success 2 failed 1", nil, er, nil, nil, nil, true}, // end of fallback, but primary returns an err again
+		{"success 2 failed 1", nil, er, nil, nil, nil, true}, // end of fallback, but primary returns an error again
 		{"success 1 failed 2", nil, er, nil, er, nil, true},  // no response
 	}
 	conf := &FallbackConfig{

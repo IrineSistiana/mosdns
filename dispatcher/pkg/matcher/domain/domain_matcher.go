@@ -58,7 +58,7 @@ func (m *DomainMatcher) add(s string, v interface{}) {
 	currentNode := m.root
 	ds := NewUnifiedDomainScanner(s)
 	for ds.Scan() {
-		if currentNode.IsEnd() { // reach a end node, the new domain is redundant.
+		if currentNode.IsEnd() { // reach an end node, the new domain is redundant.
 			return
 		}
 		label, _ := ds.PrevLabel()

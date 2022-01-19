@@ -42,10 +42,12 @@ func TestConcurrentMap(t *testing.T) {
 			defer wg.Done()
 			v, ok := cm.Get(strconv.Itoa(i))
 			if !ok {
-				t.Fatal()
+				t.Error()
+				return
 			}
 			if n, ok := v.(int); !ok || n != i {
-				t.Fatal()
+				t.Error()
+				return
 			}
 		}()
 	}

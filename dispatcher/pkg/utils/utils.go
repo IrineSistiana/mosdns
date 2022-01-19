@@ -132,7 +132,7 @@ func LoadCertPool(certs []string) (*x509.CertPool, error) {
 	return rootCAs, nil
 }
 
-// GenerateCertificate generates a ecdsa certificate with given dnsName.
+// GenerateCertificate generates an ecdsa certificate with given dnsName.
 // This should only use in test.
 func GenerateCertificate(dnsName string) (cert tls.Certificate, err error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

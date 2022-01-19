@@ -75,7 +75,7 @@ func (a *Arbitrary) LookupMsg(m *dns.Msg) *dns.Msg {
 var errInvalidRecordLength = errors.New("invalid record length")
 
 // BatchLoad loads records from multiple entries.
-// If a entry has prefix "ext:", BatchLoad loads it as a file using LoadFromFile.
+// If an entry has a prefix "ext:", BatchLoad loads it as a file using LoadFromFile.
 // Otherwise, BatchLoad loads it as a text using LoadFromText.
 func (a *Arbitrary) BatchLoad(entries []string) error {
 	for _, e := range entries {

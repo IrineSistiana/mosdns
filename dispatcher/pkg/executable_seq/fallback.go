@@ -34,13 +34,13 @@ type FallbackConfig struct {
 	// Secondary exec sequence.
 	Secondary interface{} `yaml:"secondary"`
 
-	StatLength int `yaml:"stat_length"` // An Zero value disables the normal fallback.
+	StatLength int `yaml:"stat_length"` // A Zero value disables the normal fallback.
 	Threshold  int `yaml:"threshold"`
 
 	// FastFallback threshold in milliseconds. Zero means fast fallback is disabled.
 	FastFallback int `yaml:"fast_fallback"`
 
-	// AlwaysStandby: secondary should always standby in fast fallback.
+	// AlwaysStandby: secondary should always stand by in fast fallback.
 	AlwaysStandby bool `yaml:"always_standby"`
 }
 
@@ -189,7 +189,7 @@ func (f *FallbackNode) doFastFallback(ctx context.Context, qCtx *handler.Context
 	defer pool.ReleaseTimer(timer)
 
 	c := make(chan *parallelECSResult, 2)
-	primFailed := make(chan struct{}) // will be closed if primary returns an err.
+	primFailed := make(chan struct{}) // will be closed if primary returns an error.
 
 	qCtxP := qCtx.Copy()
 	go func() {

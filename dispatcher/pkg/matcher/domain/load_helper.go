@@ -40,7 +40,7 @@ func LoadFromDAT(m *MixMatcher, file, countryCode string, processAttr ProcessAtt
 // ProcessAttrFunc processes the additional attributions. The given []string could have a 0 length or is nil.
 type ProcessAttrFunc func([]string) (v interface{}, accept bool, err error)
 
-// Load loads data from a entry.
+// Load loads data from an entry.
 // If entry begin with "ext:", Load loads the file by using LoadFromFile.
 // Else it loads the entry as a text pattern by using LoadFromText.
 func Load(m Matcher, entry string, processAttr ProcessAttrFunc) error {
@@ -75,7 +75,7 @@ func BatchLoadMatcherFromFiles(m Matcher, fs []string, processAttr ProcessAttrFu
 
 // LoadFromFile loads data from a file.
 // v2ray data file can also have multiple @attr. e.g. 'geosite.dat:cn@attr1@attr2'.
-// Only the record with all of the @attr will be loaded.
+// Only the record with all the @attr will be loaded.
 func LoadFromFile(m Matcher, file string, processAttr ProcessAttrFunc) error {
 	var err error
 	if tmp := strings.SplitN(file, ":", 2); len(tmp) == 2 { // is a v2ray data file

@@ -46,7 +46,7 @@ func (c *ConcurrentMap) Set(key string, v interface{}) {
 	sm.set(key, v)
 }
 
-// TestAndSet: Concurrent safe test-and-set operation.
+// TestAndSet is a concurrent safe test-and-set operation.
 // If f returns nil, the key will be deleted.
 func (c *ConcurrentMap) TestAndSet(key string, f TestAndSetFunc) (passed bool) {
 	sm := c.getShardedMap(key)

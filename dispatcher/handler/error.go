@@ -20,8 +20,6 @@ package handler
 import (
 	"errors"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v3/dispatcher/mlog"
-	"go.uber.org/zap"
 )
 
 type PluginError struct {
@@ -43,9 +41,4 @@ func (e *PluginError) Unwrap() error {
 
 func (e *PluginError) Is(target error) bool {
 	return errors.Is(e.err, target)
-}
-
-// PluginFatalErr: If a plugin has a fatal err, call this.
-func PluginFatalErr(tag string, msg string) {
-	mlog.L().Fatal("plugin fatal err", zap.String("from", tag), zap.String("msg", msg))
 }

@@ -170,7 +170,7 @@ exec:
 		WantErr: nil,
 	})
 
-	// plugins should return an err.
+	// plugins should return an error.
 	handler.MustRegPlugin(&handler.DummyMatcherPlugin{
 		BP:      handler.NewBP("match_err", ""),
 		Matched: false,

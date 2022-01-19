@@ -64,7 +64,7 @@ func getMask(m mask, offset uint8) uint64 {
 	return masks[m][offset]
 }
 
-// Net represents a ip network
+// Net represents an ip network
 type Net struct {
 	ip   IPv6
 	mask mask

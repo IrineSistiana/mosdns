@@ -395,7 +395,7 @@ func TrimDot(s string) string {
 }
 
 // UnifyDomain unifies domain strings.
-// It remove the suffix "." and make sure the domain is in lower case.
+// It removes the suffix "." and make sure the domain is in lower case.
 func UnifyDomain(s string) string {
 	return strings.ToLower(TrimDot(s))
 }
