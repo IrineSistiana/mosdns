@@ -47,8 +47,9 @@ func init() {
 var _ handler.MatcherPlugin = (*queryMatcher)(nil)
 
 type Args struct {
-	ClientIP     []string `yaml:"client_ip"` // ip files
-	Domain       []string `yaml:"domain"`    // domain files
+	ClientIP     []string `yaml:"client_ip"`
+	ECS          []string `yaml:"ecs"`
+	Domain       []string `yaml:"domain"`
 	QType        []int    `yaml:"qtype"`
 	QClass       []int    `yaml:"qclass"`
 	IsLogicalAND bool     `yaml:"logical_and"`
@@ -83,6 +84,16 @@ func newQueryMatcher(bp *handler.BP, args *Args) (m *queryMatcher, err error) {
 		ipMatcher.Sort()
 		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewClientIPMatcher(ipMatcher))
 		bp.L().Info("client ip matcher loaded", zap.Int("length", ipMatcher.Len()))
+	}
+	if len(args.ECS) > 0 {
+		ipMatcher := netlist.NewList()
+		err := netlist.BatchLoad(ipMatcher, args.ECS)
+		if err != nil {
+			return nil, err
+		}
+		ipMatcher.Sort()
+		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewClientECSMatcher(ipMatcher))
+		bp.L().Info("ecs ip matcher loaded", zap.Int("length", ipMatcher.Len()))
 	}
 	if len(args.Domain) > 0 {
 		mixMatcher := domain.NewMixMatcher(domain.WithDomainMatcher(domain.NewSimpleDomainMatcher()))

@@ -3,6 +3,7 @@ package msg_matcher
 import (
 	"context"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/matcher/domain"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/matcher/elem"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/matcher/netlist"
@@ -59,6 +60,55 @@ func TestClientIPMatcher_Match(t *testing.T) {
 	}
 }
 
+func TestClientECSMatcher_Match(t *testing.T) {
+	nl := netlist.NewList()
+	if err := netlist.LoadFromText(nl, "127.0.0.0/24"); err != nil {
+		t.Fatal(err)
+	}
+	nl.Sort()
+
+	msg := new(dns.Msg)
+	msgWithoutOPT := msg
+	msg = new(dns.Msg)
+	msg.SetEdns0(512, false)
+	msgWithOPT := msg
+	msg = new(dns.Msg)
+	msg.SetEdns0(512, false)
+	opt := msg.IsEdns0()
+	dnsutils.AddECS(opt, &dns.EDNS0_SUBNET{Address: net.ParseIP("127.0.0.1")}, false)
+	msg1271 := msg
+	msg1281 := msg.Copy()
+	opt = msg1281.IsEdns0()
+	dnsutils.AddECS(opt, &dns.EDNS0_SUBNET{Address: net.ParseIP("128.0.0.1")}, true)
+
+	tests := []struct {
+		name        string
+		matcher     netlist.Matcher
+		qCtx        *handler.Context
+		wantMatched bool
+		wantErr     bool
+	}{
+		{"matched", nl, handler.NewContext(msg1271, nil), true, false},
+		{"not matched", nl, handler.NewContext(msg1281, nil), false, false},
+		{"no ecs", nl, handler.NewContext(msgWithOPT, nil), false, false},
+		{"no opt", nl, handler.NewContext(msgWithoutOPT, nil), false, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &ClientECSMatcher{
+				ipMatcher: tt.matcher,
+			}
+			gotMatched, err := m.Match(context.Background(), tt.qCtx)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Match() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if gotMatched != tt.wantMatched {
+				t.Errorf("Match() gotMatched = %v, want %v", gotMatched, tt.wantMatched)
+			}
+		})
+	}
+}
 func TestQNameMatcher_Match(t *testing.T) {
 	dm := domain.NewSimpleDomainMatcher()
 	dm.Add("com.", nil)
