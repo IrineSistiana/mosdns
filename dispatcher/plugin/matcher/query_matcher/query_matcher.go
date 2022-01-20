@@ -48,6 +48,7 @@ var _ handler.MatcherPlugin = (*queryMatcher)(nil)
 
 type Args struct {
 	ClientIP     []string `yaml:"client_ip"` // ip files
+	EdnsIP       []string `yaml:"edns_ip"`   // ip files
 	Domain       []string `yaml:"domain"`    // domain files
 	QType        []int    `yaml:"qtype"`
 	QClass       []int    `yaml:"qclass"`
@@ -83,6 +84,16 @@ func newQueryMatcher(bp *handler.BP, args *Args) (m *queryMatcher, err error) {
 		ipMatcher.Sort()
 		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewClientIPMatcher(ipMatcher))
 		bp.L().Info("client ip matcher loaded", zap.Int("length", ipMatcher.Len()))
+	}
+	if len(args.EdnsIP) > 0 {
+		ipMatcher := netlist.NewList()
+		err := netlist.BatchLoad(ipMatcher, args.EdnsIP)
+		if err != nil {
+			return nil, err
+		}
+		ipMatcher.Sort()
+		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewEdnsIPMatcher(ipMatcher))
+		bp.L().Info("edns ip matcher loaded", zap.Int("length", ipMatcher.Len()))
 	}
 	if len(args.Domain) > 0 {
 		mixMatcher := domain.NewMixMatcher(domain.WithDomainMatcher(domain.NewSimpleDomainMatcher()))

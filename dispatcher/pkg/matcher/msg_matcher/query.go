@@ -20,6 +20,7 @@ package msg_matcher
 import (
 	"context"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/matcher/domain"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/matcher/elem"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/matcher/netlist"
@@ -45,6 +46,28 @@ func (m *ClientIPMatcher) Match(_ context.Context, qCtx *handler.Context) (match
 	}
 
 	return m.ipMatcher.Match(clientIP), nil
+}
+
+type EdnsIPMatcher struct {
+	ipMatcher netlist.Matcher
+}
+
+func NewEdnsIPMatcher(ipMatcher netlist.Matcher) *EdnsIPMatcher {
+	return &EdnsIPMatcher{ipMatcher: ipMatcher}
+}
+
+func (m *EdnsIPMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, err error) {
+	var ednsIP net.IP
+	q := qCtx.Q()
+	if ecs := dnsutils.GetMsgECS(q); ecs != nil {
+		ednsIP = ecs.Address
+		dnsutils.RemoveMsgECS(qCtx.Q())
+	}
+	if ednsIP == nil {
+		return false, nil
+	}
+
+	return m.ipMatcher.Match(ednsIP), nil
 }
 
 type QNameMatcher struct {
