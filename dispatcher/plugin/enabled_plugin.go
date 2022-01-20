@@ -35,6 +35,7 @@ import (
 	_ "github.com/IrineSistiana/mosdns/v3/dispatcher/plugin/executable/single_flight"
 	_ "github.com/IrineSistiana/mosdns/v3/dispatcher/plugin/executable/sleep"
 	_ "github.com/IrineSistiana/mosdns/v3/dispatcher/plugin/executable/ttl"
+        _ "github.com/IrineSistiana/mosdns/v3/dispatcher/plugin/executable/dcname"
 	_ "github.com/IrineSistiana/mosdns/v3/dispatcher/plugin/matcher/query_matcher"
 	_ "github.com/IrineSistiana/mosdns/v3/dispatcher/plugin/matcher/response_matcher"
 	_ "github.com/IrineSistiana/mosdns/v3/dispatcher/plugin/server"
