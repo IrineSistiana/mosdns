@@ -40,28 +40,11 @@ type IPv6 [2]uint64
 // mask is ipv6 IP network mask
 type mask uint8
 
-var masks = initMasks()
-
-func initMasks() *[129][2]uint64 {
-	var masks [129][2]uint64
-	for i := 0; i < 129; i++ {
-		for j := 0; j < 2; j++ {
-			off := i - 64*j
-			switch {
-			case off >= 64:
-				masks[i][j] = maxUint64
-			case off <= 0:
-				masks[i][j] = 0
-			default:
-				masks[i][j] = ^(maxUint64 >> off)
-			}
-		}
-	}
-	return &masks
-}
-
 func getMask(m mask, offset uint8) uint64 {
-	return masks[m][offset]
+	if uint8(m) > 64*offset {
+		return ^(maxUint64 >> (uint8(m) - 64*offset))
+	}
+	return 0
 }
 
 // Net represents an ip network
@@ -186,14 +169,11 @@ func (ip IPv6) ToNetIP() net.IP {
 
 func (m mask) toNetMask() net.IPMask {
 	nMask := make(net.IPMask, 16)
-	uint64ToBytes(masks[m], nMask)
+	uint64ToBytes([2]uint64{getMask(m, 0), getMask(m, 1)}, nMask)
 	return nMask
 }
 
 func uint64ToBytes(in [2]uint64, out []byte) {
-	if len(out) < 16 {
-		panic("uint64ToBytes: invalid out length")
-	}
 	binary.BigEndian.PutUint64(out[:8], in[0])
 	binary.BigEndian.PutUint64(out[8:], in[1])
 }
