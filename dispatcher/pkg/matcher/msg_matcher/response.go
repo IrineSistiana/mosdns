@@ -35,16 +35,16 @@ func NewAAAAAIPMatcher(ipMatcher netlist.Matcher) *AAAAAIPMatcher {
 	return &AAAAAIPMatcher{ipMatcher: ipMatcher}
 }
 
-func (m *AAAAAIPMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, _ error) {
+func (m *AAAAAIPMatcher) Match(_ context.Context, qCtx *handler.Context) (bool, error) {
 	r := qCtx.R()
 	if r == nil {
 		return false, nil
 	}
 
-	return m.MatchMsg(r), nil
+	return m.MatchMsg(r)
 }
 
-func (m *AAAAAIPMatcher) MatchMsg(msg *dns.Msg) (matched bool) {
+func (m *AAAAAIPMatcher) MatchMsg(msg *dns.Msg) (bool, error) {
 	for _, rr := range msg.Answer {
 		var ip net.IP
 		switch rr := rr.(type) {
@@ -55,11 +55,15 @@ func (m *AAAAAIPMatcher) MatchMsg(msg *dns.Msg) (matched bool) {
 		default:
 			continue
 		}
-		if m.ipMatcher.Match(ip) {
-			return true
+		matched, err := m.ipMatcher.Match(ip)
+		if err != nil {
+			return false, err
+		}
+		if matched {
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
 type CNameMatcher struct {

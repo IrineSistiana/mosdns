@@ -20,5 +20,5 @@ package netlist
 import "net"
 
 type Matcher interface {
-	Match(ip net.IP) bool
+	Match(ip net.IP) (bool, error)
 }

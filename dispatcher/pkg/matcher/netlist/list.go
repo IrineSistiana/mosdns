@@ -18,12 +18,16 @@
 package netlist
 
 import (
+	"errors"
 	"net"
 	"sort"
 )
 
-// List is a list of Nets. All Nets will be in ipv6 format, even it's an
-// ipv4 addr. Because we use bin search.
+var ErrNotSorted = errors.New("list is not sorted")
+
+// List is a list of Net. It stores all Net in one single slice
+// and use binary search.
+// It is suitable for large static cidr search.
 type List struct {
 	e      []Net
 	sorted bool
@@ -36,22 +40,30 @@ func NewList() *List {
 	}
 }
 
+// NewListFrom returns a *List using l as its initial contents.
+// The new List takes ownership of l, and the caller should not use l after this call.
+func NewListFrom(l []Net) *List {
+	return &List{
+		e: l,
+	}
+}
+
 // Append appends new Nets to the list.
-// This modified list. Caller must call List.Sort() before calling List.Contains()
+// This modified the list. Caller must call List.Sort() before calling List.Contains()
 func (list *List) Append(newNet ...Net) {
 	list.e = append(list.e, newNet...)
 	list.sorted = false
 }
 
 // Merge merges srcList with list
-// This modified list. Caller must call List.Sort() before calling List.Contains()
+// This modified the list. Caller must call List.Sort() before calling List.Contains()
 func (list *List) Merge(srcList *List) {
 	list.e = append(list.e, srcList.e...)
 	list.sorted = false
 }
 
 // Sort sorts the list, this must be called after
-// list was modified and before call List.Contains().
+// list being modified and before calling List.Contains().
 func (list *List) Sort() {
 	if list.sorted {
 		return
@@ -60,11 +72,19 @@ func (list *List) Sort() {
 	sort.Sort(list)
 
 	result := list.e[:0]
-	var lastValid Net
+	var lastValid *Net
 	for i, n := range list.e {
-		if i == 0 || !lastValid.Contains(n.ip) {
-			lastValid = n
-			result = append(result, lastValid)
+		switch {
+		case i == 0:
+			result = append(result, n)
+			lastValid = &result[len(result)-1]
+		case lastValid.ip == n.ip:
+			if n.mask < lastValid.mask {
+				lastValid.mask = n.mask
+			}
+		case !lastValid.Contains(n.ip):
+			result = append(result, n)
+			lastValid = &result[len(result)-1]
 		}
 	}
 
@@ -87,20 +107,19 @@ func (list *List) Swap(i, j int) {
 	list.e[i], list.e[j] = list.e[j], list.e[i]
 }
 
-func (list *List) Match(ip net.IP) bool {
-	return list.Contains(ip)
-}
-
-// Contains reports whether the list includes given ip.
-// list must be sorted, or Contains will panic.
-func (list *List) Contains(ip net.IP) bool {
-	if !list.sorted {
-		panic("list is not sorted")
-	}
-
+func (list *List) Match(ip net.IP) (bool, error) {
 	ipv6, err := Conv(ip)
 	if err != nil {
-		return false
+		return false, err
+	}
+
+	return list.Contains(ipv6)
+}
+
+// Contains reports whether the list includes the given ipv6.
+func (list *List) Contains(ipv6 IPv6) (bool, error) {
+	if !list.sorted {
+		return false, ErrNotSorted
 	}
 
 	i, j := 0, len(list.e)
@@ -115,10 +134,10 @@ func (list *List) Contains(ip net.IP) bool {
 	}
 
 	if i == 0 {
-		return false
+		return false, nil
 	}
 
-	return list.e[i-1].Contains(ipv6)
+	return list.e[i-1].Contains(ipv6), nil
 }
 
 // smallOrEqual IP1 <= IP2 ?

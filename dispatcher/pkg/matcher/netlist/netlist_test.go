@@ -26,6 +26,8 @@ import (
 
 func TestIPNetList_Sort_And_Merge(t *testing.T) {
 	raw := `
+192.168.0.0/32 # merged
+192.168.0.0/24 # merged
 192.168.0.0/16
 192.168.1.1/24 # merged
 192.168.9.24/24 # merged
@@ -59,8 +61,8 @@ func TestIPNetList_Sort_And_Merge(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ipNetList.Contains(tt.testIP); got != tt.want {
-				t.Errorf("IPNetList.Contains() = %v, want %v", got, tt.want)
+			if got, _ := ipNetList.Match(tt.testIP); got != tt.want {
+				t.Errorf("IPNetList.Match() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -109,8 +111,8 @@ func TestIPNetList_New_And_Contains(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ipNetList.Contains(tt.testIP); got != tt.want {
-				t.Errorf("IPNetList.Contains() = %v, want %v", got, tt.want)
+			if got, _ := ipNetList.Match(tt.testIP); got != tt.want {
+				t.Errorf("IPNetList.Match() = %v, want %v", got, tt.want)
 			}
 		})
 	}

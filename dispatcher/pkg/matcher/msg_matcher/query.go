@@ -45,7 +45,7 @@ func (m *ClientIPMatcher) Match(_ context.Context, qCtx *handler.Context) (match
 		return false, nil
 	}
 
-	return m.ipMatcher.Match(clientIP), nil
+	return m.ipMatcher.Match(clientIP)
 }
 
 type ClientECSMatcher struct {
@@ -58,7 +58,7 @@ func NewClientECSMatcher(ipMatcher netlist.Matcher) *ClientIPMatcher {
 
 func (m *ClientECSMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, err error) {
 	if ecs := dnsutils.GetMsgECS(qCtx.Q()); ecs != nil {
-		return m.ipMatcher.Match(ecs.Address), nil
+		return m.ipMatcher.Match(ecs.Address)
 	}
 	return false, nil
 }

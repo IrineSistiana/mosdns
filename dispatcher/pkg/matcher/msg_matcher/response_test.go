@@ -19,16 +19,18 @@ func TestAAAAAIPMatcher_MatchMsg(t *testing.T) {
 	ip1281 := net.ParseIP("128.0.0.1")
 
 	msg := new(dns.Msg)
-	msg.Answer = []dns.RR{&dns.A{A: ip1271}}
-	if msg.Answer = []dns.RR{&dns.A{A: ip1281}, &dns.A{A: ip1271}}; !m.MatchMsg(msg) {
+	msg.Answer = []dns.RR{&dns.A{A: ip1281}, &dns.A{A: ip1271}}
+	if matched, err := m.MatchMsg(msg); !matched || err != nil {
 		t.Fatal()
 	}
 
-	if msg.Answer = []dns.RR{&dns.A{A: ip1281}}; m.MatchMsg(msg) {
+	msg.Answer = []dns.RR{&dns.A{A: ip1281}}
+	if matched, err := m.MatchMsg(msg); matched || err != nil {
 		t.Fatal()
 	}
 
-	if msg.Answer = []dns.RR{}; m.MatchMsg(msg) {
+	msg.Answer = []dns.RR{}
+	if matched, err := m.MatchMsg(msg); matched || err != nil {
 		t.Fatal()
 	}
 }
