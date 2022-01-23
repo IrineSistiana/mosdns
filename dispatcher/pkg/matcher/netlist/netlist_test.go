@@ -19,7 +19,6 @@ package netlist
 
 import (
 	"bytes"
-	"math/bits"
 	"net"
 	"testing"
 )
@@ -115,20 +114,5 @@ func TestIPNetList_New_And_Contains(t *testing.T) {
 				t.Errorf("IPNetList.Match() = %v, want %v", got, tt.want)
 			}
 		})
-	}
-}
-
-func Test_initMasks(t *testing.T) {
-	for i := 0; i < 129; i++ {
-		m := masks[i]
-		ones := 0
-		zeros := 0
-		for j := 0; j < 2; j++ {
-			ones += bits.OnesCount64(m[j])
-			zeros += bits.TrailingZeros64(m[j])
-		}
-		if ones != i || zeros != (128-ones) {
-			t.Fatalf("%v is not a /%d mask", m, i)
-		}
 	}
 }
