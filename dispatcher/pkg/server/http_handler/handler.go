@@ -89,7 +89,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				h.warnErr(req, "failed to get client ip", fmt.Errorf("failed to prase header %s: %s", header, xff))
 			}
 		}
-	} else {
+	}
+
+	// If no ip read from the ip header, use the remote address from net/http.
+	if clientIP == nil {
 		ip, _, _ := net.SplitHostPort(req.RemoteAddr)
 		if len(ip) > 0 {
 			clientIP = net.ParseIP(ip)
