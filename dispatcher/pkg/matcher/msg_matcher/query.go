@@ -61,7 +61,7 @@ func (m *EdnsIPMatcher) Match(_ context.Context, qCtx *handler.Context) (matched
 	q := qCtx.Q()
 	if ecs := dnsutils.GetMsgECS(q); ecs != nil {
 		ednsIP = ecs.Address
-		dnsutils.RemoveMsgECS(qCtx.Q())
+		//dnsutils.RemoveMsgECS(qCtx.Q())
 	}
 	if ednsIP == nil {
 		return false, nil

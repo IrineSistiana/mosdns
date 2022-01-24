@@ -29,6 +29,10 @@ import (
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"golang.org/x/sync/singleflight"
+	"log"
+	"net"
+	"os"
+	"strings"
 	"time"
 )
 
@@ -50,16 +54,26 @@ const (
 var _ handler.ExecutablePlugin = (*cachePlugin)(nil)
 
 type Args struct {
+	Log               Log    `yaml:"log"`
 	Size              int    `yaml:"size"`
 	Redis             string `yaml:"redis"`
+	Simple_cache      bool   `yaml:"simple_cache"`
 	LazyCacheTTL      int    `yaml:"lazy_cache_ttl"`
 	LazyCacheReplyTTL int    `yaml:"lazy_cache_reply_ttl"`
 	CacheEverything   bool   `yaml:"cache_everything"`
 }
 
+type Log struct {
+	File   string `yaml:"file"`
+	Path   string `yaml:"path"`
+	Size   int64  `yaml:"size"`
+	Rotate int    `yaml:"rotate"`
+}
+
 type cachePlugin struct {
 	*handler.BP
 	args *Args
+	ch   chan map[string]string
 
 	backend      cache.Backend
 	lazyUpdateSF singleflight.Group
@@ -72,6 +86,10 @@ func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
 func newCachePlugin(bp *handler.BP, args *Args) (*cachePlugin, error) {
 	var c cache.Backend
 	var err error
+	ch := make(chan map[string]string, 1000)
+	if args.Log.Path != "" {
+		go golog(ch, args.Log.Path, args.Log.Size, args.Log.Rotate)
+	}
 	if len(args.Redis) != 0 {
 		c, err = redis_cache.NewRedisCache(args.Redis)
 		if err != nil {
@@ -89,6 +107,7 @@ func newCachePlugin(bp *handler.BP, args *Args) (*cachePlugin, error) {
 		BP:      bp,
 		args:    args,
 		backend: c,
+		ch:      ch,
 	}, nil
 }
 
@@ -102,14 +121,29 @@ func (c *cachePlugin) skip(q *dns.Msg) bool {
 
 func (c *cachePlugin) Exec(ctx context.Context, qCtx *handler.Context, next handler.ExecutableChainNode) error {
 	q := qCtx.Q()
+	var ClientIP net.IP
+	if ecs := dnsutils.GetMsgECS(q); ecs != nil {
+		ClientIP = ecs.Address
+		dnsutils.RemoveMsgECS(q)
+	} else if meta := qCtx.ReqMeta(); meta != nil {
+		ClientIP = meta.ClientIP
+	}
+
 	if c.skip(q) {
 		c.L().Debug("skipped", qCtx.InfoField())
+		c.Sendlog(qCtx, ClientIP, "SKIP")
 		return handler.ExecChainNode(ctx, qCtx, next)
 	}
 
-	key, err := utils.GetMsgKey(q, 0)
-	if err != nil {
-		return fmt.Errorf("failed to get msg key, %w", err)
+	var key string
+	var err error
+	if c.args.Simple_cache && len(q.Question) == 1 {
+		key = q.Question[0].String() + c.Tag()
+	} else {
+		key, err = utils.GetMsgKey(q, 0)
+		if err != nil {
+			return fmt.Errorf("failed to get msg key, %w", err)
+		}
 	}
 
 	// lookup in cache
@@ -135,6 +169,7 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *handler.Context, next hand
 		}
 		if storedTime.Add(msgTTL).After(time.Now()) { // not expired
 			c.L().Debug("cache hit", qCtx.InfoField())
+			c.Sendlog(qCtx, ClientIP, "HIT")
 			dnsutils.SubtractTTL(r, uint32(time.Since(storedTime).Seconds()))
 			qCtx.SetResponse(r, handler.ContextStatusResponded)
 			return nil
@@ -143,6 +178,7 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *handler.Context, next hand
 		// expired but lazy update enabled
 		if c.args.LazyCacheTTL > 0 {
 			c.L().Debug("expired cache hit", qCtx.InfoField())
+			c.Sendlog(qCtx, ClientIP, "EXP-HIT")
 			// prepare a response with 1 ttl
 			dnsutils.SetTTL(r, uint32(c.args.LazyCacheReplyTTL))
 			qCtx.SetResponse(r, handler.ContextStatusResponded)
@@ -181,6 +217,7 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *handler.Context, next hand
 
 	// cache miss, run the entry and try to store its response.
 	c.L().Debug("cache miss", qCtx.InfoField())
+	c.Sendlog(qCtx, ClientIP, "MISS")
 	err = handler.ExecChainNode(ctx, qCtx, next)
 	r := qCtx.R()
 	if r != nil {
@@ -227,4 +264,96 @@ func preset(bp *handler.BP, args *Args) *cachePlugin {
 		panic(fmt.Sprintf("cache: preset plugin: %s", err))
 	}
 	return p
+}
+
+func (c *cachePlugin) Sendlog(qCtx *handler.Context, ClientIP net.IP, state string) {
+	if c.args.Log.Path != "" {
+		q := qCtx.Q()
+		msg := make(map[string]string)
+		msg[c.Tag()] = ClientIP.String() + " " + q.Question[0].Name + " " + dnsutils.QclassToString(q.Question[0].Qclass) + " " + dnsutils.QtypeToString(q.Question[0].Qtype) + " " + state
+		c.ch <- msg
+	}
+}
+
+func golog(ch chan map[string]string, Path string, Size int64, Rotate int) {
+	if Path == "" {
+		return
+	}
+	if !strings.HasSuffix(Path, "/") {
+		Path = Path + "/"
+	}
+	if Size == 0 {
+		Size = 2
+	}
+	Size = Size * 1024 * 1024
+	if Rotate == 0 {
+		Rotate = 5
+	}
+	logger_map := make(map[string]*log.Logger)
+	logfile_map := make(map[string]*os.File)
+	var logfile *os.File
+	var logger *log.Logger
+	for msg := range ch {
+		for tag := range msg {
+			File := Path + tag + ".log"
+			if _, ok := logger_map[tag]; ok {
+				logfile, _ = logfile_map[tag]
+				logger, _ = logger_map[tag]
+			} else {
+				logger, logfile = NewLogger(File)
+				logger_map[tag] = logger
+				logfile_map[tag] = logfile
+			}
+			logger.Println(msg[tag])
+			stat, err := logfile.Stat()
+			if err == nil {
+				if stat.Size() > Size {
+					logfile.Close()
+					doRotate(File, Rotate)
+					logger, logfile = NewLogger(File)
+					logger_map[tag] = logger
+					logfile_map[tag] = logfile
+				}
+			}
+		}
+	}
+	logfile.Close()
+}
+
+//https://www.cnblogs.com/mikezhang/p/golanglogrotate20170614.html
+func doRotate(FileName string, Rotate int) {
+	for j := Rotate; j >= 1; j-- {
+		curFileName := fmt.Sprintf("%s_%d", FileName, j)
+		k := j - 1
+		preFileName := fmt.Sprintf("%s_%d", FileName, k)
+
+		if k == 0 {
+			preFileName = fmt.Sprintf("%s", FileName)
+		}
+		_, err := os.Stat(curFileName)
+		if err == nil {
+			os.Remove(curFileName)
+			fmt.Println("remove : ", curFileName)
+		}
+		_, err = os.Stat(preFileName)
+		if err == nil {
+			fmt.Println("rename : ", preFileName, " => ", curFileName)
+			err = os.Rename(preFileName, curFileName)
+			if err != nil {
+				fmt.Println(err)
+			}
+		}
+	}
+}
+
+func NewLogger(FileName string) (*log.Logger, *os.File) {
+	var logger *log.Logger
+	logFile, err := os.OpenFile(FileName, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		fmt.Println("open log file error!", FileName)
+		os.Exit(0)
+	} else {
+		logger = log.New(logFile, "", log.Ldate|log.Ltime)
+	}
+	return logger, logFile
 }
