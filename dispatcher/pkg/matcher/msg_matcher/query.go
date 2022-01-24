@@ -52,8 +52,8 @@ type ClientECSMatcher struct {
 	ipMatcher netlist.Matcher
 }
 
-func NewClientECSMatcher(ipMatcher netlist.Matcher) *ClientIPMatcher {
-	return &ClientIPMatcher{ipMatcher: ipMatcher}
+func NewClientECSMatcher(ipMatcher netlist.Matcher) *ClientECSMatcher {
+	return &ClientECSMatcher{ipMatcher: ipMatcher}
 }
 
 func (m *ClientECSMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, err error) {

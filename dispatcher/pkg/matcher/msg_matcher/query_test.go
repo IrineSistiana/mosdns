@@ -45,9 +45,7 @@ func TestClientIPMatcher_Match(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := &ClientIPMatcher{
-				ipMatcher: tt.fields.ipMatcher,
-			}
+			m := NewClientIPMatcher(tt.fields.ipMatcher)
 			gotMatched, err := m.Match(context.Background(), tt.args.qCtx)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Match() error = %v, wantErr %v", err, tt.wantErr)
@@ -95,9 +93,7 @@ func TestClientECSMatcher_Match(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := &ClientECSMatcher{
-				ipMatcher: tt.matcher,
-			}
+			m := NewClientECSMatcher(tt.matcher)
 			gotMatched, err := m.Match(context.Background(), tt.qCtx)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Match() error = %v, wantErr %v", err, tt.wantErr)
