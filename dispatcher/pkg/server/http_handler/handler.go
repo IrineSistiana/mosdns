@@ -18,11 +18,11 @@
 package http_handler
 
 import (
-	"bytes"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/pool"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/server/dns_handler"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
@@ -119,6 +119,8 @@ func readClientIPFromXFF(s string) net.IP {
 
 var errInvalidMediaType = errors.New("missing or invalid media type header")
 
+var bufPool = pool.NewBytesBufPool(128)
+
 func ReadMsgFromReq(req *http.Request) ([]byte, error) {
 	switch req.Method {
 	case http.MethodGet:
@@ -148,12 +150,15 @@ func ReadMsgFromReq(req *http.Request) ([]byte, error) {
 			return nil, errInvalidMediaType
 		}
 
-		buf := bytes.NewBuffer(make([]byte, 64))
-		_, err := buf.ReadFrom(io.LimitReader(req.Body, dns.MaxMsgSize))
+		buf := bufPool.Get()
+		defer bufPool.Release(buf)
+		n, err := buf.ReadFrom(io.LimitReader(req.Body, dns.MaxMsgSize))
 		if err != nil {
 			return nil, fmt.Errorf("failed to read request body: %w", err)
 		}
-		return buf.Bytes(), nil
+		msg := make([]byte, n)
+		copy(msg, buf.Bytes())
+		return msg, nil
 	default:
 		return nil, fmt.Errorf("unsupported method: %s", req.Method)
 	}
