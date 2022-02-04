@@ -140,9 +140,12 @@ func (u *upstreamWrapper) Exchange(ctx context.Context, q *dns.Msg) (*dns.Msg, e
 	}
 	resChan := make(chan *res, 1)
 
+	// Remainder: Always makes a copy of q. dnsproxy/upstream may keep or even modify the q in their
+	// Exchange() calls.
+	qCopy := q.Copy()
 	go func() {
 		r := new(res)
-		r.r, r.err = u.dnsproxyUpstream.Exchange(q)
+		r.r, r.err = u.dnsproxyUpstream.Exchange(qCopy)
 		resChan <- r
 	}()
 
