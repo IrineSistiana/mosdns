@@ -70,7 +70,7 @@ func (r *RedisCache) Store(ctx context.Context, key string, v []byte, storedTime
 	data := packRedisData(storedTime, expirationTime, v)
 	defer data.Release()
 
-	return r.client.Set(ctx, key, data, ttl).Err()
+	return r.client.Set(ctx, key, data.Bytes(), ttl).Err()
 }
 
 // Close closes the redis client.
