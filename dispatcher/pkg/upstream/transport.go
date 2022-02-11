@@ -166,7 +166,9 @@ func (t *Transport) exchangeNoKeepAlive(ctx context.Context, q []byte) (*pool.Bu
 		select {
 		case resChan <- res:
 		case <-ctx.Done():
-			b.Release()
+			if b != nil {
+				b.Release()
+			}
 		}
 	}()
 
