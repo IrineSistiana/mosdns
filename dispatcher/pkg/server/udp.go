@@ -21,7 +21,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
-	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/pool"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/utils"
 	"go.uber.org/zap"
 	"io"
@@ -51,10 +51,14 @@ func (s *Server) ServeUDP(c net.PacketConn) error {
 	listenerCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	readBuf := pool.GetBuf(64 * 1024)
+	defer readBuf.Release()
+	rb := readBuf.Bytes()
+
 	for {
-		m, from, _, err := dnsutils.ReadRawUDPMsgFrom(c, 4096)
+		n, from, err := c.ReadFrom(rb)
 		if err != nil {
-			if netErr, ok := err.(net.Error); ok && netErr.Temporary() { // is a temporary net err
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() { // is a temporary net err
 				s.getLogger().Warn("listener temporary err", zap.Error(err))
 				time.Sleep(time.Second * 5)
 				continue
@@ -66,7 +70,11 @@ func (s *Server) ServeUDP(c net.PacketConn) error {
 			}
 		}
 
+		reqBuf := pool.GetBuf(n)
+		copy(reqBuf.Bytes(), rb[:n])
+
 		go func() {
+			defer reqBuf.Release()
 			var meta *handler.RequestMeta
 			if clientIP := utils.GetIPFromAddr(from); clientIP != nil {
 				meta = &handler.RequestMeta{ClientIP: clientIP}
@@ -75,7 +83,7 @@ func (s *Server) ServeUDP(c net.PacketConn) error {
 			}
 
 			w := &udpResponseWriter{c: ol, to: from}
-			s.DNSHandler.ServeDNS(listenerCtx, m, w, meta) // meta maybe nil
+			s.DNSHandler.ServeDNS(listenerCtx, reqBuf.Bytes(), w, meta) // meta maybe nil
 		}()
 	}
 }

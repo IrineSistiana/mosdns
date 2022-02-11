@@ -21,7 +21,6 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"github.com/AdguardTeam/dnsproxy/upstream"
-	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/server/dns_handler"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/server/http_handler"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/utils"
@@ -59,7 +58,7 @@ func getTLSConfig(tb testing.TB) *tls.Config {
 }
 
 func writeJunkData(c net.Conn) {
-	junk := make([]byte, dnsutils.IPv4UdpMaxPayload)
+	junk := make([]byte, 1200)
 	rand.Read(junk)
 	c.Write(junk)
 }
@@ -73,6 +72,7 @@ func exchangeTest(tb testing.TB, u upstream.Upstream) {
 			for i := 0; i < 50; i++ {
 				echoMsg := new(dns.Msg)
 				echoMsg.SetQuestion("example.com.", dns.TypeA)
+				echoMsg.Id = uint16(i)
 				r, err := u.Exchange(echoMsg)
 				if err != nil {
 					tb.Error(err)

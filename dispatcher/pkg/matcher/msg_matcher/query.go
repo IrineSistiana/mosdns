@@ -25,7 +25,6 @@ import (
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/matcher/elem"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/matcher/netlist"
 	"github.com/miekg/dns"
-	"net"
 )
 
 type ClientIPMatcher struct {
@@ -37,10 +36,7 @@ func NewClientIPMatcher(ipMatcher netlist.Matcher) *ClientIPMatcher {
 }
 
 func (m *ClientIPMatcher) Match(_ context.Context, qCtx *handler.Context) (matched bool, err error) {
-	var clientIP net.IP
-	if meta := qCtx.ReqMeta(); meta != nil {
-		clientIP = meta.ClientIP
-	}
+	clientIP := qCtx.ReqMeta().ClientIP
 	if clientIP == nil {
 		return false, nil
 	}

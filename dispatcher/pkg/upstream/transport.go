@@ -49,7 +49,7 @@ type Transport struct {
 	// The following funcs cannot be nil.
 	DialFunc  func(ctx context.Context) (net.Conn, error)
 	WriteFunc func(c io.Writer, m []byte) (int, error)
-	ReadFunc  func(c io.Reader) ([]byte, int, error)
+	ReadFunc  func(c io.Reader) (*pool.Buffer, int, error)
 
 	// DialTimeout specifies the timeout for DialFunc.
 	// Default is defaultDialTimeout.
@@ -102,7 +102,7 @@ func (t *Transport) maxQueryPerConn() uint16 {
 	return defaultMaxQueryPerConn
 }
 
-func (t *Transport) ExchangeContext(ctx context.Context, q []byte) ([]byte, error) {
+func (t *Transport) ExchangeContext(ctx context.Context, q []byte) (*pool.Buffer, error) {
 	if t.IdleTimeout <= 0 { // no keep alive
 		return t.exchangeNoKeepAlive(ctx, q)
 	}
@@ -142,7 +142,7 @@ func (t *Transport) CloseIdleConnections() {
 	}
 }
 
-func (t *Transport) exchangeNoKeepAlive(ctx context.Context, q []byte) ([]byte, error) {
+func (t *Transport) exchangeNoKeepAlive(ctx context.Context, q []byte) (*pool.Buffer, error) {
 	conn, err := t.DialFunc(ctx)
 	if err != nil {
 		return nil, err
@@ -155,19 +155,24 @@ func (t *Transport) exchangeNoKeepAlive(ctx context.Context, q []byte) ([]byte, 
 	}
 
 	type result struct {
-		m   []byte
+		b   *pool.Buffer
 		err error
 	}
 
-	resChan := make(chan *result, 1)
+	resChan := make(chan *result)
 	go func() {
-		r, _, err := t.ReadFunc(conn)
-		resChan <- &result{r, err}
+		b, _, err := t.ReadFunc(conn)
+		res := &result{b, err}
+		select {
+		case resChan <- res:
+		case <-ctx.Done():
+			b.Release()
+		}
 	}()
 
 	select {
 	case res := <-resChan:
-		return res.m, res.err
+		return res.b, res.err
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
@@ -303,7 +308,7 @@ type clientConn struct {
 	c net.Conn
 
 	qm      sync.RWMutex
-	queue   map[uint16]chan []byte
+	queue   map[uint16]chan *pool.Buffer
 	markEOL bool
 
 	cleanOnce sync.Once
@@ -319,15 +324,15 @@ func newClientConn(t *Transport, c net.Conn) *clientConn {
 	return &clientConn{
 		t:         t,
 		c:         c,
-		queue:     make(map[uint16]chan []byte),
+		queue:     make(map[uint16]chan *pool.Buffer),
 		closeChan: make(chan struct{}),
 
 		connId: atomic.AddUint32(&connIdCounter, 1),
 	}
 }
 
-func (c *clientConn) exchange(ctx context.Context, q []byte, qId uint16) ([]byte, error) {
-	resChan := make(chan []byte, 1)
+func (c *clientConn) exchange(ctx context.Context, q []byte, qId uint16) (*pool.Buffer, error) {
+	resChan := make(chan *pool.Buffer, 1)
 
 	c.qm.Lock()
 	if qId >= c.t.maxQueryPerConn() {
@@ -352,18 +357,16 @@ func (c *clientConn) exchange(ctx context.Context, q []byte, qId uint16) ([]byte
 		}
 	}()
 
-	var buf []byte
-	if l := len(q); l <= 512 {
-		buf = pool.GetBuf(l)
-		defer pool.ReleaseBuf(buf)
-	} else {
-		buf = make([]byte, l)
-	}
-	copy(buf, q)
-	setMsgId(buf, qId)
+	// We have to modify the query ID, but as a writer we cannot modify q directly.
+	// We make a copy of q.
+	buf := pool.GetBuf(len(q))
+	defer buf.Release()
+	b := buf.Bytes()
+	copy(b, q)
+	setMsgId(b, qId)
 
 	c.c.SetWriteDeadline(time.Now().Add(generalWriteTimeout))
-	_, err := c.t.WriteFunc(c.c, buf)
+	_, err := c.t.WriteFunc(c.c, b)
 	if err != nil {
 		// Write error usually is fatal. Abort and close this connection.
 		c.closeAndCleanup(err)
@@ -374,16 +377,16 @@ func (c *clientConn) exchange(ctx context.Context, q []byte, qId uint16) ([]byte
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case r := <-resChan:
-		setMsgId(r, getMsgId(q))
+		setMsgId(r.Bytes(), getMsgId(q))
 		return r, nil
 	case <-c.closeChan:
 		return nil, c.closeErr
 	}
 }
 
-func (c *clientConn) notifyExchange(r []byte) {
+func (c *clientConn) notifyExchange(r *pool.Buffer) {
 	c.qm.RLock()
-	resChan, ok := c.queue[getMsgId(r)]
+	resChan, ok := c.queue[getMsgId(r.Bytes())]
 	c.qm.RUnlock()
 	if ok {
 		select {

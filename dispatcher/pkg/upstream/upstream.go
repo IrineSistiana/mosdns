@@ -22,6 +22,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/pool"
 	"go.uber.org/zap"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/proxy"
@@ -46,8 +47,8 @@ var (
 // Upstream represents a DNS upstream.
 type Upstream interface {
 	// ExchangeContext exchanges query message q to the upstream, and returns
-	// response.
-	ExchangeContext(ctx context.Context, q []byte) ([]byte, error)
+	// response. It MUST NOT keep or modify q.
+	ExchangeContext(ctx context.Context, q []byte) (*pool.Buffer, error)
 
 	// CloseIdleConnections closes any connections in the Upstream which
 	// now sitting idle. It does not interrupt any connections currently in use.
@@ -116,9 +117,20 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 				d := net.Dialer{}
 				return d.DialContext(ctx, "udp", dialAddr)
 			},
-			WriteFunc: dnsutils.WriteRawMsgToUDP,
-			ReadFunc: func(c io.Reader) ([]byte, int, error) {
-				return dnsutils.ReadRawMsgFromUDP(c, dnsutils.IPv4UdpMaxPayload)
+			WriteFunc: func(c io.Writer, m []byte) (int, error) {
+				return c.Write(m)
+			},
+			ReadFunc: func(c io.Reader) (*pool.Buffer, int, error) {
+				readBuf := pool.GetBuf(64 * 1024)
+				defer readBuf.Release()
+				rb := readBuf.Bytes()
+				n, err := c.Read(rb)
+				if err != nil {
+					return nil, n, err
+				}
+				b := pool.GetBuf(n)
+				copy(b.Bytes(), rb[:n])
+				return b, n, nil
 			},
 			MaxConns:    opt.MaxConns,
 			IdleTimeout: time.Second * 60,

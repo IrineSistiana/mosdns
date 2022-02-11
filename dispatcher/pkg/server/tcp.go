@@ -91,12 +91,14 @@ func (s *Server) ServeTCP(l net.Listener) error {
 				} else {
 					c.SetReadDeadline(time.Now().Add(idleTimeout))
 				}
-				req, _, err := dnsutils.ReadRawMsgFromTCP(c)
+				reqBuf, _, err := dnsutils.ReadRawMsgFromTCP(c)
 				if err != nil {
 					return // read err, close the connection
 				}
 
 				go func() {
+					defer reqBuf.Release()
+
 					var meta *handler.RequestMeta
 					if clientIP := utils.GetIPFromAddr(c.RemoteAddr()); clientIP != nil {
 						meta = &handler.RequestMeta{ClientIP: clientIP}
@@ -105,7 +107,7 @@ func (s *Server) ServeTCP(l net.Listener) error {
 					}
 					s.DNSHandler.ServeDNS(
 						tcpConnCtx,
-						req,
+						reqBuf.Bytes(),
 						&tcpResponseWriter{c: c},
 						meta, // maybe nil
 					)

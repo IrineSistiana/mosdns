@@ -22,30 +22,20 @@ package pool
 
 import (
 	"fmt"
+	"math"
 	"math/bits"
 	"sync"
 )
 
-const (
-	// Since go 1.15, the go memory allocator is much faster than a sync.Pool
-	// when allocating small object.
-	ignoreSmallObj = 64
-)
+const intSize = 32 << (^uint(0) >> 63)
 
-var (
-	// allocator is an Allocator with 1 Megabyte maximum reusable buf size limit (1<<20).
-	allocator = NewAllocator(20)
-)
+// defaultBufPool is an Allocator that has a maximum capacity.
+var defaultBufPool = NewAllocator(intSize - 1)
 
-// GetBuf returns a buf from a global allocator.
-// The reuse limit is 1 Megabytes.
-func GetBuf(size int) []byte {
-	return allocator.Get(size)
-}
-
-// ReleaseBuf releases the b
-func ReleaseBuf(b []byte) {
-	allocator.Release(b)
+// GetBuf returns a *Buffer from pool with most appropriate cap.
+// It panics if size <= 0.
+func GetBuf(size int) *Buffer {
+	return defaultBufPool.Get(size)
 }
 
 type Allocator struct {
@@ -58,41 +48,54 @@ type Allocator struct {
 // The waste(memory fragmentation) of space allocation is guaranteed to be
 // no more than 50%.
 func NewAllocator(maxPoolBitsLen int) *Allocator {
+	if maxPoolBitsLen > intSize-1 || maxPoolBitsLen <= 0 {
+		panic("invalid pool length")
+	}
+
+	ml := 1 << maxPoolBitsLen
+	if maxPoolBitsLen == intSize-1 {
+		ml = math.MaxInt
+	}
 	alloc := &Allocator{
-		maxPoolLen: 1 << maxPoolBitsLen,
+		maxPoolLen: ml,
 		buffers:    make([]sync.Pool, maxPoolBitsLen+1),
 	}
+
 	for i := range alloc.buffers {
-		bufSize := 1 << uint32(i)
+		var bufSize int
+		if i == intSize-1 {
+			bufSize = math.MaxInt
+		} else {
+			bufSize = 1 << i
+		}
 		alloc.buffers[i].New = func() interface{} {
-			return make([]byte, bufSize)
+			return newBuffer(alloc, make([]byte, bufSize))
 		}
 	}
 	return alloc
 }
 
 // Get returns a []byte from pool with most appropriate cap
-func (alloc *Allocator) Get(size int) []byte {
-	if size < 0 {
-		panic(fmt.Sprintf("Allocator Get: negtive slice size %d", size))
+func (alloc *Allocator) Get(size int) *Buffer {
+	if size <= 0 {
+		panic(fmt.Sprintf("invalid slice size %d", size))
 	}
 
-	if size > alloc.maxPoolLen || size <= ignoreSmallObj {
-		return make([]byte, size)
+	if size > alloc.maxPoolLen {
+		panic(fmt.Sprintf("slice size %d is too large", size))
 	}
 
 	i := shard(size)
-	return alloc.buffers[i].Get().([]byte)[:size]
+	buf := alloc.buffers[i].Get().(*Buffer)
+	buf.SetLen(size)
+	return buf
 }
 
 // Release releases the buf to the allocatorL.
-func (alloc *Allocator) Release(buf []byte) {
-	if cap(buf) > alloc.maxPoolLen || cap(buf) <= ignoreSmallObj {
-		return
-	}
-
-	i := shard(cap(buf))
-	if cap(buf) == 0 || cap(buf) > alloc.maxPoolLen || cap(buf) != 1<<i {
+func (alloc *Allocator) Release(buf *Buffer) {
+	c := buf.Cap()
+	i := shard(c)
+	if c == 0 || c > alloc.maxPoolLen || c != 1<<i {
 		panic("unexpected cap size")
 	}
 	alloc.buffers[i].Put(buf)
@@ -104,4 +107,46 @@ func shard(size int) int {
 		return 0
 	}
 	return bits.Len64(uint64(size - 1))
+}
+
+type Buffer struct {
+	a *Allocator
+
+	l int
+	b []byte
+}
+
+func newBuffer(a *Allocator, b []byte) *Buffer {
+	return &Buffer{
+		a: a,
+		l: len(b),
+		b: b,
+	}
+}
+
+func (b *Buffer) SetLen(l int) {
+	if l > len(b.b) {
+		panic("buffer length overflowed")
+	}
+	b.l = l
+}
+
+func (b *Buffer) AllBytes() []byte {
+	return b.b
+}
+
+func (b *Buffer) Bytes() []byte {
+	return b.b[:b.l]
+}
+
+func (b *Buffer) Len() int {
+	return b.l
+}
+
+func (b *Buffer) Cap() int {
+	return cap(b.b)
+}
+
+func (b *Buffer) Release() {
+	b.a.Release(b)
 }

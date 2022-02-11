@@ -152,14 +152,18 @@ func (u *upstreamWrapper) Exchange(ctx context.Context, q *dns.Msg) (*dns.Msg, e
 	if err != nil {
 		return nil, err
 	}
-	defer pool.ReleaseBuf(buf)
+	defer buf.Release()
+
 	rRaw, err := u.u.ExchangeContext(ctx, qRaw)
 	if err != nil {
 		return nil, err
 	}
+
 	r := new(dns.Msg)
-	if err := r.Unpack(rRaw); err != nil {
-		return nil, fmt.Errorf("failed to unpack response data [%x], %w", rRaw, err)
+	err = r.Unpack(rRaw.Bytes())
+	rRaw.Release()
+	if err != nil {
+		return nil, fmt.Errorf("failed to unpack response data [%x], %w", rRaw.Bytes(), err)
 	}
 	return r, nil
 }

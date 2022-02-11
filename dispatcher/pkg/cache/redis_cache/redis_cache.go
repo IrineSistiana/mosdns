@@ -68,7 +68,7 @@ func (r *RedisCache) Store(ctx context.Context, key string, v []byte, storedTime
 	}
 
 	data := packRedisData(storedTime, expirationTime, v)
-	defer pool.ReleaseBuf(data)
+	defer data.Release()
 
 	return r.client.Set(ctx, key, data, ttl).Err()
 }
@@ -80,11 +80,12 @@ func (r *RedisCache) Close() error {
 
 // packRedisData packs storedTime, expirationTime and v into one byte slice.
 // The returned []byte should be released by pool.ReleaseBuf().
-func packRedisData(storedTime, expirationTime time.Time, v []byte) []byte {
+func packRedisData(storedTime, expirationTime time.Time, v []byte) *pool.Buffer {
 	buf := pool.GetBuf(8 + 8 + len(v))
-	binary.BigEndian.PutUint64(buf[:8], uint64(storedTime.Unix()))
-	binary.BigEndian.PutUint64(buf[8:16], uint64(expirationTime.Unix()))
-	copy(buf[16:], v)
+	b := buf.Bytes()
+	binary.BigEndian.PutUint64(b[:8], uint64(storedTime.Unix()))
+	binary.BigEndian.PutUint64(b[8:16], uint64(expirationTime.Unix()))
+	copy(b[16:], v)
 	return buf
 }
 

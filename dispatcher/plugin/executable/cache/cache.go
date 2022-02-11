@@ -126,7 +126,6 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *handler.Context, next hand
 		}
 		// change msg id to query
 		r.Id = q.Id
-
 		var msgTTL time.Duration
 		if len(r.Answer) == 0 {
 			msgTTL = defaultEmptyAnswerTTL

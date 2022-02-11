@@ -49,21 +49,21 @@ var (
 	bufPool512 = pool.NewBytesBufPool(512)
 )
 
-func (u *DoH) ExchangeContext(ctx context.Context, q []byte) ([]byte, error) {
-	buf := pool.GetBuf(len(q))
-	defer pool.ReleaseBuf(buf)
-
-	copy(buf, q)
+func (u *DoH) ExchangeContext(ctx context.Context, q []byte) (*pool.Buffer, error) {
 
 	// In order to maximize HTTP cache friendliness, DoH clients using media
 	// formats that include the ID field from the DNS message header, such
 	// as "application/dns-message", SHOULD use a DNS ID of 0 in every DNS
 	// request.
 	// https://tools.ietf.org/html/rfc8484#section-4.1
-	buf[0] = 0
-	buf[1] = 0
+	buf := pool.GetBuf(len(q))
+	defer buf.Release()
+	b := buf.Bytes()
+	copy(b, q)
+	b[0] = 0
+	b[1] = 0
 
-	urlLen := len(u.EndPoint) + 5 + base64.RawURLEncoding.EncodedLen(len(buf))
+	urlLen := len(u.EndPoint) + 5 + base64.RawURLEncoding.EncodedLen(len(b))
 	urlBuf := make([]byte, urlLen)
 
 	// Padding characters for base64url MUST NOT be included.
@@ -72,10 +72,10 @@ func (u *DoH) ExchangeContext(ctx context.Context, q []byte) ([]byte, error) {
 	p := 0
 	p += copy(urlBuf[p:], u.EndPoint)
 	p += copy(urlBuf[p:], "?dns=")
-	base64.RawURLEncoding.Encode(urlBuf[p:], buf)
+	base64.RawURLEncoding.Encode(urlBuf[p:], b)
 
 	type result struct {
-		r   []byte
+		r   *pool.Buffer
 		err error
 	}
 
@@ -100,12 +100,12 @@ func (u *DoH) ExchangeContext(ctx context.Context, q []byte) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		setMsgId(r, getMsgId(q))
+		setMsgId(r.Bytes(), getMsgId(q))
 		return r, nil
 	}
 }
 
-func (u *DoH) doHTTP(ctx context.Context, url string) ([]byte, error) {
+func (u *DoH) doHTTP(ctx context.Context, url string) (*pool.Buffer, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("interal err: NewRequestWithContext: %w", err)
@@ -130,7 +130,7 @@ func (u *DoH) doHTTP(ctx context.Context, url string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to read http body: %w", err)
 	}
 
-	r := make([]byte, bb.Len())
-	copy(r, bb.Bytes())
+	r := pool.GetBuf(bb.Len())
+	copy(r.Bytes(), bb.Bytes())
 	return r, nil
 }

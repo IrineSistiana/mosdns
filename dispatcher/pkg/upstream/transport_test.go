@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/pool"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"io"
@@ -19,11 +20,12 @@ func TestTransport_Exchange(t *testing.T) {
 		c1, c2 := net.Pipe()
 		go func() {
 			for {
-				m, _, readErr := dnsutils.ReadMsgFromTCP(c2)
+				m, _, readErr := dnsutils.ReadRawMsgFromTCP(c2)
 				if m != nil {
 					go func() {
+						defer m.Release()
 						time.Sleep(time.Millisecond * 50)
-						dnsutils.WriteMsgToTCP(c2, m)
+						dnsutils.WriteRawMsgToTCP(c2, m.Bytes())
 					}()
 				}
 				if readErr != nil {
@@ -46,11 +48,11 @@ func TestTransport_Exchange(t *testing.T) {
 		return 0, errors.New("write err")
 	}
 
-	readErr := func(c io.Reader) (m []byte, n int, err error) {
+	readErr := func(c io.Reader) (m *pool.Buffer, n int, err error) {
 		return nil, 0, errors.New("read err")
 	}
 
-	readTimeout := func(c io.Reader) (m []byte, n int, err error) {
+	readTimeout := func(c io.Reader) (m *pool.Buffer, n int, err error) {
 		time.Sleep(time.Second * 10)
 		return nil, 0, errors.New("read err")
 	}
@@ -58,7 +60,7 @@ func TestTransport_Exchange(t *testing.T) {
 	type fields struct {
 		DialFunc    func(ctx context.Context) (net.Conn, error)
 		WriteFunc   func(c io.Writer, m []byte) (n int, err error)
-		ReadFunc    func(c io.Reader) (m []byte, n int, err error)
+		ReadFunc    func(c io.Reader) (m *pool.Buffer, n int, err error)
 		MaxConns    int
 		IdleTimeout time.Duration
 	}
@@ -190,7 +192,7 @@ func TestTransport_Exchange(t *testing.T) {
 					}
 
 					r := new(dns.Msg)
-					if err := r.Unpack(gotR); err != nil {
+					if err := r.Unpack(gotR.Bytes()); err != nil {
 						t.Error(err)
 						return
 					}

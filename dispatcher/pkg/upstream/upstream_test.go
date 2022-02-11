@@ -182,7 +182,7 @@ func testUpstream(u Upstream) error {
 				logErr(err)
 				return
 			}
-			if getMsgId(rRaw) != q.Id {
+			if getMsgId(rRaw.Bytes()) != q.Id {
 				logErr(dns.ErrId)
 				return
 			}

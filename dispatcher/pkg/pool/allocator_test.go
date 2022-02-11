@@ -30,11 +30,11 @@ func TestAllocator_Get(t *testing.T) {
 		wantCap   int
 		wantPanic bool
 	}{
-		{-1, 0, true},   // invalid
-		{0, 0, false},   // invalid
-		{12, 12, false}, // ignored, too small
+		{-1, 0, true}, // invalid
+		{0, 0, true},  // invalid
+		{12, 16, false},
 		{256, 256, false},
-		{257, 257, false}, // ignored, too big
+		{257, 0, true}, // invalid, too large
 	}
 	for _, tt := range tests {
 		t.Run(strconv.Itoa(tt.size), func(t *testing.T) {
@@ -47,13 +47,13 @@ func TestAllocator_Get(t *testing.T) {
 				}()
 			}
 
-			for i := 0; i < 500; i++ {
+			for i := 0; i < 5; i++ {
 				b := alloc.Get(tt.size)
-				if len(b) != tt.size {
-					t.Fatalf("buffer size, want %d, got %d", tt.size, len(b))
+				if b.Len() != tt.size {
+					t.Fatalf("buffer size, want %d, got %d", tt.size, b.Len())
 				}
-				if cap(b) != tt.wantCap {
-					t.Fatalf("buffer cap, want %d, got %d", tt.wantCap, cap(b))
+				if b.Cap() != tt.wantCap {
+					t.Fatalf("buffer cap, want %d, got %d", tt.wantCap, b.Cap())
 				}
 				alloc.Release(b)
 			}
@@ -83,33 +83,6 @@ func Test_shard(t *testing.T) {
 			if got := shard(tt.size); got != tt.want {
 				t.Errorf("shard() = %v, want %v", got, tt.want)
 			}
-		})
-	}
-}
-
-func TestAllocator_Put(t *testing.T) {
-	alloc := NewAllocator(8) // 256 bytes
-	tests := []struct {
-		put       []byte
-		wantPanic bool
-	}{
-
-		{make([]byte, 12), false},  // too small, ignored
-		{make([]byte, 254), true},  // invalid
-		{make([]byte, 512), false}, // too big, ignored
-	}
-	for _, tt := range tests {
-		t.Run(strconv.Itoa(len(tt.put)), func(t *testing.T) {
-			if tt.wantPanic {
-				defer func() {
-					msg := recover()
-					if msg == nil {
-						t.Error("no panic")
-					}
-				}()
-			}
-
-			alloc.Release(tt.put)
 		})
 	}
 }

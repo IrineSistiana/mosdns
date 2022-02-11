@@ -91,7 +91,7 @@ func GetMsgKeyWithBytesSalt(m *dns.Msg, salt []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer pool.ReleaseBuf(buf)
+	defer buf.Release()
 
 	wireMsg[0] = 0
 	wireMsg[1] = 0

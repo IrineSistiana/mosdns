@@ -36,7 +36,7 @@ const (
 // Handler handles dns query.
 type Handler interface {
 	// ServeDNS handles r and writes response to w.
-	// meta may be nil.
+	// Implements must not keep and use req after the ServeDNS returned.
 	ServeDNS(ctx context.Context, req []byte, w ResponseWriter, meta *handler.RequestMeta)
 }
 
@@ -139,7 +139,7 @@ func (h *DefaultHandler) ServeDNS(ctx context.Context, req []byte, w ResponseWri
 			h.logger().Warn("failed to pack response message", qCtx.InfoField(), zap.Error(err))
 			return
 		}
-		defer pool.ReleaseBuf(buf)
+		defer buf.Release()
 
 		if _, err := w.Write(raw); err != nil {
 			h.logger().Warn("failed to write response", qCtx.InfoField(), zap.Error(err))
