@@ -23,10 +23,8 @@ import (
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/pool"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/utils"
-	"go.uber.org/zap"
 	"io"
 	"net"
-	"time"
 )
 
 type udpResponseWriter struct {
@@ -58,16 +56,10 @@ func (s *Server) ServeUDP(c net.PacketConn) error {
 	for {
 		n, from, err := c.ReadFrom(rb)
 		if err != nil {
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() { // is a temporary net err
-				s.getLogger().Warn("listener temporary err", zap.Error(err))
-				time.Sleep(time.Second * 5)
-				continue
-			} else { // unexpected io err
-				if s.Closed() {
-					return ErrServerClosed
-				}
-				return fmt.Errorf("unexpected listener err: %w", err)
+			if s.Closed() {
+				return ErrServerClosed
 			}
+			return fmt.Errorf("unexpected read err: %w", err)
 		}
 
 		reqBuf := pool.GetBuf(n)

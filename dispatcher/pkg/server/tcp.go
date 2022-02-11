@@ -23,7 +23,6 @@ import (
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/utils"
-	"go.uber.org/zap"
 	"io"
 	"net"
 	"time"
@@ -59,17 +58,10 @@ func (s *Server) ServeTCP(l net.Listener) error {
 	for {
 		c, err := ol.Accept()
 		if err != nil {
-			netErr, ok := err.(net.Error)
-			if ok && netErr.Temporary() {
-				s.getLogger().Warn("listener temporary err", zap.Error(err))
-				time.Sleep(time.Second * 5)
-				continue
-			} else {
-				if s.Closed() {
-					return ErrServerClosed
-				}
-				return fmt.Errorf("unexpected listener err: %w", err)
+			if s.Closed() {
+				return ErrServerClosed
 			}
+			return fmt.Errorf("unexpected listener err: %w", err)
 		}
 
 		tcpConnCtx, cancelConn := context.WithCancel(listenerCtx)
