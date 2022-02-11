@@ -67,15 +67,16 @@ func (s *Server) ServeUDP(c net.PacketConn) error {
 
 		go func() {
 			defer reqBuf.Release()
-			var meta *handler.RequestMeta
+			meta := new(handler.RequestMeta)
+			meta.FromUDP = true
 			if clientIP := utils.GetIPFromAddr(from); clientIP != nil {
-				meta = &handler.RequestMeta{ClientIP: clientIP}
+				meta.ClientIP = clientIP
 			} else {
 				s.getLogger().Warn("failed to acquire client ip addr")
 			}
 
 			w := &udpResponseWriter{c: ol, to: from}
-			s.DNSHandler.ServeDNS(listenerCtx, reqBuf.Bytes(), w, meta) // meta maybe nil
+			s.DNSHandler.ServeDNS(listenerCtx, reqBuf.Bytes(), w, meta)
 		}()
 	}
 }

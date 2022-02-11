@@ -121,20 +121,29 @@ func (h *DefaultHandler) ServeDNS(ctx context.Context, req []byte, w ResponseWri
 		h.logger().Debug("entry returned", qCtx.InfoField(), zap.Stringer("status", qCtx.Status()))
 	}
 
-	var rm *dns.Msg
+	var respMsg *dns.Msg
 	if err != nil || qCtx.Status() == handler.ContextStatusServerFailed {
-		rm = new(dns.Msg)
-		rm.SetReply(reqMsg)
-		rm.Rcode = dns.RcodeServerFailure
+		respMsg = new(dns.Msg)
+		respMsg.SetReply(reqMsg)
+		respMsg.Rcode = dns.RcodeServerFailure
 	} else {
-		rm = qCtx.R()
+		respMsg = qCtx.R()
 	}
 
-	if rm != nil {
+	if respMsg != nil {
 		if h.RecursionAvailable {
-			rm.RecursionAvailable = true
+			respMsg.RecursionAvailable = true
 		}
-		raw, buf, err := pool.PackBuffer(rm)
+		if meta.FromUDP {
+			udpSize := dns.MinMsgSize
+			if opt := reqMsg.IsEdns0(); opt != nil {
+				if es := int(opt.UDPSize()); es > udpSize {
+					udpSize = es
+				}
+			}
+			respMsg.Truncate(udpSize)
+		}
+		raw, buf, err := pool.PackBuffer(respMsg)
 		if err != nil {
 			h.logger().Warn("failed to pack response message", qCtx.InfoField(), zap.Error(err))
 			return

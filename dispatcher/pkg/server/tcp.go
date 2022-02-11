@@ -91,9 +91,9 @@ func (s *Server) ServeTCP(l net.Listener) error {
 				go func() {
 					defer reqBuf.Release()
 
-					var meta *handler.RequestMeta
+					meta := new(handler.RequestMeta)
 					if clientIP := utils.GetIPFromAddr(c.RemoteAddr()); clientIP != nil {
-						meta = &handler.RequestMeta{ClientIP: clientIP}
+						meta.ClientIP = clientIP
 					} else {
 						s.getLogger().Warn("failed to acquire client ip addr")
 					}
@@ -101,7 +101,7 @@ func (s *Server) ServeTCP(l net.Listener) error {
 						tcpConnCtx,
 						reqBuf.Bytes(),
 						&tcpResponseWriter{c: c},
-						meta, // maybe nil
+						meta,
 					)
 				}()
 			}

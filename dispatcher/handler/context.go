@@ -32,6 +32,9 @@ import (
 type RequestMeta struct {
 	// ClientIP contains the client ip address.
 	ClientIP net.IP
+
+	// FromUDP indicates the request is from an udp socket.
+	FromUDP bool
 }
 
 // Context is a query context that pass through plugins
@@ -76,12 +79,18 @@ func (status ContextStatus) String() string {
 }
 
 var id uint32
+var zeroMeta = &RequestMeta{}
 
 // NewContext creates a new query Context.
 // q is the query dns msg. It cannot be nil, or NewContext will panic.
+// meta can be nil.
 func NewContext(q *dns.Msg, meta *RequestMeta) *Context {
 	if q == nil {
 		panic("handler: query msg is nil")
+	}
+
+	if meta == nil {
+		meta = zeroMeta
 	}
 
 	ctx := &Context{
@@ -129,9 +138,9 @@ func (ctx *Context) OriginalQuery() *dns.Msg {
 	return ctx.q
 }
 
-// ReqMeta returns the request metadata. It might be nil.
-// The returned *RequestMeta is a reference. Caller must not
-// modify it or keep it.
+// ReqMeta returns the request metadata.
+// The returned *RequestMeta is a reference shared by all ReqMeta.
+// Caller must not modify it.
 func (ctx *Context) ReqMeta() *RequestMeta {
 	return ctx.reqMeta
 }
