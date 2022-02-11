@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # [(env : value),(env : value)]
 envs = [
     [['GOOS', 'darwin'], ['GOARCH', 'amd64']],
-
+    [['GOOS', 'darwin'], ['GOARCH', 'arm64']],
     # [['GOOS', 'linux'], ['GOARCH', '386']],
     [['GOOS', 'linux'], ['GOARCH', 'amd64']],
 
