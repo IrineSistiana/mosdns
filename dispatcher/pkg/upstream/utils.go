@@ -17,16 +17,20 @@
 
 package upstream
 
+const (
+	// DNS header size is 12. It is also the minimum length of a valid dns msg.
+	headerSize = 12
+)
+
 func setMsgId(m []byte, id uint16) {
-	if len(m) >= 2 {
-		m[0] = byte(id >> 8)
-		m[1] = byte(id)
-	}
+	m[0] = byte(id >> 8)
+	m[1] = byte(id)
 }
 
 func getMsgId(m []byte) uint16 {
-	if len(m) >= 2 {
-		return uint16(m[0])<<8 + uint16(m[1])
-	}
-	return 0
+	return uint16(m[0])<<8 + uint16(m[1])
+}
+
+func isTruncated(m []byte) bool {
+	return m[3]&1<<1 != 0
 }

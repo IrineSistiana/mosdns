@@ -48,6 +48,8 @@ var (
 type Upstream interface {
 	// ExchangeContext exchanges query message q to the upstream, and returns
 	// response. It MUST NOT keep or modify q.
+	// The returned msg buffer is larger than 12 bytes. Which is the minimum size of
+	// a valid dns package.
 	ExchangeContext(ctx context.Context, q []byte) (*pool.Buffer, error)
 
 	// CloseIdleConnections closes any connections in the Upstream which
@@ -111,7 +113,7 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 	switch addrURL.Scheme {
 	case "", "udp":
 		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 53)
-		t := &Transport{
+		ut := &Transport{
 			Logger: opt.Logger,
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
 				d := net.Dialer{}
@@ -135,7 +137,20 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 			MaxConns:    opt.MaxConns,
 			IdleTimeout: time.Second * 60,
 		}
-		return t, nil
+		tt := &Transport{
+			Logger: opt.Logger,
+			DialFunc: func(ctx context.Context) (net.Conn, error) {
+				d := net.Dialer{}
+				return d.DialContext(ctx, "tcp", dialAddr)
+			},
+			WriteFunc:   dnsutils.WriteRawMsgToTCP,
+			ReadFunc:    dnsutils.ReadRawMsgFromTCP,
+			IdleTimeout: 0,
+		}
+		return &udpWithFallback{
+			u: ut,
+			t: tt,
+		}, nil
 	case "tcp":
 		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 53)
 		t := &Transport{
@@ -238,4 +253,26 @@ func tryRemovePort(s string) string {
 		return s
 	}
 	return host
+}
+
+type udpWithFallback struct {
+	u *Transport
+	t *Transport
+}
+
+func (u *udpWithFallback) ExchangeContext(ctx context.Context, q []byte) (*pool.Buffer, error) {
+	b, err := u.u.ExchangeContext(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	if isTruncated(b.Bytes()) {
+		u.u.logger().Warn("truncated udp msg received, retrying tcp")
+		return u.t.ExchangeContext(ctx, q)
+	}
+	return b, nil
+}
+
+func (u *udpWithFallback) CloseIdleConnections() {
+	u.u.CloseIdleConnections()
+	u.t.CloseIdleConnections()
 }

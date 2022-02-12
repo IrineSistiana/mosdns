@@ -47,9 +47,15 @@ type Transport struct {
 	Logger *zap.Logger
 
 	// The following funcs cannot be nil.
-	DialFunc  func(ctx context.Context) (net.Conn, error)
+	// DialFunc specifies the method to dial a connection to the server.
+	DialFunc func(ctx context.Context) (net.Conn, error)
+	// WriteFunc specifies the method to write a wire dns msg to the connection
+	// opened by the DialFunc.
 	WriteFunc func(c io.Writer, m []byte) (int, error)
-	ReadFunc  func(c io.Reader) (*pool.Buffer, int, error)
+	// ReadFunc specifies the method to read a wire dns msg from the connection
+	// opened by the DialFunc. ReadFunc don't have to check the variability of the
+	// wire msg.
+	ReadFunc func(c io.Reader) (*pool.Buffer, int, error)
 
 	// DialTimeout specifies the timeout for DialFunc.
 	// Default is defaultDialTimeout.
@@ -79,6 +85,21 @@ func (t *Transport) logger() *zap.Logger {
 		return l
 	}
 	return nopLogger
+}
+
+// readMustHasHeader reads a dns msg from c. It will return a
+// msg with at least 12 bytes. Otherwise, an error.
+func (t *Transport) readMustHasHeader(c io.Reader) (*pool.Buffer, int, error) {
+	b, n, err := t.ReadFunc(c)
+	if err != nil {
+		return nil, n, err
+	}
+	if b.Len() < headerSize {
+		err := fmt.Errorf("invalid data [%x]", b.Bytes())
+		b.Release()
+		return nil, n, err
+	}
+	return b, n, nil
 }
 
 func (t *Transport) dialTimeout() time.Duration {
@@ -161,7 +182,7 @@ func (t *Transport) exchangeNoKeepAlive(ctx context.Context, q []byte) (*pool.Bu
 
 	resChan := make(chan *result)
 	go func() {
-		b, _, err := t.ReadFunc(conn)
+		b, _, err := t.readMustHasHeader(conn)
 		res := &result{b, err}
 		select {
 		case resChan <- res:
@@ -401,7 +422,7 @@ func (c *clientConn) notifyExchange(r *pool.Buffer) {
 func (c *clientConn) readLoop() {
 	for {
 		c.c.SetReadDeadline(time.Now().Add(c.t.IdleTimeout))
-		m, _, err := c.t.ReadFunc(c.c)
+		m, _, err := c.t.readMustHasHeader(c.c)
 		if err != nil {
 			c.closeAndCleanup(err) // abort this connection.
 			return

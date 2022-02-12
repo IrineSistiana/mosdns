@@ -84,10 +84,10 @@ func (u *DoH) ExchangeContext(ctx context.Context, q []byte) (*pool.Buffer, erro
 		// We overwrite the ctx with a fixed timout context here.
 		// Because the http package may close the underlay connection
 		// if the context is done before the query is completed. This
-		// reduces the connection reuse rate.
+		// reduces the connection reuse efficiency.
 		ctx, cancel := context.WithTimeout(context.Background(), defaultDoHTimeout)
 		defer cancel()
-		r, err := u.doHTTP(ctx, utils.BytesToStringUnsafe(urlBuf))
+		r, err := u.exchangeMustHasHeader(ctx, utils.BytesToStringUnsafe(urlBuf))
 		resChan <- &result{r: r, err: err}
 	}()
 
@@ -105,7 +105,8 @@ func (u *DoH) ExchangeContext(ctx context.Context, q []byte) (*pool.Buffer, erro
 	}
 }
 
-func (u *DoH) doHTTP(ctx context.Context, url string) (*pool.Buffer, error) {
+// exchangeMustHasHeader always return a msg larger than 12 bytes.
+func (u *DoH) exchangeMustHasHeader(ctx context.Context, url string) (*pool.Buffer, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("interal err: NewRequestWithContext: %w", err)
@@ -128,6 +129,10 @@ func (u *DoH) doHTTP(ctx context.Context, url string) (*pool.Buffer, error) {
 	_, err = bb.ReadFrom(io.LimitReader(resp.Body, dns.MaxMsgSize))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read http body: %w", err)
+	}
+
+	if bb.Len() < headerSize {
+		return nil, fmt.Errorf("invalid dns data [%x]", bb.Bytes())
 	}
 
 	r := pool.GetBuf(bb.Len())
