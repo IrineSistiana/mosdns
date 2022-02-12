@@ -161,6 +161,7 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 			WriteFunc:   dnsutils.WriteRawMsgToTCP,
 			ReadFunc:    dnsutils.ReadRawMsgFromTCP,
 			IdleTimeout: opt.IdleTimeout,
+			MaxConns:    opt.MaxConns,
 		}
 		return t, nil
 	case "tls":
@@ -192,6 +193,7 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 			WriteFunc:   dnsutils.WriteRawMsgToTCP,
 			ReadFunc:    dnsutils.ReadRawMsgFromTCP,
 			IdleTimeout: opt.IdleTimeout,
+			MaxConns:    opt.MaxConns,
 		}
 		return t, nil
 	case "https":
