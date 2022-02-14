@@ -67,13 +67,22 @@ type Opt struct {
 	Socks5 string
 
 	// IdleTimeout used by tcp, dot, doh to control connection idle timeout.
+	// If zero, tcp, dot will not reuse connections.
 	// Default: tcp & dot: 0 (disable connection reuse), doh: 30s.
 	IdleTimeout time.Duration
 
-	// MaxConns limits the total number of connections,
+	// MaxConns limits the total number of connections when,
 	// including connections in the dialing states.
 	// Used by tcp, dot, doh. Default: 1.
 	MaxConns int
+
+	// If DisablePipeline is set and IdleTimeout > 0, the udp, tcp, dot upstream will
+	// still reuse connections but will not pipeline its queries.
+	// Each connection will have only one query on-the-flight.
+	// The MaxConns will be ignored.
+	// Use it only when you have to connect to a server that supports connection
+	// reuse but doesn't support out-of-order response.
+	DisablePipeline bool
 
 	// TLSConfig specifies the tls.Config that the TLS client will use.
 	// Used by dot, doh.
@@ -158,10 +167,11 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
 				return dialTCP(ctx, dialAddr, opt.Socks5)
 			},
-			WriteFunc:   dnsutils.WriteRawMsgToTCP,
-			ReadFunc:    dnsutils.ReadRawMsgFromTCP,
-			IdleTimeout: opt.IdleTimeout,
-			MaxConns:    opt.MaxConns,
+			WriteFunc:       dnsutils.WriteRawMsgToTCP,
+			ReadFunc:        dnsutils.ReadRawMsgFromTCP,
+			IdleTimeout:     opt.IdleTimeout,
+			DisablePipeline: opt.DisablePipeline,
+			MaxConns:        opt.MaxConns,
 		}
 		return t, nil
 	case "tls":
@@ -190,10 +200,11 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 				}
 				return tlsConn, nil
 			},
-			WriteFunc:   dnsutils.WriteRawMsgToTCP,
-			ReadFunc:    dnsutils.ReadRawMsgFromTCP,
-			IdleTimeout: opt.IdleTimeout,
-			MaxConns:    opt.MaxConns,
+			WriteFunc:       dnsutils.WriteRawMsgToTCP,
+			ReadFunc:        dnsutils.ReadRawMsgFromTCP,
+			IdleTimeout:     opt.IdleTimeout,
+			DisablePipeline: opt.DisablePipeline,
+			MaxConns:        opt.MaxConns,
 		}
 		return t, nil
 	case "https":

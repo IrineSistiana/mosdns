@@ -9,6 +9,7 @@ import (
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"io"
+	"math/rand"
 	"net"
 	"sync"
 	"testing"
@@ -16,6 +17,7 @@ import (
 )
 
 func TestTransport_Exchange(t *testing.T) {
+	randSleep20 := func() { time.Sleep(time.Millisecond * time.Duration(rand.Intn(20))) }
 	dial := func(ctx context.Context) (net.Conn, error) {
 		c1, c2 := net.Pipe()
 		go func() {
@@ -24,7 +26,7 @@ func TestTransport_Exchange(t *testing.T) {
 				if m != nil {
 					go func() {
 						defer m.Release()
-						time.Sleep(time.Millisecond * 50)
+						randSleep20()
 						dnsutils.WriteRawMsgToTCP(c2, m.Bytes())
 					}()
 				}
@@ -33,6 +35,7 @@ func TestTransport_Exchange(t *testing.T) {
 				}
 			}
 		}()
+		randSleep20()
 		return c1, nil
 	}
 
@@ -40,9 +43,15 @@ func TestTransport_Exchange(t *testing.T) {
 		return nil, errors.New("dial err")
 	}
 
-	write := dnsutils.WriteRawMsgToTCP
+	write := func(c io.Writer, m []byte) (n int, err error) {
+		randSleep20()
+		return dnsutils.WriteRawMsgToTCP(c, m)
+	}
 
-	read := dnsutils.ReadRawMsgFromTCP
+	read := func(c io.Reader) (m *pool.Buffer, n int, err error) {
+		randSleep20()
+		return dnsutils.ReadRawMsgFromTCP(c)
+	}
 
 	writeErr := func(c io.Writer, m []byte) (n int, err error) {
 		return 0, errors.New("write err")
@@ -53,16 +62,17 @@ func TestTransport_Exchange(t *testing.T) {
 	}
 
 	readTimeout := func(c io.Reader) (m *pool.Buffer, n int, err error) {
-		time.Sleep(time.Second * 10)
+		time.Sleep(time.Second * 1)
 		return nil, 0, errors.New("read err")
 	}
 
 	type fields struct {
-		DialFunc    func(ctx context.Context) (net.Conn, error)
-		WriteFunc   func(c io.Writer, m []byte) (n int, err error)
-		ReadFunc    func(c io.Reader) (m *pool.Buffer, n int, err error)
-		MaxConns    int
-		IdleTimeout time.Duration
+		DialFunc        func(ctx context.Context) (net.Conn, error)
+		WriteFunc       func(c io.Writer, m []byte) (n int, err error)
+		ReadFunc        func(c io.Reader) (m *pool.Buffer, n int, err error)
+		MaxConns        int
+		IdleTimeout     time.Duration
+		DisablePipeline bool
 	}
 
 	tests := []struct {
@@ -83,15 +93,59 @@ func TestTransport_Exchange(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "no connection reuse, dial err",
+			fields: fields{
+				DialFunc:    dialErr,
+				WriteFunc:   write,
+				ReadFunc:    read,
+				IdleTimeout: 0,
+			},
+			N:       16,
+			wantErr: true,
+		},
+		{
+			name: "no connection reuse, write err",
+			fields: fields{
+				DialFunc:    dial,
+				WriteFunc:   writeErr,
+				ReadFunc:    read,
+				IdleTimeout: 0,
+			},
+			N:       16,
+			wantErr: true,
+		},
+		{
+			name: "no connection reuse, read err",
+			fields: fields{
+				DialFunc:    dial,
+				WriteFunc:   write,
+				ReadFunc:    readErr,
+				IdleTimeout: 0,
+			},
+			N:       16,
+			wantErr: true,
+		},
+		{
+			name: "no connection reuse, read timeout",
+			fields: fields{
+				DialFunc:    dial,
+				WriteFunc:   write,
+				ReadFunc:    readTimeout,
+				IdleTimeout: 0,
+			},
+			N:       16,
+			wantErr: true,
+		},
+		{
 			name: "connection reuse",
 			fields: fields{
 				DialFunc:    dial,
 				WriteFunc:   write,
 				ReadFunc:    read,
 				IdleTimeout: time.Millisecond * 100,
-				MaxConns:    5,
+				MaxConns:    256,
 			},
-			N:       32,
+			N:       512,
 			wantErr: false,
 		},
 		{
@@ -101,6 +155,7 @@ func TestTransport_Exchange(t *testing.T) {
 				WriteFunc:   write,
 				ReadFunc:    read,
 				IdleTimeout: time.Millisecond * 100,
+				MaxConns:    16,
 			},
 			N:       16,
 			wantErr: true,
@@ -112,6 +167,7 @@ func TestTransport_Exchange(t *testing.T) {
 				WriteFunc:   writeErr,
 				ReadFunc:    read,
 				IdleTimeout: time.Millisecond * 100,
+				MaxConns:    16,
 			},
 			N:       16,
 			wantErr: true,
@@ -123,6 +179,7 @@ func TestTransport_Exchange(t *testing.T) {
 				WriteFunc:   write,
 				ReadFunc:    readErr,
 				IdleTimeout: time.Millisecond * 100,
+				MaxConns:    16,
 			},
 			N:       16,
 			wantErr: true,
@@ -134,6 +191,67 @@ func TestTransport_Exchange(t *testing.T) {
 				WriteFunc:   write,
 				ReadFunc:    readTimeout,
 				IdleTimeout: time.Millisecond * 100,
+				MaxConns:    16,
+			},
+			N:       16,
+			wantErr: true,
+		},
+		{
+			name: "np",
+			fields: fields{
+				DialFunc:        dial,
+				WriteFunc:       write,
+				ReadFunc:        read,
+				IdleTimeout:     time.Millisecond * 100,
+				DisablePipeline: true,
+			},
+			N:       512,
+			wantErr: false,
+		},
+		{
+			name: "np dial err",
+			fields: fields{
+				DialFunc:        dialErr,
+				WriteFunc:       write,
+				ReadFunc:        read,
+				IdleTimeout:     time.Millisecond * 100,
+				DisablePipeline: true,
+			},
+			N:       16,
+			wantErr: true,
+		},
+		{
+			name: "np write err",
+			fields: fields{
+				DialFunc:        dial,
+				WriteFunc:       writeErr,
+				ReadFunc:        read,
+				IdleTimeout:     time.Millisecond * 100,
+				DisablePipeline: true,
+			},
+			N:       16,
+			wantErr: true,
+		},
+		{
+			name: "np read err",
+			fields: fields{
+				DialFunc:        dial,
+				WriteFunc:       write,
+				ReadFunc:        readErr,
+				IdleTimeout:     time.Millisecond * 100,
+				DisablePipeline: true,
+			},
+			N:       16,
+			wantErr: true,
+		},
+		{
+			name: "np read timeout",
+			fields: fields{
+				DialFunc:        dial,
+				WriteFunc:       write,
+				ReadFunc:        readTimeout,
+				IdleTimeout:     time.Millisecond * 100,
+				DisablePipeline: true,
 			},
 			N:       16,
 			wantErr: true,
@@ -149,7 +267,8 @@ func TestTransport_Exchange(t *testing.T) {
 				ReadFunc:        tt.fields.ReadFunc,
 				MaxConns:        tt.fields.MaxConns,
 				IdleTimeout:     tt.fields.IdleTimeout,
-				MaxQueryPerConn: 8,
+				DisablePipeline: tt.fields.DisablePipeline,
+				MaxQueryPerConn: 2,
 			}
 
 			ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*100)
@@ -174,6 +293,7 @@ func TestTransport_Exchange(t *testing.T) {
 				i := i
 				go func() {
 					defer wg.Done()
+					randSleep20()
 					q := new(dns.Msg)
 					qName := fmt.Sprintf("%d.", i)
 					q.SetQuestion(qName, dns.TypeA)
@@ -182,7 +302,7 @@ func TestTransport_Exchange(t *testing.T) {
 						t.Error(err)
 						return
 					}
-					ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*100)
+					ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*500)
 					defer cancel()
 
 					gotR, err := transport.ExchangeContext(ctx, raw)
