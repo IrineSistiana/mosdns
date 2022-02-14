@@ -42,6 +42,8 @@ func init() {
 		QClass:       []int{dns.ClassINET},
 		IsLogicalAND: true,
 	}))
+
+	handler.MustRegPlugin(&queryIsEDNS0{BP: handler.NewBP("_query_edns0", PluginType)})
 }
 
 var _ handler.MatcherPlugin = (*queryMatcher)(nil)
@@ -124,4 +126,14 @@ func preset(bp *handler.BP, args *Args) (m *queryMatcher) {
 		panic(fmt.Sprintf("query_matcher: failed to init pre-set plugin %s: %s", bp.Tag(), err))
 	}
 	return m
+}
+
+var _ handler.MatcherPlugin = (*queryMatcher)(nil)
+
+type queryIsEDNS0 struct {
+	*handler.BP
+}
+
+func (q *queryIsEDNS0) Match(_ context.Context, qCtx *handler.Context) (matched bool, err error) {
+	return qCtx.Q().IsEdns0() != nil, nil
 }
