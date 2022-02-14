@@ -279,19 +279,20 @@ func (t *Transport) exchangeNoPipeline(ctx context.Context, q []byte) (*pool.Buf
 // The idle time of *noPipelineConn is still within Transport.IdleTimeout
 // but may be unusable.
 func (t *Transport) getNoPipelineConn() (c *noPipelineConn, reused bool, err error) {
+	// Get a connection from pool.
 	t.opm.Lock()
 	for c = range t.opConns {
-		if ok := c.stopIdle(); !ok { // Conn is already dead.
+		delete(t.opConns, c)
+		if ok := c.stopIdle(); ok {
+			t.opm.Unlock()
+			return c, true, nil
+		} else { // Conn is already dead.
 			c.close()
-			delete(t.opConns, c)
 		}
-		break
 	}
 	t.opm.Unlock()
-	if c != nil {
-		return c, true, nil
-	}
 
+	// Dial a new connection.
 	ctx, cancel := context.WithTimeout(context.Background(), t.dialTimeout())
 	defer cancel()
 	conn, err := t.DialFunc(ctx)
