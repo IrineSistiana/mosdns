@@ -67,22 +67,20 @@ type Opt struct {
 	Socks5 string
 
 	// IdleTimeout used by tcp, dot, doh to control connection idle timeout.
-	// If zero, tcp, dot will not reuse connections.
-	// Default: tcp & dot: 0 (disable connection reuse), doh: 30s.
+	// If negative, tcp, dot will not reuse connections.
+	// Default: tcp & dot: 10s , doh: 30s.
 	IdleTimeout time.Duration
 
-	// MaxConns limits the total number of connections when,
-	// including connections in the dialing states.
-	// Used by tcp, dot, doh. Default: 1.
-	MaxConns int
+	// EnablePipeline enables the query pipelining as RFC 7766 6.2.1.1 suggested.
+	// Available for tcp/dot upstream with IdleTimeout >= 0.
+	EnablePipeline bool
 
-	// If DisablePipeline is set and IdleTimeout > 0, the udp, tcp, dot upstream will
-	// still reuse connections but will not pipeline its queries.
-	// Each connection will have only one query on-the-flight.
-	// The MaxConns will be ignored.
-	// Use it only when you have to connect to a server that supports connection
-	// reuse but doesn't support out-of-order response.
-	DisablePipeline bool
+	// MaxConns limits the total number of connections, including connections
+	// in the dialing states.
+	// MaxConns takes effect on tcp/dot upstream with IdleTimeout >= 0 and EnablePipeline.
+	// And doh upstream.
+	// Default is 1.
+	MaxConns int
 
 	// TLSConfig specifies the tls.Config that the TLS client will use.
 	// Used by dot, doh.
@@ -143,8 +141,9 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 				copy(b.Bytes(), rb[:n])
 				return b, n, nil
 			},
-			MaxConns:    opt.MaxConns,
-			IdleTimeout: time.Second * 60,
+			EnablePipeline: true,
+			MaxConns:       opt.MaxConns,
+			IdleTimeout:    time.Second * 60,
 		}
 		tt := &Transport{
 			Logger: opt.Logger,
@@ -152,9 +151,8 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 				d := net.Dialer{}
 				return d.DialContext(ctx, "tcp", dialAddr)
 			},
-			WriteFunc:   dnsutils.WriteRawMsgToTCP,
-			ReadFunc:    dnsutils.ReadRawMsgFromTCP,
-			IdleTimeout: 0,
+			WriteFunc: dnsutils.WriteRawMsgToTCP,
+			ReadFunc:  dnsutils.ReadRawMsgFromTCP,
 		}
 		return &udpWithFallback{
 			u: ut,
@@ -167,11 +165,11 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
 				return dialTCP(ctx, dialAddr, opt.Socks5)
 			},
-			WriteFunc:       dnsutils.WriteRawMsgToTCP,
-			ReadFunc:        dnsutils.ReadRawMsgFromTCP,
-			IdleTimeout:     opt.IdleTimeout,
-			DisablePipeline: opt.DisablePipeline,
-			MaxConns:        opt.MaxConns,
+			WriteFunc:      dnsutils.WriteRawMsgToTCP,
+			ReadFunc:       dnsutils.ReadRawMsgFromTCP,
+			IdleTimeout:    opt.IdleTimeout,
+			EnablePipeline: opt.EnablePipeline,
+			MaxConns:       opt.MaxConns,
 		}
 		return t, nil
 	case "tls":
@@ -200,11 +198,11 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 				}
 				return tlsConn, nil
 			},
-			WriteFunc:       dnsutils.WriteRawMsgToTCP,
-			ReadFunc:        dnsutils.ReadRawMsgFromTCP,
-			IdleTimeout:     opt.IdleTimeout,
-			DisablePipeline: opt.DisablePipeline,
-			MaxConns:        opt.MaxConns,
+			WriteFunc:      dnsutils.WriteRawMsgToTCP,
+			ReadFunc:       dnsutils.ReadRawMsgFromTCP,
+			IdleTimeout:    opt.IdleTimeout,
+			EnablePipeline: opt.EnablePipeline,
+			MaxConns:       opt.MaxConns,
 		}
 		return t, nil
 	case "https":

@@ -36,11 +36,12 @@ var (
 	errConnExhausted = errors.New("connection exhausted")
 )
 
-var (
+const (
+	defaultIdleTimeout            = time.Second * 10
 	defaultDialTimeout            = time.Second * 5
 	defaultNoPipelineQueryTimeout = time.Second * 5
 	defaultMaxConns               = 1
-	defaultMaxQueryPerConn        = uint16(65535)
+	defaultMaxQueryPerConn        = 65535
 )
 
 // Transport is a DNS msg transport that supposes DNS over UDP,TCP,TLS.
@@ -66,36 +67,32 @@ type Transport struct {
 	// Default is defaultDialTimeout.
 	DialTimeout time.Duration
 
-	// MaxConns controls the maximum connections Transport can open.
+	// IdleTimeout controls the maximum idle time for each connection.
+	// If IdleTimeout < 0, Transport will not reuse connections.
+	// Default is defaultIdleTimeout.
+	IdleTimeout time.Duration
+
+	// If EnablePipeline is set and IdleTimeout > 0, the Transport will pipeline
+	// queries as RFC 7766 6.2.1.1 suggested.
+	EnablePipeline bool
+
+	// MaxConns controls the maximum pipeline connections Transport can open.
 	// It includes dialing connections.
 	// Default is 1.
 	// Each connection can handle no more than 65535 queries concurrently.
 	// Typically, it is very rare reaching that limit.
 	MaxConns int
 
-	// MaxQueryPerConn controls the maximum queries that one connection
-	// handled. The connection will be closed if it reached the limit.
+	// MaxQueryPerConn controls the maximum queries that one pipeline connection
+	// can handle. The connection will be closed if it reached the limit.
 	// Default is 65535.
 	MaxQueryPerConn uint16
 
-	// IdleTimeout controls the maximum idle time for each connection.
-	// If IdleTimeout <= 0, Transport will not reuse connections.
-	IdleTimeout time.Duration
+	pm     sync.Mutex // protect the following lazy init fields
+	pConns map[*pipelineConn]struct{}
+	dCalls map[*pipelineDialCall]struct{}
 
-	// If DisablePipeline is set, the Transport will still reuse connections
-	// but will not pipeline its queries. Each connection will have only one query
-	// on-the-flight.
-	// The MaxConns and MaxQueryPerConn will be ignored.
-	// Use it only when you have to connect to a server that supports connection
-	// reuse but doesn't support out-of-order response.
-	DisablePipeline bool
-
-	cm          sync.Mutex // protect the following lazy init fields
-	clientConns map[*clientConn]struct{}
-	dCalls      map[*dialCall]struct{}
-
-	// No pip
-	opm     sync.Mutex
+	opm     sync.Mutex // protect the following lazy init fields
 	opConns map[*noPipelineConn]struct{}
 }
 
@@ -104,6 +101,13 @@ func (t *Transport) logger() *zap.Logger {
 		return l
 	}
 	return nopLogger
+}
+
+func (t *Transport) idleTimeout() time.Duration {
+	if t.IdleTimeout == 0 {
+		return defaultIdleTimeout
+	}
+	return t.IdleTimeout
 }
 
 // readMustHasHeader reads a dns msg from c. It will return a
@@ -143,25 +147,25 @@ func (t *Transport) maxQueryPerConn() uint16 {
 }
 
 func (t *Transport) ExchangeContext(ctx context.Context, q []byte) (*pool.Buffer, error) {
-	if t.IdleTimeout <= 0 { // no conn reuse.
-		return t.exchangeNoKeepAlive(ctx, q)
+	if t.idleTimeout() <= 0 {
+		return t.exchangeNoConnReuse(ctx, q)
 	}
 
-	if t.DisablePipeline {
-		return t.exchangeNoPipeline(ctx, q)
+	if t.EnablePipeline {
+		return t.exchangePipelineConnReuse(ctx, q)
 	}
 
-	return t.exchangePipeline(ctx, q)
+	return t.exchangeConnReuse(ctx, q)
 }
 
 func (t *Transport) CloseIdleConnections() {
-	t.cm.Lock()
-	for conn := range t.clientConns {
+	t.pm.Lock()
+	for conn := range t.pConns {
 		if conn.onGoingQuery() == 0 {
 			conn.closeAndCleanup(errEOL)
 		}
 	}
-	t.cm.Unlock()
+	t.pm.Unlock()
 
 	t.opm.Lock()
 	for conn := range t.opConns {
@@ -171,11 +175,11 @@ func (t *Transport) CloseIdleConnections() {
 	t.opm.Unlock()
 }
 
-func (t *Transport) exchangePipeline(ctx context.Context, q []byte) (*pool.Buffer, error) {
+func (t *Transport) exchangePipelineConnReuse(ctx context.Context, q []byte) (*pool.Buffer, error) {
 	start := time.Now()
 	retry := 0
 	for {
-		conn, reusedConn, qId, err := t.getConn(ctx)
+		conn, reusedConn, qId, err := t.getPipelineConn(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("no available connection, %w", err)
 		}
@@ -196,7 +200,7 @@ func (t *Transport) exchangePipeline(ctx context.Context, q []byte) (*pool.Buffe
 	}
 }
 
-func (t *Transport) exchangeNoKeepAlive(ctx context.Context, q []byte) (*pool.Buffer, error) {
+func (t *Transport) exchangeNoConnReuse(ctx context.Context, q []byte) (*pool.Buffer, error) {
 	conn, err := t.DialFunc(ctx)
 	if err != nil {
 		return nil, err
@@ -234,7 +238,7 @@ func (t *Transport) exchangeNoKeepAlive(ctx context.Context, q []byte) (*pool.Bu
 	}
 }
 
-func (t *Transport) exchangeNoPipeline(ctx context.Context, q []byte) (*pool.Buffer, error) {
+func (t *Transport) exchangeConnReuse(ctx context.Context, q []byte) (*pool.Buffer, error) {
 	type result struct {
 		b   *pool.Buffer
 		err error
@@ -310,29 +314,29 @@ func (t *Transport) releaseNoPipelineConn(c *noPipelineConn) {
 	t.opConns[c] = struct{}{}
 }
 
-func (t *Transport) removeConn(conn *clientConn) {
-	t.cm.Lock()
-	delete(t.clientConns, conn)
-	t.cm.Unlock()
+func (t *Transport) removeConn(conn *pipelineConn) {
+	t.pm.Lock()
+	delete(t.pConns, conn)
+	t.pm.Unlock()
 }
 
-type dialCall struct {
+type pipelineDialCall struct {
 	waitingQId uint16 // indicates how many queries are there waiting.
 
 	done chan struct{}
-	c    *clientConn // will be ready after done is closed.
+	c    *pipelineConn // will be ready after done is closed.
 	err  error
 }
 
-func (t *Transport) getConn(ctx context.Context) (conn *clientConn, reusedConn bool, qId uint16, err error) {
-	t.cm.Lock()
+func (t *Transport) getPipelineConn(ctx context.Context) (conn *pipelineConn, reusedConn bool, qId uint16, err error) {
+	t.pm.Lock()
 
-	var availableConn *clientConn
-	for c := range t.clientConns {
+	var availableConn *pipelineConn
+	for c := range t.pConns {
 		if c.qId >= t.maxQueryPerConn() { // This connection has served too many queries.
 			// Note: the connection will close and clean up itself after its last query finished.
 			// We can't close it here. Some queries may still on that connection.
-			delete(t.clientConns, c)
+			delete(t.pConns, c)
 			continue
 		}
 		availableConn = c
@@ -342,17 +346,17 @@ func (t *Transport) getConn(ctx context.Context) (conn *clientConn, reusedConn b
 	if availableConn != nil && availableConn.onGoingQuery() == 0 { // An idle connection.
 		availableConn.qId++
 		qId = availableConn.qId
-		t.cm.Unlock()
+		t.pm.Unlock()
 		return availableConn, true, qId, nil
 	}
 
-	var dCall *dialCall
-	if len(t.clientConns)+len(t.dCalls) >= t.maxConns() {
+	var dCall *pipelineDialCall
+	if len(t.pConns)+len(t.dCalls) >= t.maxConns() {
 		// We have reached the limit and can't open a new connection.
 		if availableConn != nil { // We will reuse the connection.
 			availableConn.qId++
 			qId = availableConn.qId
-			t.cm.Unlock()
+			t.pm.Unlock()
 			return availableConn, true, qId, nil
 		}
 
@@ -370,10 +374,10 @@ func (t *Transport) getConn(ctx context.Context) (conn *clientConn, reusedConn b
 	} else {
 		// No idle connection. Still can dial a new connection.
 		// Dial it now. More connection, more stability.
-		dCall = t.asyncDialLocked()
+		dCall = t.asyncPipelineDialLocked()
 		qId = 0
 	}
-	t.cm.Unlock()
+	t.pm.Unlock()
 
 	if dCall == nil {
 		return nil, false, 0, errConnExhausted
@@ -392,13 +396,13 @@ func (t *Transport) getConn(ctx context.Context) (conn *clientConn, reusedConn b
 	}
 }
 
-// asyncDialLocked dials server in another goroutine.
-// It must be called when t.cm is locked.
-func (t *Transport) asyncDialLocked() *dialCall {
-	dCall := new(dialCall)
+// asyncPipelineDialLocked dials server in another goroutine.
+// It must be called when t.pm is locked.
+func (t *Transport) asyncPipelineDialLocked() *pipelineDialCall {
+	dCall := new(pipelineDialCall)
 	dCall.done = make(chan struct{})
 	if t.dCalls == nil {
-		t.dCalls = make(map[*dialCall]struct{})
+		t.dCalls = make(map[*pipelineDialCall]struct{})
 	}
 	t.dCalls[dCall] = struct{}{} // add it to dCalls
 
@@ -409,23 +413,23 @@ func (t *Transport) asyncDialLocked() *dialCall {
 		if err != nil {
 			dCall.err = err
 			close(dCall.done)
-			t.cm.Lock()
+			t.pm.Lock()
 			delete(t.dCalls, dCall)
-			t.cm.Unlock()
+			t.pm.Unlock()
 			return
 		}
 		dConn := newClientConn(t, c)
 		dCall.c = dConn
 		close(dCall.done)
 
-		t.cm.Lock()
+		t.pm.Lock()
 		delete(t.dCalls, dCall)
 		dConn.qId = dCall.waitingQId
-		if t.clientConns == nil {
-			t.clientConns = make(map[*clientConn]struct{})
+		if t.pConns == nil {
+			t.pConns = make(map[*pipelineConn]struct{})
 		}
-		t.clientConns[dConn] = struct{}{} // add dConn to clientConns
-		t.cm.Unlock()
+		t.pConns[dConn] = struct{}{} // add dConn to pConns
+		t.pm.Unlock()
 
 		t.logger().Debug("new connection established", zap.Uint32("id", dConn.connId))
 		dConn.readLoop() // no need to start a new goroutine
@@ -433,7 +437,7 @@ func (t *Transport) asyncDialLocked() *dialCall {
 	return dCall
 }
 
-type clientConn struct {
+type pipelineConn struct {
 	t   *Transport
 	qId uint16 // Managed and protected by t.
 
@@ -445,15 +449,15 @@ type clientConn struct {
 
 	cleanOnce sync.Once
 	closeChan chan struct{}
-	closeErr  error // will be ready after clientConn is closed
+	closeErr  error // will be ready after pipelineConn is closed
 
 	connId uint32 // Only for logging.
 }
 
 var connIdCounter uint32
 
-func newClientConn(t *Transport, c net.Conn) *clientConn {
-	return &clientConn{
+func newClientConn(t *Transport, c net.Conn) *pipelineConn {
+	return &pipelineConn{
 		t:         t,
 		c:         c,
 		queue:     make(map[uint16]chan *pool.Buffer),
@@ -463,7 +467,7 @@ func newClientConn(t *Transport, c net.Conn) *clientConn {
 	}
 }
 
-func (c *clientConn) exchange(ctx context.Context, q []byte, qId uint16) (*pool.Buffer, error) {
+func (c *pipelineConn) exchange(ctx context.Context, q []byte, qId uint16) (*pool.Buffer, error) {
 	resChan := make(chan *pool.Buffer, 1)
 
 	c.qm.Lock()
@@ -516,7 +520,7 @@ func (c *clientConn) exchange(ctx context.Context, q []byte, qId uint16) (*pool.
 	}
 }
 
-func (c *clientConn) notifyExchange(r *pool.Buffer) {
+func (c *pipelineConn) notifyExchange(r *pool.Buffer) {
 	c.qm.RLock()
 	resChan, ok := c.queue[getMsgId(r.Bytes())]
 	c.qm.RUnlock()
@@ -528,9 +532,9 @@ func (c *clientConn) notifyExchange(r *pool.Buffer) {
 	}
 }
 
-func (c *clientConn) readLoop() {
+func (c *pipelineConn) readLoop() {
 	for {
-		c.c.SetReadDeadline(time.Now().Add(c.t.IdleTimeout))
+		c.c.SetReadDeadline(time.Now().Add(c.t.idleTimeout()))
 		m, _, err := c.t.readMustHasHeader(c.c)
 		if err != nil {
 			c.closeAndCleanup(err) // abort this connection.
@@ -542,7 +546,7 @@ func (c *clientConn) readLoop() {
 	}
 }
 
-func (c *clientConn) closeAndCleanup(err error) {
+func (c *pipelineConn) closeAndCleanup(err error) {
 	c.cleanOnce.Do(func() {
 		c.t.removeConn(c)
 		c.c.Close()
@@ -553,7 +557,7 @@ func (c *clientConn) closeAndCleanup(err error) {
 	})
 }
 
-func (c *clientConn) onGoingQuery() int {
+func (c *pipelineConn) onGoingQuery() int {
 	c.qm.RLock()
 	defer c.qm.RUnlock()
 
@@ -607,9 +611,9 @@ func (nc *noPipelineConn) startIdle() {
 	}
 
 	if nc.idleTimeoutTimer != nil {
-		nc.idleTimeoutTimer.Reset(nc.t.IdleTimeout)
+		nc.idleTimeoutTimer.Reset(nc.t.idleTimeout())
 	} else {
-		nc.idleTimeoutTimer = time.AfterFunc(nc.t.IdleTimeout, func() {
+		nc.idleTimeoutTimer = time.AfterFunc(nc.t.idleTimeout(), func() {
 			nc.close()
 		})
 	}

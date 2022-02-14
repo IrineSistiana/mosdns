@@ -64,7 +64,7 @@ type UpstreamConfig struct {
 
 	IdleTimeout        int  `yaml:"idle_timeout"`
 	MaxConns           int  `yaml:"max_conns"`
-	DisablePipeline    bool `yaml:"disable_pipeline"`
+	EnablePipeline     bool `yaml:"enable_pipeline"`
 	InsecureSkipVerify bool `yaml:"insecure_skip_verify"`
 }
 
@@ -100,11 +100,11 @@ func newFastForward(bp *handler.BP, args *Args) (*fastForward, error) {
 		}
 
 		opt := &upstream.Opt{
-			DialAddr:        c.DialAddr,
-			Socks5:          c.Socks5,
-			IdleTimeout:     time.Duration(c.IdleTimeout) * time.Second,
-			MaxConns:        c.MaxConns,
-			DisablePipeline: c.DisablePipeline,
+			DialAddr:       c.DialAddr,
+			Socks5:         c.Socks5,
+			IdleTimeout:    time.Duration(c.IdleTimeout) * time.Second,
+			MaxConns:       c.MaxConns,
+			EnablePipeline: c.EnablePipeline,
 			TLSConfig: &tls.Config{
 				InsecureSkipVerify: c.InsecureSkipVerify,
 				RootCAs:            rootCAs,
