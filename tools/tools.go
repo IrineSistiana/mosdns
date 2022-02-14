@@ -18,6 +18,7 @@
 package tools
 
 import (
+	"crypto/rand"
 	"crypto/tls"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/mlog"
@@ -29,11 +30,20 @@ import (
 	"io"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
 
 func ProbServerTimeout(addr string) error {
+	tryAddPort := func(addr string, defaultPort int) string {
+		_, _, err := net.SplitHostPort(addr)
+		if err != nil { // no port, add it.
+			return net.JoinHostPort(addr, strconv.Itoa(defaultPort))
+		}
+		return addr
+	}
+
 	isTLS := false
 	protocol, host := utils.SplitSchemeAndHost(addr)
 	if len(protocol) == 0 || len(host) == 0 {
@@ -43,75 +53,170 @@ func ProbServerTimeout(addr string) error {
 	switch protocol {
 	case "tcp":
 		isTLS = false
+		host = tryAddPort(host, 53)
 	case "dot", "tls":
 		isTLS = true
+		host = tryAddPort(host, 853)
 	default:
 		return fmt.Errorf("invalid protocol %s", protocol)
 	}
 
-	q := new(dns.Msg)
-	q.SetQuestion("www.google.com.", dns.TypeA)
-
-	var conn net.Conn
-	var err error
-
-	mlog.S().Infof("connecting to %s", addr)
-	if isTLS {
-		serverName, _, _ := net.SplitHostPort(host)
-		tlsConfig := new(tls.Config)
-		tlsConfig.InsecureSkipVerify = false
-		tlsConfig.ServerName = serverName
-		conn, err = net.Dial("tcp", host)
-		if err != nil {
-			return fmt.Errorf("failed to dial connection: %v", err)
+	dialServer := func() (*dns.Conn, error) {
+		var conn net.Conn
+		var err error
+		if isTLS {
+			serverName, _, _ := net.SplitHostPort(host)
+			tlsConfig := new(tls.Config)
+			tlsConfig.InsecureSkipVerify = false
+			tlsConfig.ServerName = serverName
+			conn, err = net.Dial("tcp", host)
+			if err != nil {
+				return nil, err
+			}
+			tlsConn := tls.Client(conn, tlsConfig)
+			tlsConn.SetDeadline(time.Now().Add(time.Second * 5))
+			err = tlsConn.Handshake()
+			if err != nil {
+				conn.Close()
+				return nil, fmt.Errorf("tls handshake failed: %v", err)
+			}
+			tlsConn.SetDeadline(time.Time{})
+			conn = tlsConn
+		} else {
+			conn, err = net.Dial("tcp", host)
+			if err != nil {
+				return nil, err
+			}
 		}
-		tlsConn := tls.Client(conn, tlsConfig)
-		tlsConn.SetDeadline(time.Now().Add(time.Second * 5))
-		mlog.S().Info("connected, start TLS handshaking")
-		err = tlsConn.Handshake()
+		return &dns.Conn{Conn: conn}, nil
+	}
+
+	testBasicReuse := func() error {
+		conn, err := dialServer()
 		if err != nil {
-			return fmt.Errorf("tls handshake failed: %v", err)
+			return err
 		}
-		mlog.S().Info("TLS handshake completed", tlsConn.ConnectionState().ServerName)
-		mlog.S().Infof("Server name: %s", tlsConn.ConnectionState().ServerName)
-		mlog.S().Infof("TLS version: %x", tlsConn.ConnectionState().Version)
-		mlog.S().Infof("TLS cipher suite: %s", tls.CipherSuiteName(tlsConn.ConnectionState().CipherSuite))
-		conn = tlsConn
+		defer conn.Close()
+		for i := 0; i < 3; i++ {
+			conn.SetDeadline(time.Now().Add(time.Second * 3))
+
+			q := new(dns.Msg)
+			q.SetQuestion("www.cloudflare.com.", dns.TypeA)
+			q.Id = uint16(i)
+
+			err = conn.WriteMsg(q)
+			if err != nil {
+				return fmt.Errorf("failed to write #%d probe msg: %v", i, err)
+			}
+			_, err = conn.ReadMsg()
+			if err != nil {
+				return fmt.Errorf("failed to read probe #%d msg response: %v", i, err)
+			}
+		}
+		return nil
+	}
+
+	testOOOPipeline := func() (bool, error) {
+		conn, err := dialServer()
+		if err != nil {
+			return false, err
+		}
+		defer conn.Close()
+		domains := make([]string, 0)
+		for i := 0; i < 4; i++ {
+			b := make([]byte, 8)
+			if _, err := rand.Read(b); err != nil {
+				return false, err
+			}
+			domains = append(domains, fmt.Sprintf("www.%x.com.", b))
+		}
+		domains = append(domains, "www.cloudflare.com.")
+
+		for i, d := range domains {
+			conn.SetDeadline(time.Now().Add(time.Second * 10))
+
+			q := new(dns.Msg)
+			q.SetQuestion(d, dns.TypeA)
+			q.Id = uint16(i)
+
+			err = conn.WriteMsg(q)
+			if err != nil {
+				return false, fmt.Errorf("failed to write #%d probe msg: %v", i, err)
+			}
+		}
+
+		oooPassed := false
+		start := time.Now()
+		for i := range domains {
+			conn.SetDeadline(time.Now().Add(time.Second * 10))
+			m, err := conn.ReadMsg()
+			if err != nil {
+				return false, fmt.Errorf("failed to read probe #%d msg response: %v", i, err)
+			}
+
+			mlog.S().Infof("#%d response received, latency: %d ms", m.Id, time.Since(start).Milliseconds())
+			if m.Id != uint16(i) {
+				oooPassed = true
+				break
+			}
+		}
+
+		return oooPassed, nil
+	}
+
+	waitIdleTimeout := func() error {
+		conn, err := dialServer()
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
+
+		q := new(dns.Msg)
+		q.SetQuestion("www.cloudflare.com.", dns.TypeA)
+
+		err = conn.WriteMsg(q)
+		if err != nil {
+			return fmt.Errorf("failed to write probe msg: %v", err)
+		}
+		_, err = conn.ReadMsg()
+		if err != nil {
+			return fmt.Errorf("failed to read probe msg response: %v", err)
+		}
+
+		for {
+			_, err := conn.ReadMsg()
+			if err != nil {
+				break
+			}
+		}
+		return nil
+	}
+
+	mlog.S().Info("testing basic connection reuse")
+	if err := testBasicReuse(); err != nil {
+		mlog.S().Infof("× test failed: %v", err)
 	} else {
-		conn, err = net.Dial("tcp", host)
-		if err != nil {
-			return fmt.Errorf("can not connect to server: %v", err)
-		}
+		mlog.S().Info("√ basic connection reuse test passed")
 	}
-	defer conn.Close()
-	mlog.S().Info("server connected")
-	mlog.S().Info("starting rfc 7766 tcp connection reuse test")
 
-	for i := 0; i < 3; i++ {
-		conn.SetDeadline(time.Now().Add(time.Second * 3))
-		dc := dns.Conn{Conn: conn}
-		err = dc.WriteMsg(q)
-		if err != nil {
-			return fmt.Errorf("test failed: failed to write probe msg: %v", err)
-		}
-		_, err = dc.ReadMsg()
-		if err != nil {
-			return fmt.Errorf("test failed: failed to read probe msg response: %v", err)
+	mlog.S().Info("testing out-of-order pipeline")
+	if ok, err := testOOOPipeline(); err != nil {
+		mlog.S().Infof("× test failed: %v", err)
+	} else {
+		if ok {
+			mlog.S().Info("√ out-of-order pipeline test passed")
+		} else {
+			mlog.S().Info("? test finished, no out-of-order responses")
 		}
 	}
 
-	mlog.S().Info("test passed, this server supports RFC 7766 and connection reuse")
-	mlog.S().Info("testing server idle timeout. this may take a while...")
-	mlog.S().Info("if you think its long enough, to cancel the test, press Ctrl + C")
-	conn.SetDeadline(time.Now().Add(time.Minute * 60))
-
+	mlog.S().Info("testing idle timeout, awaiting server closing the connection, this may take a while")
 	start := time.Now()
-	buf := make([]byte, 1024)
-	n, err := conn.Read(buf)
-	if err == nil {
-		return fmt.Errorf("recieved unexpected data from peer: %v", buf[:n])
+	if err := waitIdleTimeout(); err != nil {
+		mlog.S().Infof("× test failed: %v", err)
+	} else {
+		mlog.S().Infof("√ connection closed by the server, its idle timeout is %.2f sec", time.Since(start).Seconds())
 	}
-	mlog.S().Infof("connection closed by the server, its idle timeout is %.2f sec", time.Since(start).Seconds())
 	return nil
 }
 
