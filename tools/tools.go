@@ -110,7 +110,7 @@ func ProbServerTimeout(addr string) error {
 			}
 			_, err = conn.ReadMsg()
 			if err != nil {
-				return fmt.Errorf("failed to read probe #%d msg response: %v", i, err)
+				return fmt.Errorf("failed to read #%d probe msg response: %v", i, err)
 			}
 		}
 		return nil
@@ -151,7 +151,7 @@ func ProbServerTimeout(addr string) error {
 			conn.SetDeadline(time.Now().Add(time.Second * 10))
 			m, err := conn.ReadMsg()
 			if err != nil {
-				return false, fmt.Errorf("failed to read probe #%d msg response: %v", i, err)
+				return false, fmt.Errorf("failed to read #%d probe msg response: %v", i, err)
 			}
 
 			mlog.S().Infof("#%d response received, latency: %d ms", m.Id, time.Since(start).Milliseconds())
@@ -195,6 +195,7 @@ func ProbServerTimeout(addr string) error {
 	mlog.S().Info("testing basic connection reuse")
 	if err := testBasicReuse(); err != nil {
 		mlog.S().Infof("× test failed: %v", err)
+		return nil // bypass the following tests if the basic test failed.
 	} else {
 		mlog.S().Info("√ basic connection reuse test passed")
 	}
