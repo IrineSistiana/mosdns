@@ -24,6 +24,8 @@ import (
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/pool"
 	"github.com/go-redis/redis/v8"
 	"go.uber.org/zap"
+	"math/rand"
+	"sync/atomic"
 	"time"
 )
 
@@ -40,6 +42,8 @@ type RedisCache struct {
 	// Logger is the *zap.Logger for this RedisCache.
 	// A nil Logger will disable logging.
 	Logger *zap.Logger
+
+	clientDisabled uint32
 }
 
 func (r *RedisCache) logger() *zap.Logger {
@@ -56,13 +60,32 @@ func (r *RedisCache) clientTimeout() time.Duration {
 	return time.Millisecond * 50
 }
 
+func (r *RedisCache) disabled() bool {
+	return atomic.LoadUint32(&r.clientDisabled) != 0
+}
+
+func (r *RedisCache) disableClient() {
+	if atomic.CompareAndSwapUint32(&r.clientDisabled, 0, 1) {
+		next := time.Duration(rand.Intn(1000))*time.Millisecond + time.Second // 1.x s
+		r.logger().Warn("redis temporarily disabled", zap.Duration("duration", next))
+		time.AfterFunc(next, func() {
+			atomic.StoreUint32(&r.clientDisabled, 0)
+		})
+	}
+}
+
 func (r *RedisCache) Get(key string) (v []byte, storedTime, expirationTime time.Time) {
+	if r.disabled() {
+		return nil, time.Time{}, time.Time{}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), r.clientTimeout())
 	defer cancel()
 	b, err := r.Client.Get(ctx, key).Bytes()
 	if err != nil {
 		if err != redis.Nil {
 			r.logger().Warn("redis get", zap.Error(err))
+			r.disableClient()
 		}
 		return nil, time.Time{}, time.Time{}
 	}
@@ -77,6 +100,10 @@ func (r *RedisCache) Get(key string) (v []byte, storedTime, expirationTime time.
 
 // Store stores kv into redis asynchronously.
 func (r *RedisCache) Store(key string, v []byte, storedTime, expirationTime time.Time) {
+	if r.disabled() {
+		return
+	}
+
 	now := time.Now()
 	ttl := expirationTime.Sub(now)
 	if ttl <= 0 { // For redis, zero ttl means the key has no expiration time.
@@ -91,6 +118,7 @@ func (r *RedisCache) Store(key string, v []byte, storedTime, expirationTime time
 		defer cancel()
 		if err := r.Client.Set(ctx, key, data.Bytes(), ttl).Err(); err != nil {
 			r.logger().Warn("redis set", zap.Error(err))
+			r.disableClient()
 		}
 	}()
 }
