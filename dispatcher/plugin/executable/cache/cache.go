@@ -26,6 +26,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/cache/redis_cache"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/utils"
+	"github.com/go-redis/redis/v8"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"golang.org/x/sync/singleflight"
@@ -52,6 +53,7 @@ var _ handler.ExecutablePlugin = (*cachePlugin)(nil)
 type Args struct {
 	Size              int    `yaml:"size"`
 	Redis             string `yaml:"redis"`
+	RedisTimeout      int    `yaml:"redis_timeout"`
 	LazyCacheTTL      int    `yaml:"lazy_cache_ttl"`
 	LazyCacheReplyTTL int    `yaml:"lazy_cache_reply_ttl"`
 	CacheEverything   bool   `yaml:"cache_everything"`
@@ -71,11 +73,16 @@ func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
 
 func newCachePlugin(bp *handler.BP, args *Args) (*cachePlugin, error) {
 	var c cache.Backend
-	var err error
 	if len(args.Redis) != 0 {
-		c, err = redis_cache.NewRedisCache(args.Redis)
+		opt, err := redis.ParseURL(args.Redis)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("invalid redis url, %w", err)
+		}
+		opt.MaxRetries = -1
+		c = &redis_cache.RedisCache{
+			Client:        redis.NewClient(opt),
+			ClientTimeout: time.Duration(args.RedisTimeout) * time.Millisecond,
+			Logger:        bp.L(),
 		}
 	} else {
 		c = mem_cache.NewMemCache(args.Size, 0)
@@ -107,16 +114,13 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *handler.Context, next hand
 		return handler.ExecChainNode(ctx, qCtx, next)
 	}
 
-	key, err := utils.GetMsgKey(q, 0)
+	msgKey, err := utils.GetMsgKey(q, 0)
 	if err != nil {
 		return fmt.Errorf("failed to get msg key, %w", err)
 	}
 
 	// lookup in cache
-	v, storedTime, _, err := c.backend.Get(ctx, key)
-	if err != nil {
-		return fmt.Errorf("unable to access cache, %w", err)
-	}
+	v, storedTime, _ := c.backend.Get(msgKey)
 
 	// cache hit
 	if v != nil {
@@ -154,7 +158,7 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *handler.Context, next hand
 			lazyQCtx := qCtx.Copy()
 			lazyUpdateFunc := func() (interface{}, error) {
 				c.L().Debug("start lazy cache update", lazyQCtx.InfoField(), zap.Error(err))
-				defer c.lazyUpdateSF.Forget(key)
+				defer c.lazyUpdateSF.Forget(msgKey)
 				lazyCtx, cancel := context.WithDeadline(context.Background(), lazyUpdateDdl)
 				defer cancel()
 
@@ -165,15 +169,12 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *handler.Context, next hand
 
 				r := lazyQCtx.R()
 				if r != nil {
-					err := c.tryStoreMsg(lazyCtx, key, r)
-					if err != nil {
-						c.L().Warn("failed to store lazy cache", lazyQCtx.InfoField(), zap.Error(err))
-					}
+					c.tryStoreMsg(msgKey, r)
 				}
 				c.L().Debug("lazy cache updated", lazyQCtx.InfoField())
 				return nil, nil
 			}
-			c.lazyUpdateSF.DoChan(key, lazyUpdateFunc) // DoChan won't block this goroutine
+			c.lazyUpdateSF.DoChan(msgKey, lazyUpdateFunc) // DoChan won't block this goroutine
 			return nil
 		}
 	}
@@ -183,23 +184,21 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *handler.Context, next hand
 	err = handler.ExecChainNode(ctx, qCtx, next)
 	r := qCtx.R()
 	if r != nil {
-		err := c.tryStoreMsg(ctx, key, r)
-		if err != nil {
-			c.L().Warn("failed to store cache", qCtx.InfoField(), zap.Error(err))
-		}
+		c.tryStoreMsg(msgKey, r)
 	}
 	return err
 }
 
 // tryStoreMsg tries to store r to cache. If r should be cached.
-func (c *cachePlugin) tryStoreMsg(ctx context.Context, key string, r *dns.Msg) error {
+func (c *cachePlugin) tryStoreMsg(key string, r *dns.Msg) {
 	if r.Rcode != dns.RcodeSuccess || r.Truncated != false {
-		return nil
+		return
 	}
 
 	v, err := r.Pack()
 	if err != nil {
-		return fmt.Errorf("failed to pack msg, %w", err)
+		c.L().Warn("failed to pack msg", zap.Error(err))
+		return
 	}
 
 	now := time.Now()
@@ -209,11 +208,11 @@ func (c *cachePlugin) tryStoreMsg(ctx context.Context, key string, r *dns.Msg) e
 	} else {
 		minTTL := dnsutils.GetMinimalTTL(r)
 		if minTTL == 0 {
-			return nil
+			return
 		}
 		expirationTime = now.Add(time.Duration(minTTL) * time.Second)
 	}
-	return c.backend.Store(ctx, key, v, now, expirationTime)
+	c.backend.Store(key, v, now, expirationTime)
 }
 
 func (c *cachePlugin) Shutdown() error {

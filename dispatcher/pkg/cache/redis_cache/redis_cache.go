@@ -21,61 +21,83 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/pool"
 	"github.com/go-redis/redis/v8"
+	"go.uber.org/zap"
 	"time"
 )
 
+var nopLogger = zap.NewNop()
+
 type RedisCache struct {
-	client *redis.Client
+	// Client is the redis.Client. This must not be nil.
+	Client *redis.Client
+
+	// ClientTimeout specifies the timeout for read and write operations.
+	// Default is 50ms.
+	ClientTimeout time.Duration
+
+	// Logger is the *zap.Logger for this RedisCache.
+	// A nil Logger will disable logging.
+	Logger *zap.Logger
 }
 
-// NewRedisCache returns a Redis cache specified by the url.
-// For the format of this url, see redis.ParseURL.
-func NewRedisCache(url string) (*RedisCache, error) {
-	opt, err := redis.ParseURL(url)
-	if err != nil {
-		return nil, err
+func (r *RedisCache) logger() *zap.Logger {
+	if l := r.Logger; l != nil {
+		return l
 	}
-
-	c := redis.NewClient(opt)
-	return &RedisCache{client: c}, nil
+	return nopLogger
 }
 
-func (r *RedisCache) Get(ctx context.Context, key string) (v []byte, storedTime, expirationTime time.Time, err error) {
-	b, err := r.client.Get(ctx, key).Bytes()
+func (r *RedisCache) clientTimeout() time.Duration {
+	if t := r.ClientTimeout; t > 0 {
+		return t
+	}
+	return time.Millisecond * 50
+}
+
+func (r *RedisCache) Get(key string) (v []byte, storedTime, expirationTime time.Time) {
+	ctx, cancel := context.WithTimeout(context.Background(), r.clientTimeout())
+	defer cancel()
+	b, err := r.Client.Get(ctx, key).Bytes()
 	if err != nil {
-		if err == redis.Nil { // no such key in redis, suppress redis.Nil err.
-			return nil, time.Time{}, time.Time{}, nil
+		if err != redis.Nil {
+			r.logger().Warn("redis get", zap.Error(err))
 		}
-		return nil, time.Time{}, time.Time{}, err
+		return nil, time.Time{}, time.Time{}
 	}
 
 	storedTime, expirationTime, m, err := unpackRedisValue(b)
 	if err != nil {
-		return nil, time.Time{}, time.Time{}, fmt.Errorf("failed to unpack redis data: %w", err)
+		r.logger().Warn("redis data unpack error", zap.Error(err))
+		return nil, time.Time{}, time.Time{}
 	}
-
-	return m, storedTime, expirationTime, nil
+	return m, storedTime, expirationTime
 }
 
-func (r *RedisCache) Store(ctx context.Context, key string, v []byte, storedTime, expirationTime time.Time) error {
+// Store stores kv into redis asynchronously.
+func (r *RedisCache) Store(key string, v []byte, storedTime, expirationTime time.Time) {
 	now := time.Now()
 	ttl := expirationTime.Sub(now)
 	if ttl <= 0 { // For redis, zero ttl means the key has no expiration time.
-		return nil
+		return
 	}
 
 	data := packRedisData(storedTime, expirationTime, v)
 	defer data.Release()
 
-	return r.client.Set(ctx, key, data.Bytes(), ttl).Err()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), r.clientTimeout())
+		defer cancel()
+		if err := r.Client.Set(ctx, key, data.Bytes(), ttl).Err(); err != nil {
+			r.logger().Warn("redis set", zap.Error(err))
+		}
+	}()
 }
 
 // Close closes the redis client.
 func (r *RedisCache) Close() error {
-	return r.client.Close()
+	return r.Client.Close()
 }
 
 // packRedisData packs storedTime, expirationTime and v into one byte slice.

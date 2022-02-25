@@ -18,8 +18,6 @@
 package mem_cache
 
 import (
-	"context"
-	"errors"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/concurrent_lru"
 	"sync"
 	"sync/atomic"
@@ -29,10 +27,6 @@ import (
 const (
 	shardSize              = 256
 	defaultCleanerInterval = time.Minute
-)
-
-var (
-	errClosed = errors.New("cache closed")
 )
 
 // MemCache is a simple LRU cache that stores values in memory.
@@ -74,7 +68,7 @@ func (c *MemCache) isClosed() bool {
 	return atomic.LoadUint32(&c.closed) != 0
 }
 
-// Close closes the cleaner
+// Close closes the cache and its cleaner.
 func (c *MemCache) Close() error {
 	atomic.StoreUint32(&c.closed, 1)
 	c.closeCleanerOnce.Do(func() {
@@ -83,28 +77,28 @@ func (c *MemCache) Close() error {
 	return nil
 }
 
-func (c *MemCache) Get(_ context.Context, key string) (v []byte, storedTime, expirationTime time.Time, err error) {
+func (c *MemCache) Get(key string) (v []byte, storedTime, expirationTime time.Time) {
 	if c.isClosed() {
-		return nil, time.Time{}, time.Time{}, errClosed
+		return nil, time.Time{}, time.Time{}
 	}
 
 	if e, ok := c.lru.Get(key); ok {
 		e := e.(*elem)
-		return e.v, e.storedTime, e.expirationTime, nil
+		return e.v, e.storedTime, e.expirationTime
 	}
 
 	// no such key
-	return nil, time.Time{}, time.Time{}, nil
+	return nil, time.Time{}, time.Time{}
 }
 
-func (c *MemCache) Store(_ context.Context, key string, v []byte, storedTime, expirationTime time.Time) error {
+func (c *MemCache) Store(key string, v []byte, storedTime, expirationTime time.Time) {
 	if c.isClosed() {
-		return errClosed
+		return
 	}
 
 	now := time.Now()
 	if now.After(expirationTime) {
-		return nil
+		return
 	}
 
 	buf := make([]byte, len(v))
@@ -116,7 +110,7 @@ func (c *MemCache) Store(_ context.Context, key string, v []byte, storedTime, ex
 		expirationTime: expirationTime,
 	}
 	c.lru.Add(key, e)
-	return nil
+	return
 }
 
 func (c *MemCache) startCleaner(interval time.Duration) {
