@@ -128,9 +128,9 @@ func (r *RedisCache) Store(key string, v []byte, storedTime, expirationTime time
 	}
 
 	data := packRedisData(storedTime, expirationTime, v)
-	defer data.Release()
 
 	go func() {
+		defer data.Release()
 		ctx, cancel := context.WithTimeout(context.Background(), r.clientTimeout())
 		defer cancel()
 		if err := r.Client.Set(ctx, key, data.Bytes(), ttl).Err(); err != nil {
