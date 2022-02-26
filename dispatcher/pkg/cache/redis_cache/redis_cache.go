@@ -66,11 +66,28 @@ func (r *RedisCache) disabled() bool {
 
 func (r *RedisCache) disableClient() {
 	if atomic.CompareAndSwapUint32(&r.clientDisabled, 0, 1) {
-		next := time.Duration(rand.Intn(1000))*time.Millisecond + time.Second // 1.x s
-		r.logger().Warn("redis temporarily disabled", zap.Duration("duration", next))
-		time.AfterFunc(next, func() {
-			atomic.StoreUint32(&r.clientDisabled, 0)
-		})
+		r.logger().Warn("redis temporarily disabled")
+		go func() {
+			const maxBackoff = time.Second * 30
+			backoff := time.Duration(0)
+			for {
+				if backoff >= maxBackoff {
+					backoff = maxBackoff
+				} else {
+					backoff += time.Duration(rand.Intn(1000))*time.Millisecond + time.Second
+				}
+				time.Sleep(backoff)
+				ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*500)
+				err := r.Client.Ping(ctx).Err()
+				cancel()
+				if err != nil {
+					r.logger().Warn("redis ping failed", zap.Error(err))
+					continue
+				}
+				atomic.StoreUint32(&r.clientDisabled, 0)
+				return
+			}
+		}()
 	}
 }
 
