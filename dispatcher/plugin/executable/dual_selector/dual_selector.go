@@ -97,11 +97,12 @@ func (s *Selector) Exec(ctx context.Context, qCtx *handler.Context, next handler
 	if !ok {
 		ddl = time.Now().Add(defaultSubRoutineTimout)
 	}
-	ctxRef, cancelRef := context.WithDeadline(context.Background(), ddl)
-	defer cancelRef()
+
 	shouldBlock := make(chan struct{}, 0)
 	shouldPass := make(chan struct{}, 0)
+	ctxRef, cancelRef := context.WithDeadline(context.Background(), ddl)
 	go func() {
+		defer cancelRef()
 		err := handler.ExecChainNode(ctxRef, qCtxRef, next)
 		if err != nil {
 			s.L().Warn("reference query routine err", qCtxRef.InfoField(), zap.Error(err))
