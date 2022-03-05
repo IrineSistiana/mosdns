@@ -26,18 +26,38 @@ import (
 )
 
 var (
-	atomicLevel  = zap.NewAtomicLevelAt(zap.InfoLevel)
-	atomicWriter = NewAtomicWriteSyncer(os.Stderr)
-	l            = defaultLogger()
-	s            = l.Sugar()
+	atomicLevel      = zap.NewAtomicLevelAt(zap.InfoLevel)
+	atomicInfoWriter = NewAtomicWriteSyncer(zapcore.Lock(os.Stdout))
+	atomicErrWriter  = NewAtomicWriteSyncer(zapcore.Lock(os.Stderr))
+	l                = initLogger()
+	s                = l.Sugar()
 )
 
 func Level() zap.AtomicLevel {
 	return atomicLevel
 }
 
-func Writer() *AtomicWriteSyncer {
-	return atomicWriter
+func InfoWriter() *AtomicWriteSyncer {
+	return atomicInfoWriter
+}
+
+func ErrWriter() *AtomicWriteSyncer {
+	return atomicErrWriter
+}
+
+func initLogger() *zap.Logger {
+	errLvl := zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
+		return atomicLevel.Enabled(lvl) && lvl >= zapcore.ErrorLevel
+	})
+	infoLvl := zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
+		return atomicLevel.Enabled(lvl) && lvl < zapcore.ErrorLevel
+	})
+
+	core := zapcore.NewTee(
+		zapcore.NewCore(zapcore.NewConsoleEncoder(defaultEncoderConfig()), atomicInfoWriter, infoLvl),
+		zapcore.NewCore(zapcore.NewConsoleEncoder(defaultEncoderConfig()), atomicErrWriter, errLvl),
+	)
+	return zap.New(core, zap.AddCaller())
 }
 
 func L() *zap.Logger {
@@ -52,8 +72,8 @@ func NewPluginLogger(tag string) *zap.Logger {
 	return l.Named(tag)
 }
 
-func defaultLogger() *zap.Logger {
-	encoderCfg := zapcore.EncoderConfig{
+func defaultEncoderConfig() zapcore.EncoderConfig {
+	return zapcore.EncoderConfig{
 		TimeKey:        "time",
 		MessageKey:     "msg",
 		LevelKey:       "level",
@@ -64,8 +84,6 @@ func defaultLogger() *zap.Logger {
 		EncodeDuration: zapcore.StringDurationEncoder,
 		EncodeCaller:   zapcore.ShortCallerEncoder,
 	}
-	core := zapcore.NewCore(zapcore.NewConsoleEncoder(encoderCfg), atomicWriter, atomicLevel)
-	return zap.New(core, zap.AddCaller())
 }
 
 type AtomicWriteSyncer struct {

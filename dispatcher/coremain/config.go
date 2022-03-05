@@ -26,8 +26,10 @@ import (
 // Config is config
 type Config struct {
 	Log struct {
-		Level string `yaml:"level"`
-		File  string `yaml:"file"`
+		Level    string `yaml:"level"`
+		File     string `yaml:"file"`
+		ErrFile  string `yaml:"err_file"`
+		InfoFile string `yaml:"info_file"`
 	} `yaml:"log"`
 	Library []string          `yaml:"library"`
 	Plugin  []*handler.Config `yaml:"plugin"`

@@ -77,14 +77,43 @@ func loadConfig(f string, depth int) error {
 			return fmt.Errorf("invalid log level [%s]", c.Log.Level)
 		}
 		mlog.Level().SetLevel(level)
-		if len(c.Log.File) != 0 {
-			mlog.L().Info("opening log file", zap.String("file", c.Log.File))
-			f, err := os.OpenFile(c.Log.File, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0755)
+
+		if len(c.Log.InfoFile) == 0 {
+			c.Log.InfoFile = c.Log.File
+		}
+		if len(c.Log.ErrFile) == 0 {
+			c.Log.ErrFile = c.Log.File
+		}
+
+		if lf := c.Log.File; len(lf) > 0 {
+			mlog.L().Info("opening log file", zap.String("file", lf))
+			f, err := os.OpenFile(lf, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0755)
 			if err != nil {
 				return fmt.Errorf("open log file: %w", err)
 			}
 			mlog.L().Info("redirecting log to file, end of console log", zap.String("file", c.Log.File))
-			mlog.Writer().Replace(f)
+			fLocked := zapcore.Lock(f)
+			mlog.InfoWriter().Replace(fLocked)
+			mlog.ErrWriter().Replace(fLocked)
+		} else {
+			if lf := c.Log.InfoFile; len(lf) > 0 {
+				mlog.L().Info("opening info log file", zap.String("file", lf))
+				f, err := os.OpenFile(lf, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0755)
+				if err != nil {
+					return fmt.Errorf("open info log file: %w", err)
+				}
+				mlog.L().Info("redirecting info log to file, end of console log", zap.String("file", c.Log.File))
+				mlog.InfoWriter().Replace(zapcore.Lock(f))
+			}
+			if lf := c.Log.ErrFile; len(lf) > 0 {
+				mlog.L().Info("opening err log file", zap.String("file", lf))
+				f, err := os.OpenFile(lf, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0755)
+				if err != nil {
+					return fmt.Errorf("open err log file: %w", err)
+				}
+				mlog.L().Info("redirecting err log to file, end of console log", zap.String("file", c.Log.File))
+				mlog.ErrWriter().Replace(zapcore.Lock(f))
+			}
 		}
 
 		for _, lib := range c.Library {
