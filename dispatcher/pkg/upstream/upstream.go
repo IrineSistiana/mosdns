@@ -62,6 +62,8 @@ type Opt struct {
 	// actually dial to.
 	DialAddr string
 
+	Bootstrap string
+
 	// Socks5 specifies the socks5 proxy server that the upstream
 	// will connect though. Currently, only tcp, dot, doh upstream support Socks5 proxy.
 	Socks5 string
@@ -123,7 +125,12 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 		ut := &Transport{
 			Logger: opt.Logger,
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
-				d := net.Dialer{}
+				d := net.Dialer{
+					Resolver: &net.Resolver{
+						PreferGo: true,
+						Dial:     nil,
+					},
+				}
 				return d.DialContext(ctx, "udp", dialAddr)
 			},
 			WriteFunc: func(c io.Writer, m []byte) (int, error) {

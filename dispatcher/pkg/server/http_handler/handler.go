@@ -102,12 +102,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	h.DNSHandler.ServeDNS(
+	if err := h.DNSHandler.ServeDNS(
 		req.Context(),
 		m,
 		&httpDnsRespWriter{httpRespWriter: w},
 		&handler.RequestMeta{ClientIP: clientIP},
-	)
+	); err != nil {
+		h.warnErr(req, "handler err", err)
+		panic(err) // panic can force http server to close the downstream connection.
+	}
 }
 
 func readClientIPFromXFF(s string) net.IP {

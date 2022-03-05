@@ -23,6 +23,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/utils"
+	"go.uber.org/zap"
 	"io"
 	"net"
 	"time"
@@ -97,12 +98,15 @@ func (s *Server) ServeTCP(l net.Listener) error {
 					} else {
 						s.getLogger().Warn("failed to acquire client ip addr")
 					}
-					s.DNSHandler.ServeDNS(
+					if err := s.DNSHandler.ServeDNS(
 						tcpConnCtx,
 						reqBuf.Bytes(),
 						&tcpResponseWriter{c: c},
 						meta,
-					)
+					); err != nil {
+						s.getLogger().Warn("handler err", zap.Error(err))
+						c.Close()
+					}
 				}()
 			}
 		}()

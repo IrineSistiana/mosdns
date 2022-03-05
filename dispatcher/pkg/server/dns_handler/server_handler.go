@@ -37,7 +37,12 @@ const (
 type Handler interface {
 	// ServeDNS handles r and writes response to w.
 	// Implements must not keep and use req after the ServeDNS returned.
-	ServeDNS(ctx context.Context, req []byte, w ResponseWriter, meta *handler.RequestMeta)
+	// ServeDNS should handle errors by itself and sends properly error responses
+	// to clients.
+	// If ServeDNS returns an error, caller considers that the error is associated
+	// with the downstream connection and will close the downstream connection
+	// immediately.
+	ServeDNS(ctx context.Context, req []byte, w ResponseWriter, meta *handler.RequestMeta) error
 }
 
 // ResponseWriter can write msg to the client.
@@ -77,7 +82,7 @@ var (
 // ServeDNS implements Handler.
 // If entry returns an error, a SERVFAIL response will be sent back to client.
 // If concurrentLimit is reached, the query will block and wait available token until ctx is done.
-func (h *DefaultHandler) ServeDNS(ctx context.Context, req []byte, w ResponseWriter, meta *handler.RequestMeta) {
+func (h *DefaultHandler) ServeDNS(ctx context.Context, req []byte, w ResponseWriter, meta *handler.RequestMeta) error {
 	h.initOnce.Do(func() {
 		if h.ConcurrentLimit > 0 {
 			h.limiter = concurrent_limiter.NewConcurrentLimiter(h.ConcurrentLimit, h.ConcurrentLimit*8)
@@ -95,7 +100,7 @@ func (h *DefaultHandler) ServeDNS(ctx context.Context, req []byte, w ResponseWri
 
 	if h.limiter != nil {
 		if !h.limiter.Wait() { // too many waiting query, silently drop it.
-			return
+			return nil
 		}
 		defer h.limiter.WaitDone()
 
@@ -103,14 +108,14 @@ func (h *DefaultHandler) ServeDNS(ctx context.Context, req []byte, w ResponseWri
 		case h.limiter.Run() <- struct{}{}:
 			defer h.limiter.RunDone()
 		case <-ctx.Done():
-			return // ctx timeout, silently drop it.
+			return nil // ctx timeout, silently drop it.
 		}
 	}
 
 	reqMsg := new(dns.Msg)
 	if err := reqMsg.Unpack(req); err != nil {
 		h.logger().Warn("failed to unpack request message", zap.Any("meta", meta), zap.Binary("data", req))
-		return
+		return err
 	}
 
 	qCtx := handler.NewContext(reqMsg, meta)
@@ -146,7 +151,7 @@ func (h *DefaultHandler) ServeDNS(ctx context.Context, req []byte, w ResponseWri
 		raw, buf, err := pool.PackBuffer(respMsg)
 		if err != nil {
 			h.logger().Warn("failed to pack response message", qCtx.InfoField(), zap.Error(err))
-			return
+			return nil
 		}
 		defer buf.Release()
 
@@ -154,6 +159,7 @@ func (h *DefaultHandler) ServeDNS(ctx context.Context, req []byte, w ResponseWri
 			h.logger().Warn("failed to write response", qCtx.InfoField(), zap.Error(err))
 		}
 	}
+	return nil
 }
 
 func (h *DefaultHandler) queryTimeout() time.Duration {
@@ -176,10 +182,10 @@ type DummyServerHandler struct {
 	WantErr error
 }
 
-func (d *DummyServerHandler) ServeDNS(_ context.Context, req []byte, w ResponseWriter, meta *handler.RequestMeta) {
+func (d *DummyServerHandler) ServeDNS(_ context.Context, req []byte, w ResponseWriter, meta *handler.RequestMeta) error {
 	q := new(dns.Msg)
 	if err := q.Unpack(req); err != nil {
-		return
+		return err
 	}
 
 	var resp *dns.Msg
@@ -194,12 +200,13 @@ func (d *DummyServerHandler) ServeDNS(_ context.Context, req []byte, w ResponseW
 	raw, err := resp.Pack()
 	if err != nil {
 		d.T.Error(err)
-		return
+		return nil
 	}
 
 	_, err = w.Write(raw)
 	if err != nil {
 		d.T.Error(err)
-		return
+		return nil
 	}
+	return nil
 }

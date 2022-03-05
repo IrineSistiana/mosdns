@@ -23,6 +23,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/pool"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/utils"
+	"go.uber.org/zap"
 	"io"
 	"net"
 )
@@ -76,7 +77,10 @@ func (s *Server) ServeUDP(c net.PacketConn) error {
 			}
 
 			w := &udpResponseWriter{c: ol, to: from}
-			s.DNSHandler.ServeDNS(listenerCtx, reqBuf.Bytes(), w, meta)
+
+			if err := s.DNSHandler.ServeDNS(listenerCtx, reqBuf.Bytes(), w, meta); err != nil {
+				s.getLogger().Warn("handler err", zap.Error(err))
+			}
 		}()
 	}
 }
