@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/pool"
+	"github.com/lucas-clemente/quic-go"
 	"go.uber.org/zap"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/proxy"
@@ -76,6 +77,9 @@ type Opt struct {
 	// EnablePipeline enables the query pipelining as RFC 7766 6.2.1.1 suggested.
 	// Available for tcp/dot upstream with IdleTimeout >= 0.
 	EnablePipeline bool
+
+	// EnableHTTP3 enables the HTTP/3 for DoH. Note that there is no HTTP/2 fallback.
+	EnableHTTP3 bool
 
 	// MaxConns limits the total number of connections, including connections
 	// in the dialing states.
@@ -223,26 +227,45 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 		}
 
 		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 443)
-		t := &http.Transport{
-			DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) { // overwrite server addr
-				return dialTCP(ctx, dialAddr, opt.Socks5)
-			},
-			TLSClientConfig:     opt.TLSConfig,
-			TLSHandshakeTimeout: tlsHandshakeTimeout,
-			IdleConnTimeout:     idleConnTimeout,
+		var t http.RoundTripper
+		if opt.EnableHTTP3 {
+			t = &h3rt{
+				logger:    opt.Logger,
+				tlsConfig: opt.TLSConfig,
+				quicConfig: &quic.Config{
+					TokenStore:                     quic.NewLRUTokenStore(4, 8),
+					InitialStreamReceiveWindow:     64 * 1024,
+					MaxStreamReceiveWindow:         128 * 1024,
+					InitialConnectionReceiveWindow: 256 * 1024,
+					MaxConnectionReceiveWindow:     512 * 1024,
+				},
+				dialFunc: func(network, addr string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlySession, error) {
+					return quic.DialAddrHostContext(context.Background(), dialAddr, addrURL.Host, tlsCfg, cfg, true)
+				},
+			}
+		} else {
+			t1 := &http.Transport{
+				DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) { // overwrite server addr
+					return dialTCP(ctx, dialAddr, opt.Socks5)
+				},
+				TLSClientConfig:     opt.TLSConfig,
+				TLSHandshakeTimeout: tlsHandshakeTimeout,
+				IdleConnTimeout:     idleConnTimeout,
 
-			// MaxConnsPerHost and MaxIdleConnsPerHost should be equal.
-			// Otherwise, it might seriously affect the efficiency of connection reuse.
-			MaxConnsPerHost:     maxConn,
-			MaxIdleConnsPerHost: maxConn,
-		}
+				// MaxConnsPerHost and MaxIdleConnsPerHost should be equal.
+				// Otherwise, it might seriously affect the efficiency of connection reuse.
+				MaxConnsPerHost:     maxConn,
+				MaxIdleConnsPerHost: maxConn,
+			}
 
-		t2, err := http2.ConfigureTransports(t)
-		if err != nil {
-			return nil, fmt.Errorf("failed to upgrade http2 support, %w", err)
+			t2, err := http2.ConfigureTransports(t1)
+			if err != nil {
+				return nil, fmt.Errorf("failed to upgrade http2 support, %w", err)
+			}
+			t2.ReadIdleTimeout = time.Second * 30
+			t2.PingTimeout = time.Second * 5
+			t = t1
 		}
-		t2.ReadIdleTimeout = time.Second * 30
-		t2.PingTimeout = time.Second * 5
 
 		return &DoH{
 			EndPoint: addr,
