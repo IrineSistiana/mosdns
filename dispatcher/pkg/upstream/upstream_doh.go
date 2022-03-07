@@ -26,6 +26,7 @@ import (
 	"github.com/miekg/dns"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -71,7 +72,12 @@ func (u *DoH) ExchangeContext(ctx context.Context, q []byte) (*pool.Buffer, erro
 	// That's why we use base64.RawURLEncoding.
 	p := 0
 	p += copy(urlBuf[p:], u.EndPoint)
-	p += copy(urlBuf[p:], "?dns=")
+	// A simple way to check whether the endpoint already has a parameter.
+	if strings.LastIndexByte(u.EndPoint, '?') >= 0 {
+		p += copy(urlBuf[p:], "&dns=")
+	} else {
+		p += copy(urlBuf[p:], "?dns=")
+	}
 	base64.RawURLEncoding.Encode(urlBuf[p:], b)
 
 	type result struct {
