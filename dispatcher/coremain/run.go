@@ -87,7 +87,7 @@ func loadConfig(f string, depth int) error {
 
 		if lf := c.Log.File; len(lf) > 0 {
 			mlog.L().Info("opening log file", zap.String("file", lf))
-			f, err := os.OpenFile(lf, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0755)
+			f, err := os.OpenFile(lf, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
 			if err != nil {
 				return fmt.Errorf("open log file: %w", err)
 			}
@@ -98,7 +98,7 @@ func loadConfig(f string, depth int) error {
 		} else {
 			if lf := c.Log.InfoFile; len(lf) > 0 {
 				mlog.L().Info("opening info log file", zap.String("file", lf))
-				f, err := os.OpenFile(lf, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0755)
+				f, err := os.OpenFile(lf, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
 				if err != nil {
 					return fmt.Errorf("open info log file: %w", err)
 				}
@@ -107,7 +107,7 @@ func loadConfig(f string, depth int) error {
 			}
 			if lf := c.Log.ErrFile; len(lf) > 0 {
 				mlog.L().Info("opening err log file", zap.String("file", lf))
-				f, err := os.OpenFile(lf, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0755)
+				f, err := os.OpenFile(lf, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
 				if err != nil {
 					return fmt.Errorf("open err log file: %w", err)
 				}
