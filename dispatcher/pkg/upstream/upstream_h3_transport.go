@@ -56,10 +56,9 @@ func (h *h3rt) getRT() *http3.RoundTripper {
 	defer h.m.Unlock()
 	if h.rt == nil {
 		h.rt = &http3.RoundTripper{
-			TLSClientConfig:        h.tlsConfig,
-			QuicConfig:             h.quicConfig,
-			Dial:                   h.dialFunc,
-			MaxResponseHeaderBytes: 512,
+			TLSClientConfig: h.tlsConfig,
+			QuicConfig:      h.quicConfig,
+			Dial:            h.dialFunc,
 		}
 	}
 	return h.rt
