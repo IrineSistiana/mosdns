@@ -84,9 +84,9 @@ func (r *redirectPlugin) Exec(ctx context.Context, qCtx *handler.Context, next h
 	q.Question[0].Name = d
 	err := handler.ExecChainNode(ctx, qCtx, next)
 	if r := qCtx.R(); r != nil {
-		for _, question := range r.Question {
-			if question.Name == d {
-				question.Name = orgQName
+		for i := range r.Question {
+			if r.Question[i].Name == d {
+				r.Question[i].Name = orgQName
 			}
 		}
 		for _, a := range r.Answer {
