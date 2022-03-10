@@ -31,6 +31,7 @@ import (
 	_ "github.com/IrineSistiana/mosdns/v3/dispatcher/plugin/executable/ipset"
 	_ "github.com/IrineSistiana/mosdns/v3/dispatcher/plugin/executable/nftset"
 	_ "github.com/IrineSistiana/mosdns/v3/dispatcher/plugin/executable/padding"
+	_ "github.com/IrineSistiana/mosdns/v3/dispatcher/plugin/executable/redirect"
 	_ "github.com/IrineSistiana/mosdns/v3/dispatcher/plugin/executable/sequence"
 	_ "github.com/IrineSistiana/mosdns/v3/dispatcher/plugin/executable/single_flight"
 	_ "github.com/IrineSistiana/mosdns/v3/dispatcher/plugin/executable/sleep"
