@@ -127,6 +127,10 @@ func (u *DoH) exchangeMustHasHeader(ctx context.Context, url string) (*pool.Buff
 
 	// check status code
 	if resp.StatusCode != http.StatusOK {
+		body1k, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		if body1k != nil {
+			return nil, fmt.Errorf("bad http status codes %d with body [%s]", resp.StatusCode, body1k)
+		}
 		return nil, fmt.Errorf("bad http status codes %d", resp.StatusCode)
 	}
 
