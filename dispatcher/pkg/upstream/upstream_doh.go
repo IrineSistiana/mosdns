@@ -119,6 +119,7 @@ func (u *DoH) exchangeMustHasHeader(ctx context.Context, url string) (*pool.Buff
 	}
 
 	req.Header["Accept"] = []string{"application/dns-message"}
+	req.Header["User-Agent"] = nil // Don't let go http send a default user agent header.
 	resp, err := u.Client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("http request failed: %w", err)
