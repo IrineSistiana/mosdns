@@ -19,10 +19,14 @@
 
 package coremain
 
+import (
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/mlog"
+	"go.uber.org/zap"
+	"plugin"
+)
+
 var openGoPlugin = func(path string) error {
-	mlog.L().Info("loading library", zap.String("library", lib))
-	_, err := plugin.Open(lib)
-	if err != nil {
-		return fmt.Errorf("failed to open library: %w", err)
-	}
+	mlog.L().Info("loading go plugin library", zap.String("library", path))
+	_, err := plugin.Open(path)
+	return err
 }
