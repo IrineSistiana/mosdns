@@ -28,7 +28,6 @@ import (
 	"go.uber.org/zap/zapcore"
 	"os"
 	"os/signal"
-	"plugin"
 	"runtime/debug"
 	"syscall"
 )
@@ -117,10 +116,8 @@ func loadConfig(f string, depth int) error {
 		}
 
 		for _, lib := range c.Library {
-			mlog.L().Info("loading library", zap.String("library", lib))
-			_, err := plugin.Open(lib)
-			if err != nil {
-				return fmt.Errorf("failed to open library: %w", err)
+			if err := openGoPlugin(lib); err != nil {
+				return err
 			}
 		}
 	}
