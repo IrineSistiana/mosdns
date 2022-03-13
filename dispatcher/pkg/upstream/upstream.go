@@ -283,7 +283,7 @@ func getDialAddrWithPort(host, dialAddr string, defaultPort int) string {
 	}
 	_, _, err := net.SplitHostPort(addr)
 	if err != nil { // no port, add it.
-		return net.JoinHostPort(addr, strconv.Itoa(defaultPort))
+		return net.JoinHostPort(strings.Trim(addr, "[]"), strconv.Itoa(defaultPort))
 	}
 	return addr
 }
