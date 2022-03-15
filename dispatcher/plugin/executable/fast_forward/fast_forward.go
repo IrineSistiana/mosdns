@@ -29,6 +29,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/upstream"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
+	"strings"
 	"time"
 )
 
@@ -98,6 +99,12 @@ func newFastForward(bp *handler.BP, args *Args) (*fastForward, error) {
 	for i, c := range args.Upstream {
 		if len(c.Addr) == 0 {
 			return nil, errors.New("missing server addr")
+		}
+
+		if strings.HasPrefix(c.Addr, "udpme://") {
+			u := newMEU(c.Addr[8:], c.Trusted)
+			us = append(us, u)
+			continue
 		}
 
 		opt := &upstream.Opt{
