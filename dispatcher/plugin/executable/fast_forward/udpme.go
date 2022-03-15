@@ -55,6 +55,10 @@ func (u *mustEDNS0Upstream) exchangeOPTM(m *dns.Msg, ddl time.Time) (*dns.Msg, e
 	}
 	defer c.Close()
 	c.SetDeadline(ddl)
+	if opt := m.IsEdns0(); opt != nil {
+		c.UDPSize = opt.UDPSize()
+	}
+
 	if err := c.WriteMsg(m); err != nil {
 		return nil, err
 	}
