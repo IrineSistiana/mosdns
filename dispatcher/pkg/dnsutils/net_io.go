@@ -19,10 +19,15 @@ package dnsutils
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/pool"
 	"github.com/miekg/dns"
 	"io"
+)
+
+var (
+	errZeroLenMsg = errors.New("zero length msg")
 )
 
 // ReadRawMsgFromTCP reads msg from c in RFC 7766 format.
@@ -41,6 +46,10 @@ func ReadRawMsgFromTCP(c io.Reader) (*pool.Buffer, int, error) {
 
 	// dns length
 	length := binary.BigEndian.Uint16(h)
+	if length == 0 {
+		return nil, 0, errZeroLenMsg
+	}
+
 	buf := pool.GetBuf(int(length))
 
 	nm, err := io.ReadFull(c, buf.Bytes())
