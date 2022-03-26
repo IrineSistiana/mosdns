@@ -21,7 +21,6 @@ import (
 	"context"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/concurrent_limiter"
-	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/pool"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"sync"
@@ -42,12 +41,12 @@ type Handler interface {
 	// If ServeDNS returns an error, caller considers that the error is associated
 	// with the downstream connection and will close the downstream connection
 	// immediately.
-	ServeDNS(ctx context.Context, req []byte, w ResponseWriter, meta *handler.RequestMeta) error
+	ServeDNS(ctx context.Context, req *dns.Msg, w ResponseWriter, meta *handler.RequestMeta) error
 }
 
 // ResponseWriter can write msg to the client.
 type ResponseWriter interface {
-	Write(m []byte) (n int, err error)
+	Write(m *dns.Msg) error
 }
 
 type DefaultHandler struct {
@@ -82,7 +81,7 @@ var (
 // ServeDNS implements Handler.
 // If entry returns an error, a SERVFAIL response will be sent back to client.
 // If concurrentLimit is reached, the query will block and wait available token until ctx is done.
-func (h *DefaultHandler) ServeDNS(ctx context.Context, req []byte, w ResponseWriter, meta *handler.RequestMeta) error {
+func (h *DefaultHandler) ServeDNS(ctx context.Context, req *dns.Msg, w ResponseWriter, meta *handler.RequestMeta) error {
 	h.initOnce.Do(func() {
 		if h.ConcurrentLimit > 0 {
 			h.limiter = concurrent_limiter.NewConcurrentLimiter(h.ConcurrentLimit, h.ConcurrentLimit*8)
@@ -112,13 +111,7 @@ func (h *DefaultHandler) ServeDNS(ctx context.Context, req []byte, w ResponseWri
 		}
 	}
 
-	reqMsg := new(dns.Msg)
-	if err := reqMsg.Unpack(req); err != nil {
-		h.logger().Warn("failed to unpack request message", zap.Any("meta", meta), zap.Binary("data", req))
-		return err
-	}
-
-	qCtx := handler.NewContext(reqMsg, meta)
+	qCtx := handler.NewContext(req, meta)
 	err := handler.ExecChainNode(ctx, qCtx, h.Entry)
 	if err != nil {
 		h.logger().Warn("entry returned an err", qCtx.InfoField(), zap.Error(err))
@@ -129,7 +122,7 @@ func (h *DefaultHandler) ServeDNS(ctx context.Context, req []byte, w ResponseWri
 	var respMsg *dns.Msg
 	if err != nil || qCtx.Status() == handler.ContextStatusServerFailed {
 		respMsg = new(dns.Msg)
-		respMsg.SetReply(reqMsg)
+		respMsg.SetReply(req)
 		respMsg.Rcode = dns.RcodeServerFailure
 	} else {
 		respMsg = qCtx.R()
@@ -139,23 +132,8 @@ func (h *DefaultHandler) ServeDNS(ctx context.Context, req []byte, w ResponseWri
 		if h.RecursionAvailable {
 			respMsg.RecursionAvailable = true
 		}
-		if meta.FromUDP {
-			udpSize := dns.MinMsgSize
-			if opt := reqMsg.IsEdns0(); opt != nil {
-				if es := int(opt.UDPSize()); es > udpSize {
-					udpSize = es
-				}
-			}
-			respMsg.Truncate(udpSize)
-		}
-		raw, buf, err := pool.PackBuffer(respMsg)
-		if err != nil {
-			h.logger().Warn("failed to pack response message", qCtx.InfoField(), zap.Error(err))
-			return nil
-		}
-		defer buf.Release()
 
-		if _, err := w.Write(raw); err != nil {
+		if err := w.Write(respMsg); err != nil {
 			h.logger().Warn("failed to write response", qCtx.InfoField(), zap.Error(err))
 		}
 	}
@@ -182,29 +160,17 @@ type DummyServerHandler struct {
 	WantErr error
 }
 
-func (d *DummyServerHandler) ServeDNS(_ context.Context, req []byte, w ResponseWriter, meta *handler.RequestMeta) error {
-	q := new(dns.Msg)
-	if err := q.Unpack(req); err != nil {
-		return err
-	}
-
+func (d *DummyServerHandler) ServeDNS(_ context.Context, req *dns.Msg, w ResponseWriter, meta *handler.RequestMeta) error {
 	var resp *dns.Msg
 	if d.WantMsg != nil {
 		resp = d.WantMsg.Copy()
-		resp.Id = q.Id
+		resp.Id = req.Id
 	} else {
 		resp = new(dns.Msg)
-		resp.SetReply(q)
+		resp.SetReply(req)
 	}
 
-	raw, err := resp.Pack()
-	if err != nil {
-		d.T.Error(err)
-		return nil
-	}
-
-	_, err = w.Write(raw)
-	if err != nil {
+	if err := w.Write(resp); err != nil {
 		d.T.Error(err)
 		return nil
 	}

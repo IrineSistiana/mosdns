@@ -23,6 +23,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/utils"
+	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"io"
 	"net"
@@ -39,9 +40,10 @@ type tcpResponseWriter struct {
 	c net.Conn
 }
 
-func (t *tcpResponseWriter) Write(m []byte) (n int, err error) {
+func (t *tcpResponseWriter) Write(m *dns.Msg) error {
 	t.c.SetWriteDeadline(time.Now().Add(serverTCPWriteTimeout))
-	return dnsutils.WriteRawMsgToTCP(t.c, m)
+	_, err := dnsutils.WriteMsgToTCP(t.c, m)
+	return err
 }
 
 func (s *Server) ServeTCP(l net.Listener) error {
@@ -84,14 +86,12 @@ func (s *Server) ServeTCP(l net.Listener) error {
 				} else {
 					c.SetReadDeadline(time.Now().Add(idleTimeout))
 				}
-				reqBuf, _, err := dnsutils.ReadRawMsgFromTCP(c)
+				req, _, err := dnsutils.ReadMsgFromTCP(c)
 				if err != nil {
 					return // read err, close the connection
 				}
 
 				go func() {
-					defer reqBuf.Release()
-
 					meta := new(handler.RequestMeta)
 					if clientIP := utils.GetIPFromAddr(c.RemoteAddr()); clientIP != nil {
 						meta.ClientIP = clientIP
@@ -100,7 +100,7 @@ func (s *Server) ServeTCP(l net.Listener) error {
 					}
 					if err := s.DNSHandler.ServeDNS(
 						tcpConnCtx,
-						reqBuf.Bytes(),
+						req,
 						&tcpResponseWriter{c: c},
 						meta,
 					); err != nil {

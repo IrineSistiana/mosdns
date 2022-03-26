@@ -21,7 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/pool"
+	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"io"
 	"net"
@@ -37,11 +37,12 @@ var (
 )
 
 const (
-	defaultIdleTimeout            = time.Second * 10
-	defaultDialTimeout            = time.Second * 5
-	defaultNoPipelineQueryTimeout = time.Second * 5
-	defaultMaxConns               = 1
-	defaultMaxQueryPerConn        = 65535
+	defaultIdleTimeout             = time.Second * 10
+	defaultDialTimeout             = time.Second * 5
+	defaultNoPipelineQueryTimeout  = time.Second * 5
+	defaultNoConnReuseQueryTimeout = time.Second * 5
+	defaultMaxConns                = 1
+	defaultMaxQueryPerConn         = 65535
 )
 
 // Transport is a DNS msg transport that supposes DNS over UDP,TCP,TLS.
@@ -57,11 +58,10 @@ type Transport struct {
 	DialFunc func(ctx context.Context) (net.Conn, error)
 	// WriteFunc specifies the method to write a wire dns msg to the connection
 	// opened by the DialFunc.
-	WriteFunc func(c io.Writer, m []byte) (int, error)
+	WriteFunc func(c io.Writer, m *dns.Msg) (int, error)
 	// ReadFunc specifies the method to read a wire dns msg from the connection
-	// opened by the DialFunc. ReadFunc don't have to check the variability of the
-	// wire msg.
-	ReadFunc func(c io.Reader) (*pool.Buffer, int, error)
+	// opened by the DialFunc.
+	ReadFunc func(c io.Reader) (*dns.Msg, int, error)
 
 	// DialTimeout specifies the timeout for DialFunc.
 	// Default is defaultDialTimeout.
@@ -110,21 +110,6 @@ func (t *Transport) idleTimeout() time.Duration {
 	return t.IdleTimeout
 }
 
-// readMustHasHeader reads a dns msg from c. It will return a
-// msg with at least 12 bytes. Otherwise, an error.
-func (t *Transport) readMustHasHeader(c io.Reader) (*pool.Buffer, int, error) {
-	b, n, err := t.ReadFunc(c)
-	if err != nil {
-		return nil, n, err
-	}
-	if b.Len() < headerSize {
-		err := fmt.Errorf("invalid data [%x]", b.Bytes())
-		b.Release()
-		return nil, n, err
-	}
-	return b, n, nil
-}
-
 func (t *Transport) dialTimeout() time.Duration {
 	if t := t.DialTimeout; t > 0 {
 		return t
@@ -146,7 +131,7 @@ func (t *Transport) maxQueryPerConn() uint16 {
 	return defaultMaxQueryPerConn
 }
 
-func (t *Transport) ExchangeContext(ctx context.Context, q []byte) (*pool.Buffer, error) {
+func (t *Transport) ExchangeContext(ctx context.Context, q *dns.Msg) (*dns.Msg, error) {
 	if t.idleTimeout() <= 0 {
 		return t.exchangeNoConnReuse(ctx, q)
 	}
@@ -175,7 +160,7 @@ func (t *Transport) CloseIdleConnections() {
 	t.opm.Unlock()
 }
 
-func (t *Transport) exchangePipelineConnReuse(ctx context.Context, q []byte) (*pool.Buffer, error) {
+func (t *Transport) exchangePipelineConnReuse(ctx context.Context, m *dns.Msg) (*dns.Msg, error) {
 	start := time.Now()
 	retry := 0
 	for {
@@ -185,10 +170,10 @@ func (t *Transport) exchangePipelineConnReuse(ctx context.Context, q []byte) (*p
 		}
 
 		if !reusedConn {
-			return conn.exchange(ctx, q, qId)
+			return conn.exchange(ctx, m, qId)
 		}
 
-		r, err := conn.exchange(ctx, q, qId)
+		r, err := conn.exchange(ctx, m, qId)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) && time.Since(start) < time.Millisecond*200 && retry <= 1 {
 				retry++
@@ -200,47 +185,42 @@ func (t *Transport) exchangePipelineConnReuse(ctx context.Context, q []byte) (*p
 	}
 }
 
-func (t *Transport) exchangeNoConnReuse(ctx context.Context, q []byte) (*pool.Buffer, error) {
+func (t *Transport) exchangeNoConnReuse(ctx context.Context, m *dns.Msg) (*dns.Msg, error) {
 	conn, err := t.DialFunc(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close()
 
-	_, err = t.WriteFunc(conn, q)
+	conn.SetDeadline(getContextDeadline(ctx, defaultNoConnReuseQueryTimeout))
+
+	_, err = t.WriteFunc(conn, m)
 	if err != nil {
 		return nil, err
 	}
 
 	type result struct {
-		b   *pool.Buffer
+		m   *dns.Msg
 		err error
 	}
 
-	resChan := make(chan *result)
+	resChan := make(chan *result, 1)
 	go func() {
-		b, _, err := t.readMustHasHeader(conn)
-		res := &result{b, err}
-		select {
-		case resChan <- res:
-		case <-ctx.Done():
-			if b != nil {
-				b.Release()
-			}
-		}
+		b, _, err := t.ReadFunc(conn)
+		resChan <- &result{b, err}
 	}()
 
 	select {
 	case res := <-resChan:
-		return res.b, res.err
+		return res.m, res.err
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
 }
 
-func (t *Transport) exchangeConnReuse(ctx context.Context, q []byte) (*pool.Buffer, error) {
+func (t *Transport) exchangeConnReuse(ctx context.Context, q *dns.Msg) (*dns.Msg, error) {
 	type result struct {
-		b   *pool.Buffer
+		m   *dns.Msg
 		err error
 	}
 
@@ -249,7 +229,7 @@ func (t *Transport) exchangeConnReuse(ctx context.Context, q []byte) (*pool.Buff
 		for ctx.Err() == nil {
 			c, reused, err := t.getNoPipelineConn()
 			if err != nil {
-				resChan <- result{b: nil, err: err}
+				resChan <- result{m: nil, err: err}
 				return
 			}
 
@@ -259,20 +239,20 @@ func (t *Transport) exchangeConnReuse(ctx context.Context, q []byte) (*pool.Buff
 				if reused {
 					continue
 				}
-				resChan <- result{b: nil, err: err}
+				resChan <- result{m: nil, err: err}
 				return
 			}
 
 			// No err, reuse the connection.
 			t.releaseNoPipelineConn(c)
-			resChan <- result{b: b, err: nil}
+			resChan <- result{m: b, err: nil}
 			return
 		}
 	}()
 
 	select {
 	case res := <-resChan:
-		return res.b, res.err
+		return res.m, res.err
 
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -418,7 +398,7 @@ func (t *Transport) asyncPipelineDialLocked() *pipelineDialCall {
 			t.pm.Unlock()
 			return
 		}
-		dConn := newClientConn(t, c)
+		dConn := newPipelineConn(t, c)
 		dCall.c = dConn
 		close(dCall.done)
 
@@ -444,7 +424,7 @@ type pipelineConn struct {
 	c net.Conn
 
 	qm      sync.RWMutex
-	queue   map[uint16]chan *pool.Buffer
+	queue   map[uint16]chan *dns.Msg
 	markEOL bool
 
 	cleanOnce sync.Once
@@ -456,19 +436,19 @@ type pipelineConn struct {
 
 var connIdCounter uint32
 
-func newClientConn(t *Transport, c net.Conn) *pipelineConn {
+func newPipelineConn(t *Transport, c net.Conn) *pipelineConn {
 	return &pipelineConn{
 		t:         t,
 		c:         c,
-		queue:     make(map[uint16]chan *pool.Buffer),
+		queue:     make(map[uint16]chan *dns.Msg),
 		closeChan: make(chan struct{}),
 
 		connId: atomic.AddUint32(&connIdCounter, 1),
 	}
 }
 
-func (c *pipelineConn) exchange(ctx context.Context, q []byte, qId uint16) (*pool.Buffer, error) {
-	resChan := make(chan *pool.Buffer, 1)
+func (c *pipelineConn) exchange(ctx context.Context, q *dns.Msg, qId uint16) (*dns.Msg, error) {
+	resChan := make(chan *dns.Msg, 1)
 
 	c.qm.Lock()
 	if qId >= c.t.maxQueryPerConn() {
@@ -495,14 +475,10 @@ func (c *pipelineConn) exchange(ctx context.Context, q []byte, qId uint16) (*poo
 
 	// We have to modify the query ID, but as a writer we cannot modify q directly.
 	// We make a copy of q.
-	buf := pool.GetBuf(len(q))
-	defer buf.Release()
-	b := buf.Bytes()
-	copy(b, q)
-	setMsgId(b, qId)
-
+	qCopy := shadowCopy(q)
+	qCopy.Id = qId
 	c.c.SetWriteDeadline(time.Now().Add(generalWriteTimeout))
-	_, err := c.t.WriteFunc(c.c, b)
+	_, err := c.t.WriteFunc(c.c, qCopy)
 	if err != nil {
 		// Write error usually is fatal. Abort and close this connection.
 		c.closeAndCleanup(err)
@@ -513,16 +489,17 @@ func (c *pipelineConn) exchange(ctx context.Context, q []byte, qId uint16) (*poo
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case r := <-resChan:
-		setMsgId(r.Bytes(), getMsgId(q))
+		// Change the query id back.
+		r.Id = q.Id
 		return r, nil
 	case <-c.closeChan:
 		return nil, c.closeErr
 	}
 }
 
-func (c *pipelineConn) notifyExchange(r *pool.Buffer) {
+func (c *pipelineConn) notifyExchange(r *dns.Msg) {
 	c.qm.RLock()
-	resChan, ok := c.queue[getMsgId(r.Bytes())]
+	resChan, ok := c.queue[r.Id]
 	c.qm.RUnlock()
 	if ok {
 		select {
@@ -535,7 +512,7 @@ func (c *pipelineConn) notifyExchange(r *pool.Buffer) {
 func (c *pipelineConn) readLoop() {
 	for {
 		c.c.SetReadDeadline(time.Now().Add(c.t.idleTimeout()))
-		m, _, err := c.t.readMustHasHeader(c.c)
+		m, _, err := c.t.ReadFunc(c.c)
 		if err != nil {
 			c.closeAndCleanup(err) // abort this connection.
 			return
@@ -581,9 +558,9 @@ func newNpConn(t *Transport, c net.Conn) *noPipelineConn {
 	return nc
 }
 
-func (nc *noPipelineConn) exchange(q []byte) (*pool.Buffer, error) {
+func (nc *noPipelineConn) exchange(m *dns.Msg) (*dns.Msg, error) {
 	nc.c.SetDeadline(time.Now().Add(defaultNoPipelineQueryTimeout))
-	if _, err := nc.t.WriteFunc(nc.c, q); err != nil {
+	if _, err := nc.t.WriteFunc(nc.c, m); err != nil {
 		return nil, err
 	}
 	b, _, err := nc.t.ReadFunc(nc.c)

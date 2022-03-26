@@ -23,18 +23,27 @@ import (
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/pool"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/utils"
+	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"io"
 	"net"
 )
 
 type udpResponseWriter struct {
-	c  net.PacketConn
-	to net.Addr
+	c       net.PacketConn
+	to      net.Addr
+	udpSize int
 }
 
-func (u *udpResponseWriter) Write(m []byte) (n int, err error) {
-	return u.c.WriteTo(m, u.to)
+func (w *udpResponseWriter) Write(m *dns.Msg) error {
+	m.Truncate(w.udpSize)
+	b, buf, err := pool.PackBuffer(m)
+	if err != nil {
+		return err
+	}
+	defer buf.Release()
+	_, err = w.c.WriteTo(b, w.to)
+	return err
 }
 
 func (s *Server) ServeUDP(c net.PacketConn) error {
@@ -63,11 +72,13 @@ func (s *Server) ServeUDP(c net.PacketConn) error {
 			return fmt.Errorf("unexpected read err: %w", err)
 		}
 
-		reqBuf := pool.GetBuf(n)
-		copy(reqBuf.Bytes(), rb[:n])
+		req := new(dns.Msg)
+		if err := req.Unpack(rb[:n]); err != nil {
+			s.getLogger().Warn("invalid msg", zap.Error(err), zap.Binary("msg", rb[:n]))
+			continue
+		}
 
 		go func() {
-			defer reqBuf.Release()
 			meta := new(handler.RequestMeta)
 			meta.FromUDP = true
 			if clientIP := utils.GetIPFromAddr(from); clientIP != nil {
@@ -76,11 +87,22 @@ func (s *Server) ServeUDP(c net.PacketConn) error {
 				s.getLogger().Warn("failed to acquire client ip addr")
 			}
 
-			w := &udpResponseWriter{c: ol, to: from}
+			w := &udpResponseWriter{c: ol, to: from, udpSize: getUDPSize(req)}
 
-			if err := s.DNSHandler.ServeDNS(listenerCtx, reqBuf.Bytes(), w, meta); err != nil {
+			if err := s.DNSHandler.ServeDNS(listenerCtx, req, w, meta); err != nil {
 				s.getLogger().Warn("handler err", zap.Error(err))
 			}
 		}()
 	}
+}
+
+func getUDPSize(m *dns.Msg) int {
+	var s uint16
+	if opt := m.IsEdns0(); opt != nil {
+		s = opt.UDPSize()
+	}
+	if s < dns.MinMsgSize {
+		s = dns.MinMsgSize
+	}
+	return int(s)
 }

@@ -161,28 +161,24 @@ func testUpstream(u Upstream) error {
 		return s
 	}
 
-	for i := 0; i < 10; i++ {
+	for i := uint16(0); i < 10; i++ {
 		wg.Add(1)
-
+		i := i
 		go func() {
 			defer wg.Done()
 
 			q := new(dns.Msg)
 			q.SetQuestion("example.com.", dns.TypeA)
-			qRaw, err := q.Pack()
-			if err != nil {
-				logErr(err)
-				return
-			}
+			q.Id = i
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
-			rRaw, err := u.ExchangeContext(ctx, qRaw)
+			r, err := u.ExchangeContext(ctx, q)
 
 			if err != nil {
 				logErr(err)
 				return
 			}
-			if getMsgId(rRaw.Bytes()) != q.Id {
+			if r.Id != q.Id {
 				logErr(dns.ErrId)
 				return
 			}

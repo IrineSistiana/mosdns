@@ -17,10 +17,27 @@
 
 package upstream
 
-const (
-	// DNS header size is 12. It is also the minimum length of a valid dns msg.
-	headerSize = 12
+import (
+	"context"
+	"github.com/miekg/dns"
+	"time"
 )
+
+// getContextDeadline tries to get the deadline of ctx or return a default
+// deadline.
+func getContextDeadline(ctx context.Context, defTimeout time.Duration) time.Time {
+	ddl, ok := ctx.Deadline()
+	if ok {
+		return ddl
+	}
+	return time.Now().Add(defTimeout)
+}
+
+func shadowCopy(m *dns.Msg) *dns.Msg {
+	nm := new(dns.Msg)
+	*nm = *m
+	return nm
+}
 
 func setMsgId(m []byte, id uint16) {
 	m[0] = byte(id >> 8)

@@ -30,7 +30,6 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"sync"
 )
 
 var (
@@ -122,9 +121,11 @@ func readClientIPFromXFF(s string) net.IP {
 
 var errInvalidMediaType = errors.New("missing or invalid media type header")
 
-var bufPool = pool.NewBytesBufPool(128)
+var bufPool = pool.NewBytesBufPool(512)
 
-func ReadMsgFromReq(req *http.Request) ([]byte, error) {
+func ReadMsgFromReq(req *http.Request) (*dns.Msg, error) {
+	var b []byte
+
 	switch req.Method {
 	case http.MethodGet:
 		// Check accept header
@@ -141,11 +142,11 @@ func ReadMsgFromReq(req *http.Request) ([]byte, error) {
 			return nil, fmt.Errorf("msg length %d is too big", msgSize)
 		}
 
-		b, err := base64.RawURLEncoding.DecodeString(s)
+		var err error
+		b, err = base64.RawURLEncoding.DecodeString(s)
 		if err != nil {
 			return nil, fmt.Errorf("failed to decode base64 query: %w", err)
 		}
-		return b, nil
 
 	case http.MethodPost:
 		// Check Content-Type header
@@ -155,26 +156,35 @@ func ReadMsgFromReq(req *http.Request) ([]byte, error) {
 
 		buf := bufPool.Get()
 		defer bufPool.Release(buf)
-		n, err := buf.ReadFrom(io.LimitReader(req.Body, dns.MaxMsgSize))
+		_, err := buf.ReadFrom(io.LimitReader(req.Body, dns.MaxMsgSize))
 		if err != nil {
 			return nil, fmt.Errorf("failed to read request body: %w", err)
 		}
-		msg := make([]byte, n)
-		copy(msg, buf.Bytes())
-		return msg, nil
+		b = buf.Bytes()
 	default:
 		return nil, fmt.Errorf("unsupported method: %s", req.Method)
 	}
+
+	m := new(dns.Msg)
+	if err := m.Unpack(b); err != nil {
+		return nil, fmt.Errorf("failed to unpack msg [%x], %w", b, err)
+	}
+	return m, nil
 }
 
 type httpDnsRespWriter struct {
-	setMediaTypeOnce sync.Once
-	httpRespWriter   http.ResponseWriter
+	httpRespWriter http.ResponseWriter
 }
 
-func (h *httpDnsRespWriter) Write(m []byte) (n int, err error) {
-	h.setMediaTypeOnce.Do(func() {
-		h.httpRespWriter.Header().Set("Content-Type", "application/dns-message")
-	})
-	return h.httpRespWriter.Write(m)
+func (h *httpDnsRespWriter) Write(m *dns.Msg) error {
+	b, buf, err := pool.PackBuffer(m)
+	if err != nil {
+		h.httpRespWriter.WriteHeader(http.StatusInternalServerError)
+		return err
+	}
+	defer buf.Release()
+
+	h.httpRespWriter.Header().Set("Content-Type", "application/dns-message")
+	_, err = h.httpRespWriter.Write(b)
+	return err
 }

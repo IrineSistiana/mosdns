@@ -30,9 +30,9 @@ var (
 	errZeroLenMsg = errors.New("zero length msg")
 )
 
-// ReadRawMsgFromTCP reads msg from c in RFC 7766 format.
+// ReadRawMsgFromTCP reads msg from c in RFC 1035 format (msg is prefixed
+// with a two byte length field).
 // n represents how many bytes are read from c.
-// This includes two-octet length field.
 func ReadRawMsgFromTCP(c io.Reader) (*pool.Buffer, int, error) {
 	n := 0
 	hb := pool.GetBuf(2)
@@ -62,18 +62,28 @@ func ReadRawMsgFromTCP(c io.Reader) (*pool.Buffer, int, error) {
 	return buf, n, nil
 }
 
-// WriteMsgToTCP packs and writes m to c in RFC 7766 format.
+// ReadMsgFromTCP reads msg from c in RFC 1035 format (msg is prefixed
+// with a two byte length field).
+// n represents how many bytes are read from c.
+func ReadMsgFromTCP(c io.Reader) (*dns.Msg, int, error) {
+	b, n, err := ReadRawMsgFromTCP(c)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer b.Release()
+
+	m, err := unpackMsgWithDetailedErr(b.Bytes())
+	return m, n, err
+}
+
+// WriteMsgToTCP packs and writes m to c in RFC 1035 format.
 // n represents how many bytes are written to c.
-// This includes 2 bytes length header.
-// An io err will be wrapped into an IOErr.
-// IsIOErr(err) can check and unwrap the inner io err.
 func WriteMsgToTCP(c io.Writer, m *dns.Msg) (n int, err error) {
 	mRaw, buf, err := pool.PackBuffer(m)
 	if err != nil {
 		return 0, err
 	}
 	defer buf.Release()
-
 	return WriteRawMsgToTCP(c, mRaw)
 }
 
@@ -90,4 +100,39 @@ func WriteRawMsgToTCP(c io.Writer, b []byte) (n int, err error) {
 	binary.BigEndian.PutUint16(wb[:2], uint16(len(b)))
 	copy(wb[2:], b)
 	return c.Write(wb)
+}
+
+func WriteMsgToUDP(c io.Writer, m *dns.Msg) (int, error) {
+	b, buf, err := pool.PackBuffer(m)
+	if err != nil {
+		return 0, err
+	}
+	defer buf.Release()
+
+	return c.Write(b)
+}
+
+func ReadMsgFromUDP(c io.Reader, bufSize int) (*dns.Msg, int, error) {
+	if bufSize < dns.MinMsgSize {
+		bufSize = dns.MinMsgSize
+	}
+
+	buf := pool.GetBuf(bufSize)
+	defer buf.Release()
+	b := buf.Bytes()
+	n, err := c.Read(b)
+	if err != nil {
+		return nil, n, err
+	}
+
+	m, err := unpackMsgWithDetailedErr(b[:n])
+	return m, n, err
+}
+
+func unpackMsgWithDetailedErr(b []byte) (*dns.Msg, error) {
+	m := new(dns.Msg)
+	if err := m.Unpack(b); err != nil {
+		return nil, fmt.Errorf("failed to unpack msg [%x], %w", b, err)
+	}
+	return m, nil
 }

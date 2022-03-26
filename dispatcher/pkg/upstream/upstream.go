@@ -22,8 +22,8 @@ import (
 	"crypto/tls"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/dnsutils"
-	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/pool"
 	"github.com/lucas-clemente/quic-go"
+	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/proxy"
@@ -47,11 +47,9 @@ var (
 
 // Upstream represents a DNS upstream.
 type Upstream interface {
-	// ExchangeContext exchanges query message q to the upstream, and returns
-	// response. It MUST NOT keep or modify q.
-	// The returned msg buffer is larger than 12 bytes. Which is the minimum size of
-	// a valid dns package.
-	ExchangeContext(ctx context.Context, q []byte) (*pool.Buffer, error)
+	// ExchangeContext exchanges query message m to the upstream, and returns
+	// response. It MUST NOT keep or modify m.
+	ExchangeContext(ctx context.Context, m *dns.Msg) (*dns.Msg, error)
 
 	// CloseIdleConnections closes any connections in the Upstream which
 	// now sitting idle. It does not interrupt any connections currently in use.
@@ -137,20 +135,9 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 				}
 				return d.DialContext(ctx, "udp", dialAddr)
 			},
-			WriteFunc: func(c io.Writer, m []byte) (int, error) {
-				return c.Write(m)
-			},
-			ReadFunc: func(c io.Reader) (*pool.Buffer, int, error) {
-				readBuf := pool.GetBuf(64 * 1024)
-				defer readBuf.Release()
-				rb := readBuf.Bytes()
-				n, err := c.Read(rb)
-				if err != nil {
-					return nil, n, err
-				}
-				b := pool.GetBuf(n)
-				copy(b.Bytes(), rb[:n])
-				return b, n, nil
+			WriteFunc: dnsutils.WriteMsgToUDP,
+			ReadFunc: func(c io.Reader) (*dns.Msg, int, error) {
+				return dnsutils.ReadMsgFromUDP(c, 4096)
 			},
 			EnablePipeline: true,
 			MaxConns:       opt.MaxConns,
@@ -162,8 +149,8 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 				d := net.Dialer{}
 				return d.DialContext(ctx, "tcp", dialAddr)
 			},
-			WriteFunc: dnsutils.WriteRawMsgToTCP,
-			ReadFunc:  dnsutils.ReadRawMsgFromTCP,
+			WriteFunc: dnsutils.WriteMsgToTCP,
+			ReadFunc:  dnsutils.ReadMsgFromTCP,
 		}
 		return &udpWithFallback{
 			u: ut,
@@ -176,8 +163,8 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
 				return dialTCP(ctx, dialAddr, opt.Socks5)
 			},
-			WriteFunc:      dnsutils.WriteRawMsgToTCP,
-			ReadFunc:       dnsutils.ReadRawMsgFromTCP,
+			WriteFunc:      dnsutils.WriteMsgToTCP,
+			ReadFunc:       dnsutils.ReadMsgFromTCP,
 			IdleTimeout:    opt.IdleTimeout,
 			EnablePipeline: opt.EnablePipeline,
 			MaxConns:       opt.MaxConns,
@@ -209,8 +196,8 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 				}
 				return tlsConn, nil
 			},
-			WriteFunc:      dnsutils.WriteRawMsgToTCP,
-			ReadFunc:       dnsutils.ReadRawMsgFromTCP,
+			WriteFunc:      dnsutils.WriteMsgToTCP,
+			ReadFunc:       dnsutils.ReadMsgFromTCP,
 			IdleTimeout:    opt.IdleTimeout,
 			EnablePipeline: opt.EnablePipeline,
 			MaxConns:       opt.MaxConns,
@@ -301,16 +288,16 @@ type udpWithFallback struct {
 	t *Transport
 }
 
-func (u *udpWithFallback) ExchangeContext(ctx context.Context, q []byte) (*pool.Buffer, error) {
-	b, err := u.u.ExchangeContext(ctx, q)
+func (u *udpWithFallback) ExchangeContext(ctx context.Context, q *dns.Msg) (*dns.Msg, error) {
+	m, err := u.u.ExchangeContext(ctx, q)
 	if err != nil {
 		return nil, err
 	}
-	if isTruncated(b.Bytes()) {
+	if m.Truncated {
 		u.u.logger().Warn("truncated udp msg received, retrying tcp")
 		return u.t.ExchangeContext(ctx, q)
 	}
-	return b, nil
+	return m, nil
 }
 
 func (u *udpWithFallback) CloseIdleConnections() {

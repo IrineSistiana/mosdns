@@ -50,26 +50,24 @@ var (
 	bufPool512 = pool.NewBytesBufPool(512)
 )
 
-func (u *DoH) ExchangeContext(ctx context.Context, q []byte) (*pool.Buffer, error) {
+func (u *DoH) ExchangeContext(ctx context.Context, q *dns.Msg) (*dns.Msg, error) {
+	wire, buf, err := pool.PackBuffer(q)
+	if err != nil {
+		return nil, fmt.Errorf("failed to pack query msg, %w", err)
+	}
+	defer buf.Release()
 
 	// In order to maximize HTTP cache friendliness, DoH clients using media
 	// formats that include the ID field from the DNS message header, such
 	// as "application/dns-message", SHOULD use a DNS ID of 0 in every DNS
 	// request.
 	// https://tools.ietf.org/html/rfc8484#section-4.1
-	buf := pool.GetBuf(len(q))
-	defer buf.Release()
-	b := buf.Bytes()
-	copy(b, q)
-	b[0] = 0
-	b[1] = 0
+	wire[0] = 0
+	wire[1] = 0
 
-	urlLen := len(u.EndPoint) + 5 + base64.RawURLEncoding.EncodedLen(len(b))
+	urlLen := len(u.EndPoint) + 5 + base64.RawURLEncoding.EncodedLen(len(wire))
 	urlBuf := make([]byte, urlLen)
 
-	// Padding characters for base64url MUST NOT be included.
-	// See: https://tools.ietf.org/html/rfc8484#section-6.
-	// That's why we use base64.RawURLEncoding.
 	p := 0
 	p += copy(urlBuf[p:], u.EndPoint)
 	// A simple way to check whether the endpoint already has a parameter.
@@ -78,10 +76,13 @@ func (u *DoH) ExchangeContext(ctx context.Context, q []byte) (*pool.Buffer, erro
 	} else {
 		p += copy(urlBuf[p:], "?dns=")
 	}
-	base64.RawURLEncoding.Encode(urlBuf[p:], b)
+
+	// Padding characters for base64url MUST NOT be included.
+	// See: https://tools.ietf.org/html/rfc8484#section-6.
+	base64.RawURLEncoding.Encode(urlBuf[p:], wire)
 
 	type result struct {
-		r   *pool.Buffer
+		r   *dns.Msg
 		err error
 	}
 
@@ -93,7 +94,7 @@ func (u *DoH) ExchangeContext(ctx context.Context, q []byte) (*pool.Buffer, erro
 		// reduces the connection reuse efficiency.
 		ctx, cancel := context.WithTimeout(context.Background(), defaultDoHTimeout)
 		defer cancel()
-		r, err := u.exchangeMustHasHeader(ctx, utils.BytesToStringUnsafe(urlBuf))
+		r, err := u.exchange(ctx, utils.BytesToStringUnsafe(urlBuf))
 		resChan <- &result{r: r, err: err}
 	}()
 
@@ -103,16 +104,14 @@ func (u *DoH) ExchangeContext(ctx context.Context, q []byte) (*pool.Buffer, erro
 	case res := <-resChan:
 		r := res.r
 		err := res.err
-		if err != nil {
-			return nil, err
+		if r != nil {
+			r.Id = q.Id
 		}
-		setMsgId(r.Bytes(), getMsgId(q))
-		return r, nil
+		return r, err
 	}
 }
 
-// exchangeMustHasHeader always return a msg larger than 12 bytes.
-func (u *DoH) exchangeMustHasHeader(ctx context.Context, url string) (*pool.Buffer, error) {
+func (u *DoH) exchange(ctx context.Context, url string) (*dns.Msg, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("interal err: NewRequestWithContext: %w", err)
@@ -142,11 +141,9 @@ func (u *DoH) exchangeMustHasHeader(ctx context.Context, url string) (*pool.Buff
 		return nil, fmt.Errorf("failed to read http body: %w", err)
 	}
 
-	if bb.Len() < headerSize {
-		return nil, fmt.Errorf("invalid dns data [%x]", bb.Bytes())
+	r := new(dns.Msg)
+	if err := r.Unpack(bb.Bytes()); err != nil {
+		return nil, fmt.Errorf("failed to unpack http body: %w", err)
 	}
-
-	r := pool.GetBuf(bb.Len())
-	copy(r.Bytes(), bb.Bytes())
 	return r, nil
 }
