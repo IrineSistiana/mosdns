@@ -33,7 +33,7 @@ const intSize = 32 << (^uint(0) >> 63)
 var defaultBufPool = NewAllocator(intSize - 1)
 
 // GetBuf returns a *Buffer from pool with most appropriate cap.
-// It panics if size <= 0.
+// It panics if size < 0.
 func GetBuf(size int) *Buffer {
 	return defaultBufPool.Get(size)
 }
@@ -77,7 +77,7 @@ func NewAllocator(maxPoolBitsLen int) *Allocator {
 
 // Get returns a []byte from pool with most appropriate cap
 func (alloc *Allocator) Get(size int) *Buffer {
-	if size <= 0 {
+	if size < 0 {
 		panic(fmt.Sprintf("invalid slice size %d", size))
 	}
 

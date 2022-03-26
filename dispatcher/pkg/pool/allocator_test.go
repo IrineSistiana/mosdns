@@ -31,7 +31,9 @@ func TestAllocator_Get(t *testing.T) {
 		wantPanic bool
 	}{
 		{-1, 0, true}, // invalid
-		{0, 0, true},  // invalid
+		{0, 1, false},
+		{1, 1, false},
+		{2, 2, false},
 		{12, 16, false},
 		{256, 256, false},
 		{257, 0, true}, // invalid, too large

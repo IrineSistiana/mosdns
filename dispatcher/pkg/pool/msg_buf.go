@@ -18,28 +18,18 @@
 package pool
 
 import (
-	"fmt"
 	"github.com/miekg/dns"
 )
+
+// There is no such way to give dns.Msg.PackBuffer() a buffer
+// with a proper size.
+// Just give it a big buf and hope the buf will be reused in most scenes.
+const packBufSize = 4096
 
 // PackBuffer packs the dns msg m to wire format.
 // Callers should release the buf after they have done with the wire []byte.
 func PackBuffer(m *dns.Msg) (wire []byte, buf *Buffer, err error) {
-	l := m.Len()
-	if l > dns.MaxMsgSize || l <= 0 {
-		return nil, nil, fmt.Errorf("msg length %d is invalid", l)
-	}
-
-	// dns.Msg.PackBuffer() needs one more bit than its msg length.
-	// It also needs a much larger buffer if the msg is compressed.
-	// It is tedious to force dns.Msg.PackBuffer() to use the buffer.
-	// Just give it a big buf and hope the buf will be reused in most scenes.
-	if l > 4095 {
-		buf = GetBuf(l + 1)
-	} else {
-		buf = GetBuf(4096)
-	}
-
+	buf = GetBuf(packBufSize)
 	wire, err = m.PackBuffer(buf.Bytes())
 	if err != nil {
 		buf.Release()
