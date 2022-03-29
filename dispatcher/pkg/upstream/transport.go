@@ -38,6 +38,7 @@ var (
 
 const (
 	defaultIdleTimeout             = time.Second * 10
+	defaultReadTimeout             = time.Second * 5
 	defaultDialTimeout             = time.Second * 5
 	defaultNoPipelineQueryTimeout  = time.Second * 5
 	defaultNoConnReuseQueryTimeout = time.Second * 5
@@ -511,7 +512,11 @@ func (c *pipelineConn) notifyExchange(r *dns.Msg) {
 
 func (c *pipelineConn) readLoop() {
 	for {
-		c.c.SetReadDeadline(time.Now().Add(c.t.idleTimeout()))
+		if c.onGoingQuery() > 0 {
+			c.c.SetReadDeadline(time.Now().Add(defaultReadTimeout))
+		} else {
+			c.c.SetReadDeadline(time.Now().Add(c.t.idleTimeout()))
+		}
 		m, _, err := c.t.ReadFunc(c.c)
 		if err != nil {
 			c.closeAndCleanup(err) // abort this connection.
