@@ -499,9 +499,12 @@ func (c *pipelineConn) exchange(ctx context.Context, q *dns.Msg, qId uint16) (*d
 }
 
 func (c *pipelineConn) notifyExchange(r *dns.Msg) {
-	c.qm.RLock()
+	c.qm.Lock()
 	resChan, ok := c.queue[r.Id]
-	c.qm.RUnlock()
+	if ok {
+		delete(c.queue, r.Id)
+	}
+	c.qm.Unlock()
 	if ok {
 		select {
 		case resChan <- r:
