@@ -16,7 +16,7 @@ import (
 )
 
 func TestTransport_Exchange(t *testing.T) {
-	randSleep20 := func() { time.Sleep(time.Millisecond * time.Duration(rand.Intn(20))) }
+	randSleepMs := func(ms int) { time.Sleep(time.Millisecond * time.Duration(rand.Intn(ms))) }
 	dial := func(ctx context.Context) (net.Conn, error) {
 		c1, c2 := net.Pipe()
 		go func() {
@@ -25,7 +25,7 @@ func TestTransport_Exchange(t *testing.T) {
 				if m != nil {
 					go func() {
 						defer m.Release()
-						randSleep20()
+						randSleepMs(20)
 						dnsutils.WriteRawMsgToTCP(c2, m.Bytes())
 					}()
 				}
@@ -34,7 +34,7 @@ func TestTransport_Exchange(t *testing.T) {
 				}
 			}
 		}()
-		randSleep20()
+		randSleepMs(20)
 		return c1, nil
 	}
 
@@ -43,12 +43,12 @@ func TestTransport_Exchange(t *testing.T) {
 	}
 
 	write := func(c io.Writer, m *dns.Msg) (n int, err error) {
-		randSleep20()
+		randSleepMs(20)
 		return dnsutils.WriteMsgToTCP(c, m)
 	}
 
 	read := func(c io.Reader) (m *dns.Msg, n int, err error) {
-		randSleep20()
+		randSleepMs(20)
 		return dnsutils.ReadMsgFromTCP(c)
 	}
 
@@ -288,7 +288,7 @@ func TestTransport_Exchange(t *testing.T) {
 				i := i
 				go func() {
 					defer wg.Done()
-					randSleep20()
+					randSleepMs(100)
 					q := new(dns.Msg)
 					qName := fmt.Sprintf("%d.", i)
 					q.SetQuestion(qName, dns.TypeA)
@@ -312,15 +312,25 @@ func TestTransport_Exchange(t *testing.T) {
 			}
 
 			wg.Wait()
-			time.Sleep(tt.fields.IdleTimeout + time.Millisecond*100)
+			time.Sleep(tt.fields.IdleTimeout + time.Millisecond*200)
 
 			transport.pm.Lock()
+			for conn := range transport.pConns {
+				if conn.isClosed() {
+					delete(transport.pConns, conn)
+				}
+			}
 			if n := len(transport.pConns); n != 0 {
 				t.Errorf("len(t.pConns), want 0, got %d", n)
 			}
 
-			if n := len(transport.dCalls); n != 0 {
-				t.Errorf("len(t.pConns), want 0, got %d", n)
+			for conn := range transport.opConns {
+				if ok := conn.stopIdle(); !ok {
+					delete(transport.opConns, conn)
+				}
+			}
+			if n := len(transport.opConns); n != 0 {
+				t.Errorf("len(t.opConns), want 0, got %d", n)
 			}
 			transport.pm.Unlock()
 		})

@@ -39,15 +39,11 @@ func shadowCopy(m *dns.Msg) *dns.Msg {
 	return nm
 }
 
-func setMsgId(m []byte, id uint16) {
-	m[0] = byte(id >> 8)
-	m[1] = byte(id)
-}
-
-func getMsgId(m []byte) uint16 {
-	return uint16(m[0])<<8 + uint16(m[1])
-}
-
-func isTruncated(m []byte) bool {
-	return m[3]&1<<1 != 0
+func chanClosed(c chan struct{}) bool {
+	select {
+	case <-c:
+		return true
+	default:
+		return false
+	}
 }
