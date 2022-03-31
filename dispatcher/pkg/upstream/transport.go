@@ -171,7 +171,7 @@ func (t *Transport) exchangeWithPipelineConn(ctx context.Context, m *dns.Msg) (*
 		r, err := conn.exchange(ctx, m, qid, resChan)
 		if err != nil {
 			if reusedConn && attempt <= 3 {
-				t.logger().Debug("retrying pipeline connection", zap.Error(err))
+				t.logger().Debug("retrying pipeline connection", zap.NamedError("previous_err", err), zap.Int("attempt", attempt))
 				continue
 			}
 			return nil, err
@@ -362,20 +362,24 @@ func newPipelineConn(t *Transport) *pipelineConn {
 		pc.dialErr = err
 		close(pc.dialFinishedNotify)
 
-		closed := chanClosed(pc.closeNotify)
-		pc.cm.Unlock()
-
-		// pipelineConn was closed before dial completing.
-		if closed {
-			if c != nil {
-				c.Close()
+		if err != nil { // dial err, close the connection
+			if !chanClosed(pc.closeNotify) {
+				close(pc.closeNotify)
 			}
+			pc.cm.Unlock()
 			return
 		}
 
-		if c != nil {
-			pc.readLoop()
+		// dial completed.
+		// pipelineConn was closed before dial completing.
+		if chanClosed(pc.closeNotify) {
+			c.Close() // close the sub connection
+			pc.cm.Unlock()
+			return
 		}
+		pc.cm.Unlock()
+
+		pc.readLoop()
 	}()
 	return pc
 }
