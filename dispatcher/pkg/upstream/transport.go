@@ -339,6 +339,8 @@ type pipelineConn struct {
 	dialErr            error
 	closeNotify        chan struct{}
 	closeErr           error
+
+	atomicReadDdlOnce atomic.Value
 }
 
 var pipelineConnIdCounter uint32
@@ -446,11 +448,14 @@ func (c *pipelineConn) exchange(
 	qCopy.Id = qid
 	c.c.SetWriteDeadline(time.Now().Add(generalWriteTimeout))
 
-	// Set read ddl only for the first request.
+	// Set read ddl only for the first request that start up a queue.
 	// The ddl for the following requests will be set and updated in the
 	// read loop.
-	if c.queueLen() == 1 {
-		c.c.SetReadDeadline(time.Now().Add(defaultReadTimeout))
+	once, ok := c.atomicReadDdlOnce.Load().(*sync.Once)
+	if ok {
+		once.Do(func() {
+			c.c.SetReadDeadline(time.Now().Add(defaultReadTimeout))
+		})
 	}
 	_, err := c.t.WriteFunc(c.c, qCopy)
 	if err != nil {
@@ -499,6 +504,7 @@ func (c *pipelineConn) readLoop() {
 			c.c.SetReadDeadline(time.Now().Add(defaultReadTimeout))
 		} else {
 			c.c.SetReadDeadline(time.Now().Add(c.t.idleTimeout()))
+			c.atomicReadDdlOnce.Store(new(sync.Once))
 		}
 	}
 }
