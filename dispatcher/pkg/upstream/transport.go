@@ -295,11 +295,12 @@ func (t *Transport) getPipelineConn() (conn *pipelineConn, qid uint16, resChan c
 	defer t.pm.Unlock()
 
 	// Try to get an existing connection.
-	for conn = range t.pConns {
-		if conn.isClosed() {
+	for c := range t.pConns {
+		if c.isClosed() {
 			delete(t.pConns, conn)
 			continue
 		}
+		conn = c
 		break
 	}
 
