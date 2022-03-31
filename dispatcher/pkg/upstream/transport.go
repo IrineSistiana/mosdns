@@ -35,6 +35,7 @@ var (
 
 const (
 	defaultIdleTimeout             = time.Second * 10
+	defaultReadTimeout             = time.Second * 5
 	defaultDialTimeout             = time.Second * 5
 	defaultNoPipelineQueryTimeout  = time.Second * 5
 	defaultNoConnReuseQueryTimeout = time.Second * 5
@@ -443,6 +444,13 @@ func (c *pipelineConn) exchange(
 	qCopy := shadowCopy(q)
 	qCopy.Id = qid
 	c.c.SetWriteDeadline(time.Now().Add(generalWriteTimeout))
+
+	// Set read ddl only for the first request.
+	// The ddl for the following requests will be set and updated in the
+	// read loop.
+	if c.queueLen() == 1 {
+		c.c.SetReadDeadline(time.Now().Add(defaultReadTimeout))
+	}
 	_, err := c.t.WriteFunc(c.c, qCopy)
 	if err != nil {
 		// Write error usually is fatal. Abort and close this connection.
@@ -463,24 +471,33 @@ func (c *pipelineConn) exchange(
 }
 
 func (c *pipelineConn) readLoop() {
+	c.c.SetReadDeadline(time.Now().Add(defaultReadTimeout))
 	for {
-		c.c.SetReadDeadline(time.Now().Add(c.t.idleTimeout()))
 		r, _, err := c.t.ReadFunc(c.c)
 		if err != nil {
 			c.closeWithErr(err) // abort this connection.
 			return
 		}
 
-		if r != nil {
-			c.qm.RLock()
-			resChan, ok := c.queue[r.Id]
-			c.qm.RUnlock()
-			if ok {
-				select {
-				case resChan <- r: // resChan has buffer
-				default:
-				}
+		c.qm.Lock()
+		resChan, ok := c.queue[r.Id]
+		if ok {
+			delete(c.queue, r.Id)
+		}
+		queueLen := len(c.queue)
+		c.qm.Unlock()
+
+		if ok {
+			select {
+			case resChan <- r: // resChan has buffer
+			default:
 			}
+		}
+
+		if queueLen > 0 {
+			c.c.SetReadDeadline(time.Now().Add(defaultReadTimeout))
+		} else {
+			c.c.SetReadDeadline(time.Now().Add(c.t.idleTimeout()))
 		}
 	}
 }
