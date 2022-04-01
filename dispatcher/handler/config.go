@@ -18,6 +18,7 @@
 package handler
 
 import (
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/mlog"
 	"github.com/mitchellh/mapstructure"
 )
 
@@ -28,6 +29,8 @@ type Config struct {
 
 	// Type, required
 	Type string `yaml:"type"`
+
+	LogConfig mlog.LogConfig `yaml:"log"`
 
 	// Args, might be required by some plugins
 	Args map[string]interface{} `yaml:"args"`

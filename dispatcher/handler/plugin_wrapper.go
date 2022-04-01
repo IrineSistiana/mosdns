@@ -33,6 +33,7 @@ var (
 // interface conversion.
 type PluginWrapper struct {
 	Plugin
+	l *zap.Logger
 	e Executable
 	m Matcher
 }
@@ -47,6 +48,9 @@ func NewPluginWrapper(gp Plugin) *PluginWrapper {
 	if m, ok := gp.(Matcher); ok {
 		w.m = m
 	}
+	if v, ok := gp.(interface{ L() *zap.Logger }); ok {
+		w.l = v.L()
+	}
 
 	return w
 }
@@ -56,7 +60,7 @@ func (w *PluginWrapper) Match(ctx context.Context, qCtx *Context) (matched bool,
 	if err != nil {
 		return false, NewPluginError(w.Tag(), err)
 	}
-	mlog.L().Debug("matching query context", qCtx.InfoField(), zap.String("tag", w.Tag()), zap.Bool("result", matched))
+	w.getLogger().Debug("matching query context", qCtx.InfoField(), zap.String("tag", w.Tag()), zap.Bool("result", matched))
 	return matched, nil
 }
 
@@ -73,7 +77,7 @@ func (w *PluginWrapper) match(ctx context.Context, qCtx *Context) (matched bool,
 }
 
 func (w *PluginWrapper) Exec(ctx context.Context, qCtx *Context, next ExecutableChainNode) error {
-	mlog.L().Debug("executing plugin", qCtx.InfoField(), zap.String("tag", w.Tag()))
+	w.getLogger().Debug("executing plugin", qCtx.InfoField(), zap.String("tag", w.Tag()))
 	err := w.exec(ctx, qCtx, next)
 	if err != nil {
 		return NewPluginError(w.Tag(), err)
@@ -91,6 +95,13 @@ func (w *PluginWrapper) exec(ctx context.Context, qCtx *Context, next Executable
 	}
 
 	return w.e.Exec(ctx, qCtx, next)
+}
+
+func (w *PluginWrapper) getLogger() *zap.Logger {
+	if w.l != nil {
+		return w.l
+	}
+	return mlog.L()
 }
 
 type PluginInterfaceType uint8

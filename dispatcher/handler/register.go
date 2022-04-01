@@ -93,7 +93,10 @@ func NewPlugin(c *Config) (p Plugin, err error) {
 		return nil, fmt.Errorf("plugin type %s not defined", c.Type)
 	}
 
-	bp := NewBP(c.Tag, c.Type)
+	bp, err := NewBPWithLog(c.Tag, c.Type, &c.LogConfig)
+	if err != nil {
+		return nil, err
+	}
 
 	// parse args
 	if typeInfo.NewArgs != nil {
@@ -196,6 +199,16 @@ type BP struct {
 func NewBP(tag string, typ string) *BP {
 	l := mlog.NewPluginLogger(tag)
 	return &BP{tag: tag, typ: typ, l: l, s: l.Sugar()}
+}
+
+// NewBPWithLog creates a new BP and initials its logger with a static level.
+func NewBPWithLog(tag string, typ string, lc *mlog.LogConfig) (*BP, error) {
+	l, err := mlog.NewLogger(lc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to init logger: %w", err)
+	}
+	l = l.Named(tag)
+	return &BP{tag: tag, typ: typ, l: l, s: l.Sugar()}, nil
 }
 
 func (p *BP) Tag() string {

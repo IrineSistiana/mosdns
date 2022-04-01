@@ -25,7 +25,6 @@ import (
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/load_cache"
 	_ "github.com/IrineSistiana/mosdns/v3/dispatcher/plugin"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"os"
 	"os/signal"
 	"runtime/debug"
@@ -70,49 +69,8 @@ func loadConfig(f string, depth int) error {
 	}
 
 	if depth == 1 {
-		// init logger
-		level, ok := parseLogLevel(c.Log.Level)
-		if !ok {
-			return fmt.Errorf("invalid log level [%s]", c.Log.Level)
-		}
-		mlog.Level().SetLevel(level)
-
-		if len(c.Log.InfoFile) == 0 {
-			c.Log.InfoFile = c.Log.File
-		}
-		if len(c.Log.ErrFile) == 0 {
-			c.Log.ErrFile = c.Log.File
-		}
-
-		if lf := c.Log.File; len(lf) > 0 {
-			mlog.L().Info("opening log file", zap.String("file", lf))
-			f, err := os.OpenFile(lf, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
-			if err != nil {
-				return fmt.Errorf("open log file: %w", err)
-			}
-			mlog.L().Info("redirecting log to file, end of console log", zap.String("file", c.Log.File))
-			fLocked := zapcore.Lock(f)
-			mlog.InfoWriter().Replace(fLocked)
-			mlog.ErrWriter().Replace(fLocked)
-		} else {
-			if lf := c.Log.InfoFile; len(lf) > 0 {
-				mlog.L().Info("opening info log file", zap.String("file", lf))
-				f, err := os.OpenFile(lf, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
-				if err != nil {
-					return fmt.Errorf("open info log file: %w", err)
-				}
-				mlog.L().Info("redirecting info log to file, end of console log", zap.String("file", c.Log.File))
-				mlog.InfoWriter().Replace(zapcore.Lock(f))
-			}
-			if lf := c.Log.ErrFile; len(lf) > 0 {
-				mlog.L().Info("opening err log file", zap.String("file", lf))
-				f, err := os.OpenFile(lf, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
-				if err != nil {
-					return fmt.Errorf("open err log file: %w", err)
-				}
-				mlog.L().Info("redirecting err log to file, end of console log", zap.String("file", c.Log.File))
-				mlog.ErrWriter().Replace(zapcore.Lock(f))
-			}
+		if err := mlog.ApplyGlobalConfig(&c.Log); err != nil {
+			return fmt.Errorf("failed to init logger: %w", err)
 		}
 
 		for _, lib := range c.Library {
@@ -144,19 +102,4 @@ func loadConfig(f string, depth int) error {
 		}
 	}
 	return nil
-}
-
-func parseLogLevel(s string) (zapcore.Level, bool) {
-	switch s {
-	case "debug":
-		return zap.DebugLevel, true
-	case "", "info":
-		return zap.InfoLevel, true
-	case "warn":
-		return zap.WarnLevel, true
-	case "error":
-		return zap.ErrorLevel, true
-	default:
-		return 0, false
-	}
 }
