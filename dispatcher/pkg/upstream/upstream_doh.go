@@ -34,15 +34,15 @@ const (
 	defaultDoHTimeout = time.Second * 5
 )
 
-// DoH is a DNS-over-HTTPS (RFC 8484) upstream.
-type DoH struct {
+// DoHUpstream is a DNS-over-HTTPS (RFC 8484) upstream.
+type DoHUpstream struct {
 	// EndPoint is the DoH server URL.
 	EndPoint string
 	// Client is a http.Client that sends http requests.
 	Client *http.Client
 }
 
-func (u *DoH) CloseIdleConnections() {
+func (u *DoHUpstream) CloseIdleConnections() {
 	u.Client.CloseIdleConnections()
 }
 
@@ -50,7 +50,7 @@ var (
 	bufPool512 = pool.NewBytesBufPool(512)
 )
 
-func (u *DoH) ExchangeContext(ctx context.Context, q *dns.Msg) (*dns.Msg, error) {
+func (u *DoHUpstream) ExchangeContext(ctx context.Context, q *dns.Msg) (*dns.Msg, error) {
 	wire, buf, err := pool.PackBuffer(q)
 	if err != nil {
 		return nil, fmt.Errorf("failed to pack query msg, %w", err)
@@ -111,7 +111,7 @@ func (u *DoH) ExchangeContext(ctx context.Context, q *dns.Msg) (*dns.Msg, error)
 	}
 }
 
-func (u *DoH) exchange(ctx context.Context, url string) (*dns.Msg, error) {
+func (u *DoHUpstream) exchange(ctx context.Context, url string) (*dns.Msg, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("interal err: NewRequestWithContext: %w", err)

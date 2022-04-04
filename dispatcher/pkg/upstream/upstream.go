@@ -58,36 +58,39 @@ type Upstream interface {
 type Opt struct {
 	// DialAddr specifies the address the upstream will
 	// actually dial to.
+	// Not implemented for doh upstreams with http/3.
 	DialAddr string
 
 	// Socks5 specifies the socks5 proxy server that the upstream
-	// will connect though. Currently, only tcp, dot, doh upstream support Socks5 proxy.
+	// will connect though.
+	// Not implemented for udp upstreams and doh upstreams with http/3.
 	Socks5 string
 
 	// SoMark specifies the mark for each packet sent through this upstream.
+	// Not implemented for doh upstreams with http/3
 	SoMark int
 
-	// IdleTimeout used by tcp, dot, doh to control connection idle timeout.
-	// If negative, tcp, dot will not reuse connections.
-	// Default: tcp & dot: 10s , doh: 30s.
+	// IdleTimeout specifies the idle timeout for long-connections.
+	// Available for TCP, DoT, DoH.
+	// If negative, TCP, DoT will not reuse connections.
+	// Default: TCP, DoT: 10s , DoH: 30s.
 	IdleTimeout time.Duration
 
-	// EnablePipeline enables the query pipelining as RFC 7766 6.2.1.1 suggested.
-	// Available for tcp/dot upstream with IdleTimeout >= 0.
+	// EnablePipeline enables query pipelining support as RFC 7766 6.2.1.1 suggested.
+	// Available for TCP, DoT upstream with IdleTimeout >= 0.
 	EnablePipeline bool
 
-	// EnableHTTP3 enables the HTTP/3 for DoH. Note that there is no HTTP/2 fallback.
+	// EnableHTTP3 enables HTTP/3 protocol for DoH upstream.
 	EnableHTTP3 bool
 
 	// MaxConns limits the total number of connections, including connections
 	// in the dialing states.
-	// MaxConns takes effect on tcp/dot upstream with IdleTimeout >= 0 and EnablePipeline.
-	// And doh upstream.
+	// Implemented for TCP/DoT pipeline enabled upstreams and DoH upstreams.
 	// Default is 1.
 	MaxConns int
 
 	// TLSConfig specifies the tls.Config that the TLS client will use.
-	// Used by dot, doh.
+	// Available for DoT, DoH upstreams.
 	TLSConfig *tls.Config
 
 	// Logger specifies the logger that the upstream will use.
@@ -237,7 +240,7 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 			t = t1
 		}
 
-		return &DoH{
+		return &DoHUpstream{
 			EndPoint: addr,
 			Client:   &http.Client{Transport: t},
 		}, nil
