@@ -26,7 +26,6 @@ import (
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"golang.org/x/net/http2"
-	"golang.org/x/net/proxy"
 	"io"
 	"net"
 	"net/http"
@@ -61,11 +60,12 @@ type Opt struct {
 	// actually dial to.
 	DialAddr string
 
-	Bootstrap string
-
 	// Socks5 specifies the socks5 proxy server that the upstream
 	// will connect though. Currently, only tcp, dot, doh upstream support Socks5 proxy.
 	Socks5 string
+
+	// SoMark specifies the mark for each packet sent through this upstream.
+	SoMark int
 
 	// IdleTimeout used by tcp, dot, doh to control connection idle timeout.
 	// If negative, tcp, dot will not reuse connections.
@@ -94,19 +94,6 @@ type Opt struct {
 	Logger *zap.Logger
 }
 
-func dialTCP(ctx context.Context, addr, socks5 string) (net.Conn, error) {
-	if len(socks5) > 0 {
-		socks5Dialer, err := proxy.SOCKS5("tcp", socks5, nil, nil)
-		if err != nil {
-			return nil, fmt.Errorf("failed to init socks5 dialer: %w", err)
-		}
-		return socks5Dialer.(proxy.ContextDialer).DialContext(ctx, "tcp", addr)
-	}
-
-	d := net.Dialer{}
-	return d.DialContext(ctx, "tcp", addr)
-}
-
 func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 	if opt == nil {
 		opt = new(Opt)
@@ -128,10 +115,7 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 			Logger: opt.Logger,
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
 				d := net.Dialer{
-					Resolver: &net.Resolver{
-						PreferGo: true,
-						Dial:     nil,
-					},
+					Control: getSetMarkFunc(opt.SoMark),
 				}
 				return d.DialContext(ctx, "udp", dialAddr)
 			},
@@ -146,7 +130,9 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 		tt := &Transport{
 			Logger: opt.Logger,
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
-				d := net.Dialer{}
+				d := net.Dialer{
+					Control: getSetMarkFunc(opt.SoMark),
+				}
 				return d.DialContext(ctx, "tcp", dialAddr)
 			},
 			WriteFunc: dnsutils.WriteMsgToTCP,
@@ -161,7 +147,7 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 		t := &Transport{
 			Logger: opt.Logger,
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
-				return dialTCP(ctx, dialAddr, opt.Socks5)
+				return dialTCP(ctx, dialAddr, opt.Socks5, opt.SoMark)
 			},
 			WriteFunc:      dnsutils.WriteMsgToTCP,
 			ReadFunc:       dnsutils.ReadMsgFromTCP,
@@ -185,7 +171,7 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 		t := &Transport{
 			Logger: opt.Logger,
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
-				conn, err := dialTCP(ctx, dialAddr, opt.Socks5)
+				conn, err := dialTCP(ctx, dialAddr, opt.Socks5, opt.SoMark)
 				if err != nil {
 					return nil, err
 				}
@@ -233,7 +219,7 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 		} else {
 			t1 := &http.Transport{
 				DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) { // overwrite server addr
-					return dialTCP(ctx, dialAddr, opt.Socks5)
+					return dialTCP(ctx, dialAddr, opt.Socks5, opt.SoMark)
 				},
 				TLSClientConfig:     opt.TLSConfig,
 				TLSHandshakeTimeout: tlsHandshakeTimeout,

@@ -61,6 +61,7 @@ type UpstreamConfig struct {
 	DialAddr string `yaml:"dial_addr"`
 	Trusted  bool   `yaml:"trusted"`
 	Socks5   string `yaml:"socks5"`
+	SoMark   int    `yaml:"so_mark"`
 
 	IdleTimeout        int  `yaml:"idle_timeout"`
 	MaxConns           int  `yaml:"max_conns"`
@@ -109,6 +110,7 @@ func newFastForward(bp *handler.BP, args *Args) (*fastForward, error) {
 		opt := &upstream.Opt{
 			DialAddr:       c.DialAddr,
 			Socks5:         c.Socks5,
+			SoMark:         c.SoMark,
 			IdleTimeout:    time.Duration(c.IdleTimeout) * time.Second,
 			MaxConns:       c.MaxConns,
 			EnablePipeline: c.EnablePipeline,

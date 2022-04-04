@@ -19,7 +19,10 @@ package upstream
 
 import (
 	"context"
+	"fmt"
 	"github.com/miekg/dns"
+	"golang.org/x/net/proxy"
+	"net"
 	"time"
 )
 
@@ -46,4 +49,17 @@ func chanClosed(c chan struct{}) bool {
 	default:
 		return false
 	}
+}
+
+func dialTCP(ctx context.Context, addr, socks5 string, mark int) (net.Conn, error) {
+	if len(socks5) > 0 {
+		socks5Dialer, err := proxy.SOCKS5("tcp", socks5, nil, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to init socks5 dialer: %w", err)
+		}
+		return socks5Dialer.(proxy.ContextDialer).DialContext(ctx, "tcp", addr)
+	}
+
+	d := net.Dialer{Control: getSetMarkFunc(mark)}
+	return d.DialContext(ctx, "tcp", addr)
 }
