@@ -7,7 +7,7 @@ require (
 	github.com/go-redis/redis/v8 v8.11.4
 	github.com/google/nftables v0.0.0-20220221214239-211824995dcb
 	github.com/kardianos/service v1.2.1
-	github.com/lucas-clemente/quic-go v0.25.0
+	github.com/lucas-clemente/quic-go v0.26.0
 	github.com/miekg/dns v1.1.47
 	github.com/mitchellh/mapstructure v1.4.3
 	github.com/vishvananda/netlink v1.1.1-0.20201029203352-d40f9887b852
@@ -18,8 +18,6 @@ require (
 	google.golang.org/protobuf v1.27.1
 	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b
 )
-
-replace github.com/lucas-clemente/quic-go v0.25.0 => github.com/IrineSistiana/quic-go v0.25.0-mod
 
 require (
 	github.com/AdguardTeam/golibs v0.10.7 // indirect
@@ -35,9 +33,9 @@ require (
 	github.com/google/go-cmp v0.5.7 // indirect
 	github.com/josharian/native v1.0.0 // indirect
 	github.com/marten-seemann/qpack v0.2.1 // indirect
-	github.com/marten-seemann/qtls-go1-16 v0.1.4 // indirect
-	github.com/marten-seemann/qtls-go1-17 v0.1.0 // indirect
-	github.com/marten-seemann/qtls-go1-18 v0.1.0-beta.1 // indirect
+	github.com/marten-seemann/qtls-go1-16 v0.1.5 // indirect
+	github.com/marten-seemann/qtls-go1-17 v0.1.1 // indirect
+	github.com/marten-seemann/qtls-go1-18 v0.1.1 // indirect
 	github.com/mdlayher/netlink v1.6.0 // indirect
 	github.com/mdlayher/socket v0.2.2 // indirect
 	github.com/nxadm/tail v1.4.8 // indirect

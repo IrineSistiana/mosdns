@@ -212,9 +212,6 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 					InitialConnectionReceiveWindow: 256 * 1024,
 					MaxConnectionReceiveWindow:     512 * 1024,
 				},
-				dialFunc: func(network, addr string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlySession, error) {
-					return quic.DialAddrHostContext(context.Background(), dialAddr, addrURL.Host, tlsCfg, cfg, true)
-				},
 			}
 		} else {
 			t1 := &http.Transport{
