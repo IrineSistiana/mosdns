@@ -157,7 +157,6 @@ func ProbServerTimeout(addr string) error {
 			mlog.S().Infof("#%d response received, latency: %d ms", m.Id, time.Since(start).Milliseconds())
 			if m.Id != uint16(i) {
 				oooPassed = true
-				break
 			}
 		}
 
@@ -194,7 +193,7 @@ func ProbServerTimeout(addr string) error {
 
 	mlog.S().Info("testing basic connection reuse")
 	if err := testBasicReuse(); err != nil {
-		mlog.S().Infof("× test failed: %v", err)
+		mlog.S().Infof("× basic connection reuse test failed: %v", err)
 		return nil // bypass the following tests if the basic test failed.
 	} else {
 		mlog.S().Info("√ basic connection reuse test passed")
@@ -202,12 +201,12 @@ func ProbServerTimeout(addr string) error {
 
 	mlog.S().Info("testing out-of-order pipeline")
 	if ok, err := testOOOPipeline(); err != nil {
-		mlog.S().Infof("× test failed: %v", err)
+		mlog.S().Infof("× out-of-order pipeline test failed: %v", err)
 	} else {
 		if ok {
 			mlog.S().Info("√ out-of-order pipeline test passed")
 		} else {
-			mlog.S().Info("? test finished, no out-of-order responses")
+			mlog.S().Info("? out-of-order pipeline test finished, no out-of-order responses")
 		}
 	}
 
