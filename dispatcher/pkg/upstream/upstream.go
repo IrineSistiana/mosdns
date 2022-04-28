@@ -197,7 +197,7 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 		if opt.IdleTimeout > 0 {
 			idleConnTimeout = opt.IdleTimeout
 		}
-		maxConn := 1
+		maxConn := 2
 		if opt.MaxConns > 0 {
 			maxConn = opt.MaxConns
 		}

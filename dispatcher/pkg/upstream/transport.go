@@ -39,7 +39,7 @@ const (
 	defaultDialTimeout             = time.Second * 5
 	defaultNoPipelineQueryTimeout  = time.Second * 5
 	defaultNoConnReuseQueryTimeout = time.Second * 5
-	defaultMaxConns                = 1
+	defaultMaxConns                = 2
 	defaultMaxQueryPerConn         = 65535
 )
 
