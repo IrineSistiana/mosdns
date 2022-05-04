@@ -312,27 +312,33 @@ func TestTransport_Exchange(t *testing.T) {
 			}
 
 			wg.Wait()
+
+			// Wait until all connections are timed out.
 			time.Sleep(tt.fields.IdleTimeout + time.Millisecond*200)
 
-			transport.pm.Lock()
-			for conn := range transport.pConns {
+			transport.m.Lock()
+			for conn := range transport.pipelineConns {
 				if conn.isClosed() {
-					delete(transport.pConns, conn)
+					delete(transport.pipelineConns, conn)
 				}
 			}
-			if n := len(transport.pConns); n != 0 {
-				t.Errorf("len(t.pConns), want 0, got %d", n)
+			if n := len(transport.pipelineConns); n != 0 {
+				t.Errorf("len(t.pipelineConns), want 0, got %d", n)
 			}
 
-			for conn := range transport.opConns {
+			for conn := range transport.idledReusableConns {
 				if ok := conn.stopIdle(); !ok {
-					delete(transport.opConns, conn)
+					delete(transport.idledReusableConns, conn)
+					delete(transport.reusableConns, conn)
 				}
 			}
-			if n := len(transport.opConns); n != 0 {
-				t.Errorf("len(t.opConns), want 0, got %d", n)
+			if n := len(transport.idledReusableConns); n != 0 {
+				t.Errorf("len(t.idledReusableConns), want 0, got %d", n)
 			}
-			transport.pm.Unlock()
+			if n := len(transport.reusableConns); n != 0 {
+				t.Errorf("len(t.reusableConns), want 0, got %d", n)
+			}
+			transport.m.Unlock()
 		})
 	}
 }
