@@ -22,7 +22,6 @@ import (
 	"github.com/lucas-clemente/quic-go"
 	"github.com/lucas-clemente/quic-go/http3"
 	"go.uber.org/zap"
-	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -39,10 +38,10 @@ type h3rt struct {
 	logger     *zap.Logger
 	tlsConfig  *tls.Config
 	quicConfig *quic.Config
+	dialFunc   func(network, addr string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlySession, error)
 
 	m  sync.Mutex
 	rt *http3.RoundTripper
-	c  net.PacketConn
 }
 
 func (h *h3rt) getLogger() *zap.Logger {
@@ -57,6 +56,7 @@ func (h *h3rt) getRT() *http3.RoundTripper {
 	defer h.m.Unlock()
 	if h.rt == nil {
 		h.rt = &http3.RoundTripper{
+			Dial:            h.dialFunc,
 			TLSClientConfig: h.tlsConfig,
 			QuicConfig:      h.quicConfig,
 		}

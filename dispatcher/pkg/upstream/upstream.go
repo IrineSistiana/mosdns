@@ -53,6 +53,8 @@ type Upstream interface {
 	// CloseIdleConnections closes any connections in the Upstream which
 	// now sitting idle. It does not interrupt any connections currently in use.
 	CloseIdleConnections()
+
+	io.Closer
 }
 
 type Opt struct {
@@ -204,7 +206,14 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 
 		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 443)
 		var t http.RoundTripper
+		var addonCloser io.Closer // udpConn
 		if opt.EnableHTTP3 {
+			lc := net.ListenConfig{Control: getSetMarkFunc(opt.SoMark)}
+			conn, err := lc.ListenPacket(context.Background(), "udp", "")
+			if err != nil {
+				return nil, fmt.Errorf("failed to init udp socket for quic")
+			}
+			addonCloser = conn
 			t = &h3rt{
 				logger:    opt.Logger,
 				tlsConfig: opt.TLSConfig,
@@ -214,6 +223,13 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 					MaxStreamReceiveWindow:         128 * 1024,
 					InitialConnectionReceiveWindow: 256 * 1024,
 					MaxConnectionReceiveWindow:     512 * 1024,
+				},
+				dialFunc: func(_, _ string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlySession, error) {
+					ua, err := net.ResolveUDPAddr("udp", dialAddr)
+					if err != nil {
+						return nil, err
+					}
+					return quic.DialEarly(conn, ua, addrURL.Host, tlsCfg, cfg)
 				},
 			}
 		} else {
@@ -241,8 +257,9 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 		}
 
 		return &DoHUpstream{
-			EndPoint: addr,
-			Client:   &http.Client{Transport: t},
+			EndPoint:    addr,
+			Client:      &http.Client{Transport: t},
+			AddOnCloser: addonCloser,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported protocol [%s]", addrURL.Scheme)
@@ -289,4 +306,10 @@ func (u *udpWithFallback) ExchangeContext(ctx context.Context, q *dns.Msg) (*dns
 func (u *udpWithFallback) CloseIdleConnections() {
 	u.u.CloseIdleConnections()
 	u.t.CloseIdleConnections()
+}
+
+func (u *udpWithFallback) Close() error {
+	u.u.Close()
+	u.t.Close()
+	return nil
 }

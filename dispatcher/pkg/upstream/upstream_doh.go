@@ -40,10 +40,20 @@ type DoHUpstream struct {
 	EndPoint string
 	// Client is a http.Client that sends http requests.
 	Client *http.Client
+
+	AddOnCloser io.Closer
 }
 
 func (u *DoHUpstream) CloseIdleConnections() {
 	u.Client.CloseIdleConnections()
+}
+
+func (u *DoHUpstream) Close() error {
+	u.Client.CloseIdleConnections()
+	if u.AddOnCloser != nil {
+		u.AddOnCloser.Close()
+	}
+	return nil
 }
 
 var (

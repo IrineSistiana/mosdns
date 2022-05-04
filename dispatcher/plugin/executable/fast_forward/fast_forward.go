@@ -197,7 +197,7 @@ func (f *fastForward) exec(ctx context.Context, qCtx *handler.Context) (err erro
 
 func (f *fastForward) Shutdown() error {
 	for _, u := range f.trackedUpstream {
-		u.CloseIdleConnections()
+		u.Close()
 	}
 	return nil
 }
