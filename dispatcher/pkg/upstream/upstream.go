@@ -219,10 +219,10 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 				tlsConfig: opt.TLSConfig,
 				quicConfig: &quic.Config{
 					TokenStore:                     quic.NewLRUTokenStore(4, 8),
-					InitialStreamReceiveWindow:     64 * 1024,
-					MaxStreamReceiveWindow:         128 * 1024,
-					InitialConnectionReceiveWindow: 256 * 1024,
-					MaxConnectionReceiveWindow:     512 * 1024,
+					InitialStreamReceiveWindow:     4 * 1024,
+					MaxStreamReceiveWindow:         4 * 1024,
+					InitialConnectionReceiveWindow: 8 * 1024,
+					MaxConnectionReceiveWindow:     64 * 1024,
 				},
 				dialFunc: func(_, _ string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlySession, error) {
 					ua, err := net.ResolveUDPAddr("udp", dialAddr)
