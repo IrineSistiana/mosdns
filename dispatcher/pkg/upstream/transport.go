@@ -576,7 +576,7 @@ func (c *pipelineConn) closeWithErr(err error) {
 	close(c.closeNotify)
 
 	if c.c != nil {
-		c.c.Close()
+		go c.c.Close()
 	}
 
 	c.t.logger().Debug("connection closed", zap.Uint32("id", c.connId), zap.Error(err))
@@ -658,7 +658,7 @@ func (rc *reusableConn) closeWithErr(err error) {
 		if rc.idleTimeoutTimer != nil {
 			rc.idleTimeoutTimer.Stop()
 		}
-		rc.c.Close()
+		go rc.c.Close()
 		rc.closed = true
 		rc.closeErr = err
 	}
