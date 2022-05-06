@@ -9,27 +9,27 @@ import (
 	"github.com/miekg/dns"
 )
 
-type mustEDNS0Upstream struct {
+type udpmeUpstream struct {
 	addr    string
 	trusted bool
 }
 
-func newMEU(addr string, trusted bool) *mustEDNS0Upstream {
+func newUDPME(addr string, trusted bool) *udpmeUpstream {
 	if _, _, err := net.SplitHostPort(addr); err != nil {
 		addr = net.JoinHostPort(addr, "53")
 	}
-	return &mustEDNS0Upstream{addr: addr, trusted: trusted}
+	return &udpmeUpstream{addr: addr, trusted: trusted}
 }
 
-func (u *mustEDNS0Upstream) Address() string {
+func (u *udpmeUpstream) Address() string {
 	return u.addr
 }
 
-func (u *mustEDNS0Upstream) Trusted() bool {
+func (u *udpmeUpstream) Trusted() bool {
 	return u.trusted
 }
 
-func (u *mustEDNS0Upstream) Exchange(ctx context.Context, m *dns.Msg) (*dns.Msg, error) {
+func (u *udpmeUpstream) Exchange(ctx context.Context, m *dns.Msg) (*dns.Msg, error) {
 	ddl, ok := ctx.Deadline()
 	if !ok {
 		ddl = time.Now().Add(time.Second * 3)
@@ -48,7 +48,7 @@ func (u *mustEDNS0Upstream) Exchange(ctx context.Context, m *dns.Msg) (*dns.Msg,
 	return r, nil
 }
 
-func (u *mustEDNS0Upstream) exchangeOPTM(m *dns.Msg, ddl time.Time) (*dns.Msg, error) {
+func (u *udpmeUpstream) exchangeOPTM(m *dns.Msg, ddl time.Time) (*dns.Msg, error) {
 	c, err := dns.Dial("udp", u.addr)
 	if err != nil {
 		return nil, err
