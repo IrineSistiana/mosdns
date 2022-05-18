@@ -36,6 +36,7 @@ func init() {
 	handler.RegInitFunc(PluginType, Init, func() interface{} { return new(Args) })
 
 	handler.MustRegPlugin(preset(handler.NewBP("_response_rcode_success", PluginType), &Args{Rcode: []int{dns.RcodeSuccess}}))
+	handler.MustRegPlugin(&emptyAnswer{handler.NewBP("_response_empty_answer", PluginType)})
 }
 
 var _ handler.MatcherPlugin = (*responseMatcher)(nil)
