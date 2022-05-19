@@ -50,6 +50,7 @@ type Context struct {
 
 	status ContextStatus
 	r      *dns.Msg
+	marks  map[uint]struct{}
 }
 
 type ContextStatus uint8
@@ -201,4 +202,18 @@ func (ctx *Context) CopyTo(d *Context) *Context {
 		d.r = r.Copy()
 	}
 	return d
+}
+
+// AddMark adds mark m to this Context.
+func (ctx *Context) AddMark(m uint) {
+	if ctx.marks == nil {
+		ctx.marks = make(map[uint]struct{})
+	}
+	ctx.marks[m] = struct{}{}
+}
+
+// HasMark reports whether this Context has mark m.
+func (ctx *Context) HasMark(m uint) bool {
+	_, ok := ctx.marks[m]
+	return ok
 }
