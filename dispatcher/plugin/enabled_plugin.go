@@ -29,6 +29,7 @@ import (
 	_ "github.com/IrineSistiana/mosdns/v3/dispatcher/plugin/executable/forward"
 	_ "github.com/IrineSistiana/mosdns/v3/dispatcher/plugin/executable/hosts"
 	_ "github.com/IrineSistiana/mosdns/v3/dispatcher/plugin/executable/ipset"
+	_ "github.com/IrineSistiana/mosdns/v3/dispatcher/plugin/executable/marker"
 	_ "github.com/IrineSistiana/mosdns/v3/dispatcher/plugin/executable/nftset"
 	_ "github.com/IrineSistiana/mosdns/v3/dispatcher/plugin/executable/padding"
 	_ "github.com/IrineSistiana/mosdns/v3/dispatcher/plugin/executable/redirect"
