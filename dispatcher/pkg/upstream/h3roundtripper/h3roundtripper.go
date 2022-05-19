@@ -15,7 +15,7 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package upstream
+package h3roundtripper
 
 import (
 	"crypto/tls"
@@ -31,40 +31,44 @@ const (
 	retryThreshold = time.Millisecond * 50
 )
 
-// h3rt is a helper of original http3.RoundTripper.
+var (
+	nopLogger = zap.NewNop()
+)
+
+// H3RTHelper is a helper of original http3.RoundTripper.
 // This is a workaround of
 // https://github.com/lucas-clemente/quic-go/issues/765
-type h3rt struct {
-	logger     *zap.Logger
-	tlsConfig  *tls.Config
-	quicConfig *quic.Config
-	dialFunc   func(network, addr string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlySession, error)
+type H3RTHelper struct {
+	Logger     *zap.Logger
+	TLSConfig  *tls.Config
+	QUICConfig *quic.Config
+	DialFunc   func(network, addr string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlySession, error)
 
 	m  sync.Mutex
 	rt *http3.RoundTripper
 }
 
-func (h *h3rt) getLogger() *zap.Logger {
-	if h.logger == nil {
+func (h *H3RTHelper) logger() *zap.Logger {
+	if h.Logger == nil {
 		return nopLogger
 	}
-	return h.logger
+	return h.Logger
 }
 
-func (h *h3rt) getRT() *http3.RoundTripper {
+func (h *H3RTHelper) getRT() *http3.RoundTripper {
 	h.m.Lock()
 	defer h.m.Unlock()
 	if h.rt == nil {
 		h.rt = &http3.RoundTripper{
-			Dial:            h.dialFunc,
-			TLSClientConfig: h.tlsConfig,
-			QuicConfig:      h.quicConfig,
+			Dial:            h.DialFunc,
+			TLSClientConfig: h.TLSConfig,
+			QuicConfig:      h.QUICConfig,
 		}
 	}
 	return h.rt
 }
 
-func (h *h3rt) markAsDead(rt *http3.RoundTripper) {
+func (h *H3RTHelper) markAsDead(rt *http3.RoundTripper) {
 	h.m.Lock()
 	defer h.m.Unlock()
 	if h.rt == rt {
@@ -72,7 +76,7 @@ func (h *h3rt) markAsDead(rt *http3.RoundTripper) {
 	}
 }
 
-func (h *h3rt) RoundTrip(request *http.Request) (*http.Response, error) {
+func (h *H3RTHelper) RoundTrip(request *http.Request) (*http.Response, error) {
 	start := time.Now()
 	resp, err := h.roundTrip(request)
 	if err != nil {
@@ -83,13 +87,13 @@ func (h *h3rt) RoundTrip(request *http.Request) (*http.Response, error) {
 	return resp, err
 }
 
-func (h *h3rt) roundTrip(request *http.Request) (*http.Response, error) {
+func (h *H3RTHelper) roundTrip(request *http.Request) (*http.Response, error) {
 	rt := h.getRT()
 	resp, err := rt.RoundTrip(request)
 	if err != nil {
 		h.markAsDead(rt)
 		rt.Close()
-		h.getLogger().Debug("quic round trip closed", zap.Error(err))
+		h.logger().Debug("quic round trip closed", zap.Error(err))
 	}
 	return resp, err
 }

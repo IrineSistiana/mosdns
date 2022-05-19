@@ -15,24 +15,26 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package upstream
+package transport
 
 import (
 	"context"
-	"fmt"
-	"golang.org/x/net/proxy"
-	"net"
+	"github.com/miekg/dns"
+	"time"
 )
 
-func dialTCP(ctx context.Context, addr, socks5 string, mark int) (net.Conn, error) {
-	if len(socks5) > 0 {
-		socks5Dialer, err := proxy.SOCKS5("tcp", socks5, nil, nil)
-		if err != nil {
-			return nil, fmt.Errorf("failed to init socks5 dialer: %w", err)
-		}
-		return socks5Dialer.(proxy.ContextDialer).DialContext(ctx, "tcp", addr)
+// getContextDeadline tries to get the deadline of ctx or return a default
+// deadline.
+func getContextDeadline(ctx context.Context, defTimeout time.Duration) time.Time {
+	ddl, ok := ctx.Deadline()
+	if ok {
+		return ddl
 	}
+	return time.Now().Add(defTimeout)
+}
 
-	d := net.Dialer{Control: getSetMarkFunc(mark)}
-	return d.DialContext(ctx, "tcp", addr)
+func shadowCopy(m *dns.Msg) *dns.Msg {
+	nm := new(dns.Msg)
+	*nm = *m
+	return nm
 }

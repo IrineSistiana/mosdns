@@ -15,7 +15,7 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package upstream
+package doh
 
 import (
 	"context"
@@ -34,21 +34,22 @@ const (
 	defaultDoHTimeout = time.Second * 5
 )
 
-// DoHUpstream is a DNS-over-HTTPS (RFC 8484) upstream.
-type DoHUpstream struct {
+// Upstream is a DNS-over-HTTPS (RFC 8484) upstream.
+type Upstream struct {
 	// EndPoint is the DoH server URL.
 	EndPoint string
 	// Client is a http.Client that sends http requests.
 	Client *http.Client
 
+	// AddOnCloser will be closed when Upstream is closed.
 	AddOnCloser io.Closer
 }
 
-func (u *DoHUpstream) CloseIdleConnections() {
+func (u *Upstream) CloseIdleConnections() {
 	u.Client.CloseIdleConnections()
 }
 
-func (u *DoHUpstream) Close() error {
+func (u *Upstream) Close() error {
 	u.Client.CloseIdleConnections()
 	if u.AddOnCloser != nil {
 		u.AddOnCloser.Close()
@@ -60,7 +61,7 @@ var (
 	bufPool512 = pool.NewBytesBufPool(512)
 )
 
-func (u *DoHUpstream) ExchangeContext(ctx context.Context, q *dns.Msg) (*dns.Msg, error) {
+func (u *Upstream) ExchangeContext(ctx context.Context, q *dns.Msg) (*dns.Msg, error) {
 	wire, buf, err := pool.PackBuffer(q)
 	if err != nil {
 		return nil, fmt.Errorf("failed to pack query msg, %w", err)
@@ -121,7 +122,7 @@ func (u *DoHUpstream) ExchangeContext(ctx context.Context, q *dns.Msg) (*dns.Msg
 	}
 }
 
-func (u *DoHUpstream) exchange(ctx context.Context, url string) (*dns.Msg, error) {
+func (u *Upstream) exchange(ctx context.Context, url string) (*dns.Msg, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("interal err: NewRequestWithContext: %w", err)

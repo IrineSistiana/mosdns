@@ -233,3 +233,14 @@ func BoolLogic(ctx context.Context, qCtx *handler.Context, fs []handler.Matcher,
 
 	return matched, nil
 }
+
+// ClosedChan returns true if c is closed.
+// c must be an unbuffered chan.
+func ClosedChan(c chan struct{}) bool {
+	select {
+	case <-c:
+		return true
+	default:
+		return false
+	}
+}

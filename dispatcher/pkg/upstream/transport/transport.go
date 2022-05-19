@@ -15,11 +15,12 @@
 //     You should have received a copy of the GNU General Public License
 //     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package upstream
+package transport
 
 import (
 	"context"
 	"errors"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"io"
@@ -34,6 +35,8 @@ var (
 	errClosedTransport = errors.New("transport has been closed")
 	errIdleTimeout     = errors.New("idle timeout")
 	errConnDead        = errors.New("dead connection")
+
+	nopLogger = zap.NewNop()
 )
 
 const (
@@ -44,6 +47,8 @@ const (
 	defaultNoConnReuseQueryTimeout = time.Second * 5
 	defaultMaxConns                = 2
 	defaultMaxQueryPerConn         = 65535
+
+	writeTimeout = time.Second
 )
 
 // Transport is a DNS msg transport that supposes DNS over UDP,TCP,TLS.
@@ -418,7 +423,7 @@ func newPipelineConn(t *Transport) *pipelineConn {
 		close(pc.dialFinishedNotify)
 
 		if err != nil { // dial err, close the connection
-			if !chanClosed(pc.closeNotify) {
+			if !utils.ClosedChan(pc.closeNotify) {
 				close(pc.closeNotify)
 			}
 			pc.cm.Unlock()
@@ -427,7 +432,7 @@ func newPipelineConn(t *Transport) *pipelineConn {
 
 		// dial completed.
 		// pipelineConn was closed before dial completing.
-		if chanClosed(pc.closeNotify) {
+		if utils.ClosedChan(pc.closeNotify) {
 			c.Close() // close the sub connection
 			pc.cm.Unlock()
 			return
@@ -460,7 +465,7 @@ func (c *pipelineConn) acquireQueueId() (qid uint16, resChan chan *dns.Msg, eol 
 }
 
 func (c *pipelineConn) dialFinished() bool {
-	return chanClosed(c.dialFinishedNotify)
+	return utils.ClosedChan(c.dialFinishedNotify)
 }
 
 func (c *pipelineConn) exchange(
@@ -497,7 +502,7 @@ func (c *pipelineConn) exchange(
 	// We make a copy of q.
 	qCopy := shadowCopy(q)
 	qCopy.Id = qid
-	c.c.SetWriteDeadline(time.Now().Add(generalWriteTimeout))
+	c.c.SetWriteDeadline(time.Now().Add(writeTimeout))
 
 	// Set read ddl only for the first request that start up a queue.
 	// The ddl for the following requests will be set and updated in the
@@ -561,13 +566,13 @@ func (c *pipelineConn) readLoop() {
 }
 
 func (c *pipelineConn) isClosed() bool {
-	return chanClosed(c.closeNotify)
+	return utils.ClosedChan(c.closeNotify)
 }
 
 func (c *pipelineConn) closeWithErr(err error) {
 	c.cm.Lock()
 	defer c.cm.Unlock()
-	if chanClosed(c.closeNotify) {
+	if utils.ClosedChan(c.closeNotify) {
 
 		return
 	}

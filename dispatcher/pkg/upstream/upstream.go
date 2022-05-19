@@ -22,6 +22,9 @@ import (
 	"crypto/tls"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/upstream/doh"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/upstream/h3roundtripper"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/upstream/transport"
 	"github.com/lucas-clemente/quic-go"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
@@ -36,12 +39,7 @@ import (
 )
 
 const (
-	generalWriteTimeout = time.Second * 1
 	tlsHandshakeTimeout = time.Second * 5
-)
-
-var (
-	nopLogger = zap.NewNop()
 )
 
 // Upstream represents a DNS upstream.
@@ -60,7 +58,6 @@ type Upstream interface {
 type Opt struct {
 	// DialAddr specifies the address the upstream will
 	// actually dial to.
-	// Not implemented for doh upstreams with http/3.
 	DialAddr string
 
 	// Socks5 specifies the socks5 proxy server that the upstream
@@ -69,8 +66,11 @@ type Opt struct {
 	Socks5 string
 
 	// SoMark specifies the mark for each packet sent through this upstream.
-	// Not implemented for doh upstreams with http/3
 	SoMark int
+
+	// Interface specifies the system network interface for this upstream to send
+	// data.
+	Interface string
 
 	// IdleTimeout specifies the idle timeout for long-connections.
 	// Available for TCP, DoT, DoH.
@@ -116,7 +116,7 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 	switch addrURL.Scheme {
 	case "", "udp":
 		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 53)
-		ut := &Transport{
+		ut := &transport.Transport{
 			Logger: opt.Logger,
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
 				d := net.Dialer{
@@ -132,7 +132,7 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 			MaxConns:       opt.MaxConns,
 			IdleTimeout:    time.Second * 60,
 		}
-		tt := &Transport{
+		tt := &transport.Transport{
 			Logger: opt.Logger,
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
 				d := net.Dialer{
@@ -149,7 +149,7 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 		}, nil
 	case "tcp":
 		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 53)
-		t := &Transport{
+		t := &transport.Transport{
 			Logger: opt.Logger,
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
 				return dialTCP(ctx, dialAddr, opt.Socks5, opt.SoMark)
@@ -173,7 +173,7 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 		}
 
 		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 853)
-		t := &Transport{
+		t := &transport.Transport{
 			Logger: opt.Logger,
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
 				conn, err := dialTCP(ctx, dialAddr, opt.Socks5, opt.SoMark)
@@ -214,17 +214,17 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 				return nil, fmt.Errorf("failed to init udp socket for quic")
 			}
 			addonCloser = conn
-			t = &h3rt{
-				logger:    opt.Logger,
-				tlsConfig: opt.TLSConfig,
-				quicConfig: &quic.Config{
+			t = &h3roundtripper.H3RTHelper{
+				Logger:    opt.Logger,
+				TLSConfig: opt.TLSConfig,
+				QUICConfig: &quic.Config{
 					TokenStore:                     quic.NewLRUTokenStore(4, 8),
 					InitialStreamReceiveWindow:     4 * 1024,
 					MaxStreamReceiveWindow:         4 * 1024,
 					InitialConnectionReceiveWindow: 8 * 1024,
 					MaxConnectionReceiveWindow:     64 * 1024,
 				},
-				dialFunc: func(_, _ string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlySession, error) {
+				DialFunc: func(_, _ string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlySession, error) {
 					ua, err := net.ResolveUDPAddr("udp", dialAddr)
 					if err != nil {
 						return nil, err
@@ -256,7 +256,7 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 			t = t1
 		}
 
-		return &DoHUpstream{
+		return &doh.Upstream{
 			EndPoint:    addr,
 			Client:      &http.Client{Transport: t},
 			AddOnCloser: addonCloser,
@@ -287,8 +287,8 @@ func tryRemovePort(s string) string {
 }
 
 type udpWithFallback struct {
-	u *Transport
-	t *Transport
+	u *transport.Transport
+	t *transport.Transport
 }
 
 func (u *udpWithFallback) ExchangeContext(ctx context.Context, q *dns.Msg) (*dns.Msg, error) {
@@ -297,7 +297,6 @@ func (u *udpWithFallback) ExchangeContext(ctx context.Context, q *dns.Msg) (*dns
 		return nil, err
 	}
 	if m.Truncated {
-		u.u.logger().Warn("truncated udp msg received, retrying tcp")
 		return u.t.ExchangeContext(ctx, q)
 	}
 	return m, nil
