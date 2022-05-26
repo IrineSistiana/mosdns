@@ -18,57 +18,32 @@
 package hosts
 
 import (
+	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/matcher/domain"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/utils"
 	"github.com/miekg/dns"
-	"net"
+	"net/netip"
+	"strings"
 )
 
 type Hosts struct {
-	matcher domain.Matcher
+	matcher domain.Matcher[*IPs]
 }
 
 // NewHosts creates a hosts using m.
-// The returned v from m.Match() must be the type of IPs.
-//
-// e.g.
-// m := domain.NewMixMatcher()
-// domain.BatchLoadMatcher(m, []string{"localhost 127.0.0.1"}, ParseIP)
-func NewHosts(m domain.Matcher) *Hosts {
+func NewHosts(m domain.Matcher[*IPs]) *Hosts {
 	return &Hosts{
 		matcher: m,
 	}
 }
 
-func NewHostsFromEntries(entries []string) (*Hosts, error) {
-	m := domain.NewMixMatcher()
-	m.SetPattenTypeMap(domain.MixMatcherStrToPatternTypeDefaultFull)
-	if err := domain.BatchLoadMatcher(m, entries, ParseIP); err != nil {
-		return nil, err
-	}
-	return &Hosts{
-		matcher: m,
-	}, nil
-}
-
-func NewHostsFromFiles(files []string) (*Hosts, error) {
-	m := domain.NewMixMatcher()
-	m.SetPattenTypeMap(domain.MixMatcherStrToPatternTypeDefaultFull)
-	if err := domain.BatchLoadMatcherFromFiles(m, files, ParseIP); err != nil {
-		return nil, err
-	}
-	return &Hosts{
-		matcher: m,
-	}, nil
-}
-
-func (h *Hosts) Lookup(fqdn string) (ipv4, ipv6 []net.IP) {
-	v, ok := h.matcher.Match(fqdn)
+func (h *Hosts) Lookup(fqdn string) (ipv4, ipv6 []netip.Addr) {
+	ips, ok := h.matcher.Match(fqdn)
 	if !ok {
 		return nil, nil // no such host
 	}
-	ips := v.(*IPs)
 	return ips.IPv4, ips.IPv6
 }
 
@@ -94,8 +69,6 @@ func (h *Hosts) LookupMsg(m *dns.Msg) *dns.Msg {
 	switch {
 	case typ == dns.TypeA && len(ipv4) > 0:
 		for _, ip := range ipv4 {
-			ipCopy := make(net.IP, len(ip))
-			copy(ipCopy, ip)
 			rr := &dns.A{
 				Hdr: dns.RR_Header{
 					Name:   fqdn,
@@ -103,14 +76,12 @@ func (h *Hosts) LookupMsg(m *dns.Msg) *dns.Msg {
 					Class:  dns.ClassINET,
 					Ttl:    3600,
 				},
-				A: ipCopy,
+				A: ip.AsSlice(),
 			}
 			r.Answer = append(r.Answer, rr)
 		}
 	case typ == dns.TypeAAAA && len(ipv6) > 0:
 		for _, ip := range ipv6 {
-			ipCopy := make(net.IP, len(ip))
-			copy(ipCopy, ip)
 			rr := &dns.AAAA{
 				Hdr: dns.RR_Header{
 					Name:   fqdn,
@@ -118,7 +89,7 @@ func (h *Hosts) LookupMsg(m *dns.Msg) *dns.Msg {
 					Class:  dns.ClassINET,
 					Ttl:    3600,
 				},
-				AAAA: ipCopy,
+				AAAA: ip.AsSlice(),
 			}
 			r.Answer = append(r.Answer, rr)
 		}
@@ -132,38 +103,31 @@ func (h *Hosts) LookupMsg(m *dns.Msg) *dns.Msg {
 }
 
 type IPs struct {
-	IPv4 []net.IP
-	IPv6 []net.IP
+	IPv4 []netip.Addr
+	IPv6 []netip.Addr
 }
 
-func (r *IPs) Append(v interface{}) {
-	n, ok := v.(*IPs)
-	if !ok {
-		return
-	}
-	r.IPv4 = append(r.IPv4, n.IPv4...)
-	r.IPv6 = append(r.IPv6, n.IPv6...)
-}
+var _ domain.ProcessAttrFunc[*IPs] = ParseIPs
 
-func ParseIP(s []string) (v interface{}, accept bool, err error) {
-	if len(s) == 0 {
-		return nil, false, nil
-	}
-
-	record := new(IPs)
-	for _, ipStr := range s {
-		ip := net.ParseIP(ipStr)
-		if ip == nil {
-			return nil, false, fmt.Errorf("invalid ip addr %s", ipStr)
+func ParseIPs(s string) (*IPs, error) {
+	v := new(IPs)
+	for _, ipStr := range utils.SplitLine(s) {
+		ipStr = strings.TrimSpace(ipStr)
+		ip, err := netip.ParseAddr(ipStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ip addr %s, %w", ipStr, err)
 		}
 
-		if ipv4 := ip.To4(); ipv4 != nil { // is ipv4
-			record.IPv4 = append(record.IPv4, ipv4)
-		} else if ipv6 := ip.To16(); ipv6 != nil { // is ipv6
-			record.IPv6 = append(record.IPv6, ipv6)
+		if ip.Is4() { // is ipv4
+			v.IPv4 = append(v.IPv4, ip)
+		} else if ip.Is6() { // is ipv6
+			v.IPv6 = append(v.IPv6, ip)
 		} else { // invalid
-			return nil, false, fmt.Errorf("%s is not an ipv4 or ipv6 addr", ipStr)
+			return nil, fmt.Errorf("%s is not an ipv4 or ipv6 addr", ipStr)
 		}
 	}
-	return record, true, nil
+	if len(v.IPv4)+len(v.IPv6) == 0 {
+		return nil, errors.New("no valid ip")
+	}
+	return v, nil
 }

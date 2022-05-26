@@ -98,8 +98,9 @@ func newQueryMatcher(bp *handler.BP, args *Args) (m *queryMatcher, err error) {
 		bp.L().Info("ecs ip matcher loaded", zap.Int("length", ipMatcher.Len()))
 	}
 	if len(args.Domain) > 0 {
-		mixMatcher := domain.NewMixMatcher(domain.WithDomainMatcher(domain.NewSimpleDomainMatcher()))
-		err := domain.BatchLoadMatcher(mixMatcher, args.Domain, nil)
+		mixMatcher := domain.NewMixMatcher[struct{}]()
+		mixMatcher.SetDefaultMatcher(domain.MatcherDomain)
+		err := domain.BatchLoad[struct{}](mixMatcher, args.Domain, nil)
 		if err != nil {
 			return nil, err
 		}

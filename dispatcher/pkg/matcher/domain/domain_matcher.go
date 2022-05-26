@@ -21,46 +21,43 @@ import (
 	"strings"
 )
 
-type DomainMatcher struct {
-	root *LabelNode
+var _ Matcher[any] = (*DomainMatcher[any])(nil)
+
+type DomainMatcher[T any] struct {
+	root *LabelNode[T]
 }
 
-func NewDomainMatcher() *DomainMatcher {
-	return &DomainMatcher{root: new(LabelNode)}
+func NewDomainMatcher[T any]() *DomainMatcher[T] {
+	return &DomainMatcher[T]{root: new(LabelNode[T])}
 }
 
-func (m *DomainMatcher) Match(s string) (interface{}, bool) {
+func (m *DomainMatcher[T]) Match(s string) (T, bool) {
 	currentNode := m.root
 	ds := NewUnifiedDomainScanner(s)
+	var v T
+	var ok bool
 	for ds.Scan() {
 		label, _ := ds.PrevLabel()
-		if currentNode = currentNode.GetChild(label); currentNode == nil {
-			return nil, false // end of tree, not matched
-		}
-		if currentNode.IsEnd() {
-			return currentNode.GetValue(), true // end node, matched
+		if nextNode := currentNode.GetChild(label); nextNode != nil {
+			if nextNode.HasValue() {
+				v, ok = nextNode.GetValue()
+			}
+			currentNode = nextNode
+		} else {
+			break
 		}
 	}
-	return nil, false // end of domain (short domain), not matched.
+	return v, ok
 }
 
-func (m *DomainMatcher) Len() int {
+func (m *DomainMatcher[T]) Len() int {
 	return m.root.Len()
 }
 
-func (m *DomainMatcher) Add(s string, v interface{}) error {
-	m.add(s, v)
-	return nil
-}
-
-func (m *DomainMatcher) add(s string, v interface{}) {
-	// find the end node
+func (m *DomainMatcher[T]) Add(s string, v T) error {
 	currentNode := m.root
 	ds := NewUnifiedDomainScanner(s)
 	for ds.Scan() {
-		if currentNode.IsEnd() { // reach an end node, the new domain is redundant.
-			return
-		}
 		label, _ := ds.PrevLabel()
 		if child := currentNode.GetChild(label); child != nil {
 			currentNode = child
@@ -68,160 +65,58 @@ func (m *DomainMatcher) add(s string, v interface{}) {
 			currentNode = currentNode.NewChild(label)
 		}
 	}
-
-	currentNode.MarkAsEndNode()
-	oldV := currentNode.GetValue()
-	if appendAble, ok := oldV.(Appendable); ok {
-		appendAble.Append(v)
-	} else {
-		currentNode.StoreValue(v) // overwrite
-	}
+	currentNode.StoreValue(v)
+	return nil
 }
 
-// LabelNode can store dns labels efficiently.
-type LabelNode struct {
-	children map[string]*LabelNode // lazy init
+// LabelNode can store dns labels.
+type LabelNode[T any] struct {
+	children map[string]*LabelNode[T] // lazy init
 
-	isEnd bool
-	v     interface{}
+	v    T
+	hasV bool
 }
 
-func (n *LabelNode) StoreValue(v interface{}) {
+func (n *LabelNode[T]) StoreValue(v T) {
 	n.v = v
+	n.hasV = true
 }
 
-func (n *LabelNode) GetValue() interface{} {
-	return n.v
+func (n *LabelNode[T]) GetValue() (T, bool) {
+	return n.v, n.hasV
 }
 
-func (n *LabelNode) MarkAsEndNode() {
-	// remove all its children
-	n.children = nil
-	n.isEnd = true
+func (n *LabelNode[T]) HasValue() bool {
+	return n.hasV
 }
 
-func (n *LabelNode) IsEnd() bool {
-	return n.isEnd
-}
-
-func (n *LabelNode) NewChild(key string) *LabelNode {
+func (n *LabelNode[T]) NewChild(key string) *LabelNode[T] {
 	if n.children == nil {
-		n.children = make(map[string]*LabelNode)
+		n.children = make(map[string]*LabelNode[T])
 	}
-	node := new(LabelNode)
+	node := new(LabelNode[T])
 	n.children[key] = node
 	return node
 }
 
-func (n *LabelNode) GetChild(key string) *LabelNode {
+func (n *LabelNode[T]) GetChild(key string) *LabelNode[T] {
 	return n.children[key]
 }
 
-func (n *LabelNode) Len() int {
+func (n *LabelNode[T]) Len() int {
 	l := 0
 	for _, node := range n.children {
 		l += node.Len()
-		if node.IsEnd() {
+		if node.HasValue() {
 			l++
 		}
 	}
 	return l
 }
 
-// SimpleDomainMatcher just like DomainMatcher, but it can not
-// store value.
-// It allocates less memory than DomainMatcher.
-type SimpleDomainMatcher struct {
-	s map[[16]byte]bool
-	m map[[32]byte]bool
-	l map[string]bool
-}
-
-func NewSimpleDomainMatcher() *SimpleDomainMatcher {
-	return &SimpleDomainMatcher{
-		s: make(map[[16]byte]bool),
-		m: make(map[[32]byte]bool),
-		l: make(map[string]bool),
-	}
-}
-
-func (m *SimpleDomainMatcher) Add(s string, _ interface{}) error {
-	ds := NewUnifiedDomainScanner(s)
-	for ds.Scan() {
-		sub, isEnd := ds.PrevSubDomain()
-		subEnd, ok := m.fullMatch(sub)
-		if subEnd {
-			return nil // s is redundant
-		}
-		if !ok || subEnd != isEnd { // update or add node
-			m.add(sub, isEnd)
-		}
-	}
-	return nil
-}
-
-func (m *SimpleDomainMatcher) add(domain string, isEnd bool) {
-	n := len(domain)
-	switch {
-	case n <= 16:
-		var key [16]byte
-		copy(key[:], domain)
-		m.s[key] = isEnd
-	case n <= 32:
-		var key [32]byte
-		copy(key[:], domain)
-		m.m[key] = isEnd
-	default:
-		m.l[domain] = isEnd
-	}
-}
-
-func (m *SimpleDomainMatcher) Match(s string) (v interface{}, ok bool) {
-	ok = m.match(s)
-	return nil, ok
-}
-
 type DomainScanner struct {
 	d string
 	n int
-}
-
-func (m *SimpleDomainMatcher) match(s string) bool {
-	ds := NewUnifiedDomainScanner(s)
-	for ds.Scan() {
-		subDomain, _ := ds.PrevSubDomain()
-		isEnd, ok := m.fullMatch(subDomain)
-		if !ok { // no such sub domain
-			return false
-		}
-		if isEnd {
-			return true
-		}
-	}
-	return false
-}
-
-func (m *SimpleDomainMatcher) fullMatch(domain string) (isEnd, ok bool) {
-	n := len(domain)
-	switch {
-	case n <= 16:
-		var b [16]byte
-		copy(b[:], domain)
-		isEnd, ok = m.s[b]
-		return
-	case n <= 32:
-		var b [32]byte
-		copy(b[:], domain)
-		isEnd, ok = m.m[b]
-		return
-	default:
-		isEnd, ok = m.l[domain]
-		return
-	}
-}
-
-func (m *SimpleDomainMatcher) Len() int {
-	return len(m.l) + len(m.m) + len(m.s)
 }
 
 func NewUnifiedDomainScanner(s string) *DomainScanner {

@@ -46,9 +46,9 @@ func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
 }
 
 func newHostsContainer(bp *handler.BP, args *Args) (*hostsPlugin, error) {
-	mixMatcher := domain.NewMixMatcher()
-	mixMatcher.SetPattenTypeMap(domain.MixMatcherStrToPatternTypeDefaultFull)
-	err := domain.BatchLoadMatcher(mixMatcher, args.Hosts, hosts.ParseIP)
+	mixMatcher := domain.NewMixMatcher[*hosts.IPs]()
+	mixMatcher.SetDefaultMatcher(domain.MatcherFull)
+	err := domain.BatchLoad[*hosts.IPs](mixMatcher, args.Hosts, hosts.ParseIPs)
 	if err != nil {
 		return nil, err
 	}

@@ -19,7 +19,6 @@ package redirect
 
 import (
 	"context"
-	"errors"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/handler"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/matcher/domain"
 	"github.com/miekg/dns"
@@ -40,27 +39,20 @@ type Args struct {
 
 type redirectPlugin struct {
 	*handler.BP
-	m *domain.MixMatcher
+	m *domain.MixMatcher[string]
 }
 
 func Init(bp *handler.BP, args interface{}) (p handler.Plugin, err error) {
 	return newRedirect(bp, args.(*Args))
 }
 
-var errInvalidDomain = errors.New("invalid domain")
-
 func newRedirect(bp *handler.BP, args *Args) (*redirectPlugin, error) {
-	m := domain.NewMixMatcher()
-	m.SetPattenTypeMap(domain.MixMatcherStrToPatternTypeDefaultFull)
-	for _, e := range args.Rule {
-		if err := domain.Load(m, e, func(strings []string) (v interface{}, accept bool, err error) {
-			if len(strings) != 1 {
-				return nil, false, errInvalidDomain
-			}
-			return dns.Fqdn(strings[0]), true, nil
-		}); err != nil {
-			return nil, err
-		}
+	m := domain.NewMixMatcher[string]()
+	m.SetDefaultMatcher(domain.MatcherFull)
+	if err := domain.BatchLoad[string](m, args.Rule, func(s string) (v string, err error) {
+		return dns.Fqdn(s), nil
+	}); err != nil {
+		return nil, err
 	}
 	bp.L().Info("redirect rules loaded", zap.Int("length", m.Len()))
 	return &redirectPlugin{
@@ -75,11 +67,10 @@ func (r *redirectPlugin) Exec(ctx context.Context, qCtx *handler.Context, next h
 		return handler.ExecChainNode(ctx, qCtx, next)
 	}
 	orgQName := q.Question[0].Name
-	e, ok := r.m.Match(orgQName)
+	d, ok := r.m.Match(orgQName)
 	if !ok {
 		return handler.ExecChainNode(ctx, qCtx, next)
 	}
-	d := e.(string)
 
 	q.Question[0].Name = d
 	err := handler.ExecChainNode(ctx, qCtx, next)

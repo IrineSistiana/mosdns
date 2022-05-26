@@ -60,10 +60,10 @@ func (m *ClientECSMatcher) Match(_ context.Context, qCtx *handler.Context) (matc
 }
 
 type QNameMatcher struct {
-	domainMatcher domain.Matcher
+	domainMatcher domain.Matcher[struct{}]
 }
 
-func NewQNameMatcher(domainMatcher domain.Matcher) *QNameMatcher {
+func NewQNameMatcher(domainMatcher domain.Matcher[struct{}]) *QNameMatcher {
 	return &QNameMatcher{domainMatcher: domainMatcher}
 }
 

@@ -17,16 +17,10 @@
 
 package domain
 
-type Matcher interface {
+type Matcher[T any] interface {
 	// Match matches the domain s.
 	// s could be a fqdn or not, and should be case-insensitive.
-	Match(s string) (v interface{}, ok bool)
+	Match(s string) (v T, ok bool)
 	Len() int
-	Add(pattern string, v interface{}) error
-}
-
-type Appendable interface {
-	// Append appends v to Appendable.
-	// v might be any type and nil.
-	Append(v interface{})
+	Add(pattern string, v T) error
 }

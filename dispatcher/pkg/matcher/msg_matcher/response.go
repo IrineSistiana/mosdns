@@ -67,10 +67,10 @@ func (m *AAAAAIPMatcher) MatchMsg(msg *dns.Msg) (bool, error) {
 }
 
 type CNameMatcher struct {
-	domainMatcher domain.Matcher
+	domainMatcher domain.Matcher[struct{}]
 }
 
-func NewCNameMatcher(domainMatcher domain.Matcher) *CNameMatcher {
+func NewCNameMatcher(domainMatcher domain.Matcher[struct{}]) *CNameMatcher {
 	return &CNameMatcher{domainMatcher: domainMatcher}
 }
 

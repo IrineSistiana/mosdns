@@ -106,8 +106,8 @@ func TestClientECSMatcher_Match(t *testing.T) {
 	}
 }
 func TestQNameMatcher_Match(t *testing.T) {
-	dm := domain.NewSimpleDomainMatcher()
-	dm.Add("com.", nil)
+	dm := domain.NewDomainMatcher[struct{}]()
+	dm.Add("com.", struct{}{})
 
 	qm := NewQNameMatcher(dm)
 	m := new(dns.Msg)

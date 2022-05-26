@@ -23,8 +23,9 @@ import (
 	"testing"
 )
 
-func assertFunc(t *testing.T, m Matcher) func(domain string, wantBool bool, wantV interface{}) {
+func assertFunc[T any](t *testing.T, m Matcher[T]) func(domain string, wantBool bool, wantV interface{}) {
 	return func(domain string, wantBool bool, wantV interface{}) {
+		t.Helper()
 		v, ok := m.Match(domain)
 		if ok != wantBool {
 			t.Fatalf("%s, wantBool = %v, got = %v", domain, wantBool, ok)
@@ -49,8 +50,8 @@ func (a *aStr) Append(v interface{}) {
 }
 
 func Test_FullMatcher(t *testing.T) {
-	m := NewFullMatcher()
-	assert := assertFunc(t, m)
+	m := NewFullMatcher[any]()
+	assert := assertFunc[any](t, m)
 	add := func(domain string, v interface{}) {
 		m.Add(domain, v)
 	}
@@ -70,24 +71,16 @@ func Test_FullMatcher(t *testing.T) {
 	add("append", nil)
 	assert("append", true, nil)
 
-	// test appendable
-	add("append", nil)
-	assert("append", true, nil)
-	add("append", s("a"))
-	assert("append", true, s("a"))
-	add("append", s("b"))
-	assert("append", true, s("ab"))
-
 	assertInt(t, m.Len(), 3)
 }
 
 func Test_KeywordMatcher(t *testing.T) {
-	m := NewKeywordMatcher()
+	m := NewKeywordMatcher[any]()
 	add := func(domain string, v interface{}) {
 		m.Add(domain, v)
 	}
 
-	assert := assertFunc(t, m)
+	assert := assertFunc[any](t, m)
 
 	add("123", s("a"))
 	assert("123456.cn", true, s("a"))
@@ -105,19 +98,11 @@ func Test_KeywordMatcher(t *testing.T) {
 	add("append", nil)
 	assert("append", true, nil)
 
-	// test appendable
-	add("append", nil)
-	assert("a.append", true, nil)
-	add("append", s("a"))
-	assert("b.append", true, s("a"))
-	add("append", s("b"))
-	assert("c.append", true, s("ab"))
-
 	assertInt(t, m.Len(), 3)
 }
 
 func Test_RegexMatcher(t *testing.T) {
-	m := NewRegexMatcher()
+	m := NewRegexMatcher[any]()
 	add := func(expr string, v interface{}, wantErr bool) {
 		err := m.Add(expr, v)
 		if (err != nil) != wantErr {
@@ -125,7 +110,7 @@ func Test_RegexMatcher(t *testing.T) {
 		}
 	}
 
-	assert := assertFunc(t, m)
+	assert := assertFunc[any](t, m)
 
 	expr := "^github-production-release-asset-[0-9a-za-z]{6}\\.s3\\.amazonaws\\.com$"
 	add(expr, nil, false)
@@ -148,24 +133,15 @@ func Test_RegexMatcher(t *testing.T) {
 	add("append", nil, false)
 	assert("append", true, nil)
 
-	// test appendable
-	expr = "append"
-	add(expr, nil, false)
-	assert("append", true, nil)
-	add(expr, s("a"), false)
-	assert("a.append", true, s("a"))
-	add(expr, s("b"), false)
-	assert("b.append", true, s("ab"))
-
 	expr = "*"
 	add(expr, nil, true)
 }
 
 func Test_regCache(t *testing.T) {
-	c := newRegCache(128)
+	c := newRegCache[any](128)
 	for i := 0; i < 1024; i++ {
 		s := strconv.Itoa(i)
-		res := new(regElem)
+		res := new(regElem[any])
 		c.cache(s, res)
 		if len(c.m) > 128 {
 			t.Fatal("cache overflowed")

@@ -25,129 +25,107 @@ import (
 	"sync"
 )
 
-type FullMatcher struct {
-	m map[string]interface{} // string must be a fqdn.
+type FullMatcher[T any] struct {
+	m map[string]T // string must be a fqdn.
 }
 
-func NewFullMatcher() *FullMatcher {
-	return &FullMatcher{
-		m: make(map[string]interface{}),
+func NewFullMatcher[T any]() *FullMatcher[T] {
+	return &FullMatcher[T]{
+		m: make(map[string]T),
 	}
 }
 
-func (m *FullMatcher) Add(s string, v interface{}) error {
-	domain := UnifyDomain(s)
-	m.add(domain, v)
+func (m *FullMatcher[T]) Add(s string, v T) error {
+	m.m[UnifyDomain(s)] = v
 	return nil
 }
 
-func (m *FullMatcher) add(domain string, v interface{}) {
-	oldV := m.m[domain]
-	if appendable, ok := oldV.(Appendable); ok {
-		appendable.Append(v)
-	} else {
-		m.m[domain] = v
-	}
-}
-
-func (m *FullMatcher) Match(s string) (v interface{}, ok bool) {
+func (m *FullMatcher[T]) Match(s string) (v T, ok bool) {
 	v, ok = m.m[UnifyDomain(s)]
 	return
 }
 
-func (m *FullMatcher) Len() int {
+func (m *FullMatcher[T]) Len() int {
 	return len(m.m)
 }
 
-type KeywordMatcher struct {
-	kws map[string]interface{}
+type KeywordMatcher[T any] struct {
+	kws map[string]T
 }
 
-func NewKeywordMatcher() *KeywordMatcher {
-	return &KeywordMatcher{
-		kws: make(map[string]interface{}),
+func NewKeywordMatcher[T any]() *KeywordMatcher[T] {
+	return &KeywordMatcher[T]{
+		kws: make(map[string]T),
 	}
 }
 
-func (m *KeywordMatcher) Add(keyword string, v interface{}) error {
-	m.add(keyword, v)
+func (m *KeywordMatcher[T]) Add(keyword string, v T) error {
+	m.kws[keyword] = v
 	return nil
 }
 
-func (m *KeywordMatcher) add(keyword string, v interface{}) {
-	o := m.kws[keyword]
-	if appendable, ok := o.(Appendable); ok {
-		appendable.Append(v)
-	} else {
-		m.kws[keyword] = v
-	}
-}
-
-func (m *KeywordMatcher) Match(s string) (v interface{}, ok bool) {
+func (m *KeywordMatcher[T]) Match(s string) (v T, ok bool) {
 	domain := UnifyDomain(s)
 	for k, v := range m.kws {
 		if strings.Contains(domain, k) {
 			return v, true
 		}
 	}
-	return nil, false
+	return v, false
 }
 
-func (m *KeywordMatcher) Len() int {
+func (m *KeywordMatcher[T]) Len() int {
 	return len(m.kws)
 }
 
-type RegexMatcher struct {
-	regs  map[string]*regElem
-	cache *regCache
+type RegexMatcher[T any] struct {
+	regs  map[string]*regElem[T]
+	cache *regCache[T]
 }
 
-type regElem struct {
+type regElem[T any] struct {
 	reg *regexp.Regexp
-	v   interface{}
+	v   T
 }
 
-func NewRegexMatcher() *RegexMatcher {
-	return &RegexMatcher{regs: make(map[string]*regElem)}
+func NewRegexMatcher[T any]() *RegexMatcher[T] {
+	return &RegexMatcher[T]{regs: make(map[string]*regElem[T])}
 }
 
-func NewRegexMatcherWithCache(cap int) *RegexMatcher {
-	return &RegexMatcher{regs: make(map[string]*regElem), cache: newRegCache(cap)}
+func NewRegexMatcherWithCache[T any](cap int) *RegexMatcher[T] {
+	return &RegexMatcher[T]{regs: make(map[string]*regElem[T]), cache: newRegCache[T](cap)}
 }
 
-func (m *RegexMatcher) Add(expr string, v interface{}) error {
+func (m *RegexMatcher[T]) Add(expr string, v T) error {
 	e := m.regs[expr]
 	if e == nil {
 		reg, err := regexp.Compile(expr)
 		if err != nil {
 			return err
 		}
-		m.regs[expr] = &regElem{
+		m.regs[expr] = &regElem[T]{
 			reg: reg,
 			v:   v,
 		}
 	} else {
-		if appendable, ok := e.v.(Appendable); ok {
-			appendable.Append(v)
-		} else {
-			e.v = v
-		}
+		e.v = v
 	}
 
 	return nil
 }
 
-func (m *RegexMatcher) Match(s string) (v interface{}, ok bool) {
+func (m *RegexMatcher[T]) Match(s string) (v T, ok bool) {
 	return m.match(TrimDot(s))
 }
 
-func (m *RegexMatcher) match(domain string) (v interface{}, ok bool) {
+func (m *RegexMatcher[T]) match(domain string) (v T, ok bool) {
 	if m.cache != nil {
 		if e, ok := m.cache.lookup(domain); ok { // cache hit
 			if e != nil {
 				return e.v, true // matched
 			}
-			return nil, false // not matched
+			var zeroT T
+			return zeroT, false // not matched
 		}
 	}
 
@@ -163,33 +141,34 @@ func (m *RegexMatcher) match(domain string) (v interface{}, ok bool) {
 	if m.cache != nil { // cache the string
 		m.cache.cache(domain, nil)
 	}
-	return nil, false
+	var zeroT T
+	return zeroT, false
 }
 
-func (m *RegexMatcher) Len() int {
+func (m *RegexMatcher[T]) Len() int {
 	return len(m.regs)
 }
 
-func (m *RegexMatcher) ResetCache() {
+func (m *RegexMatcher[T]) ResetCache() {
 	if m.cache != nil {
 		m.cache.reset()
 	}
 }
 
-type regCache struct {
+type regCache[T any] struct {
 	cap int
 	sync.RWMutex
-	m map[string]*regElem
+	m map[string]*regElem[T]
 }
 
-func newRegCache(cap int) *regCache {
-	return &regCache{
+func newRegCache[T any](cap int) *regCache[T] {
+	return &regCache[T]{
 		cap: cap,
-		m:   make(map[string]*regElem, cap),
+		m:   make(map[string]*regElem[T], cap),
 	}
 }
 
-func (c *regCache) cache(s string, res *regElem) {
+func (c *regCache[T]) cache(s string, res *regElem[T]) {
 	c.Lock()
 	defer c.Unlock()
 
@@ -197,20 +176,20 @@ func (c *regCache) cache(s string, res *regElem) {
 	c.m[s] = res
 }
 
-func (c *regCache) lookup(s string) (res *regElem, ok bool) {
+func (c *regCache[T]) lookup(s string) (res *regElem[T], ok bool) {
 	c.RLock()
 	defer c.RUnlock()
 	res, ok = c.m[s]
 	return
 }
 
-func (c *regCache) reset() {
+func (c *regCache[T]) reset() {
 	c.Lock()
 	defer c.Unlock()
-	c.m = make(map[string]*regElem, c.cap)
+	c.m = make(map[string]*regElem[T], c.cap)
 }
 
-func (c *regCache) tryEvictUnderLock() {
+func (c *regCache[T]) tryEvictUnderLock() {
 	if len(c.m) >= c.cap {
 		i := c.cap / 8
 		for key := range c.m { // evict 1/8 cache
@@ -223,118 +202,78 @@ func (c *regCache) tryEvictUnderLock() {
 	}
 }
 
-type MixMatcherPatternType uint8
-
 const (
-	MixMatcherPatternTypeDomain MixMatcherPatternType = iota
-	MixMatcherPatternTypeFull
-	MixMatcherPatternTypeKeyword
-	MixMatcherPatternTypeRegexp
+	MatcherFull    = "full"
+	MatcherDomain  = "domain"
+	MatcherRegexp  = "regexp"
+	MatcherKeyword = "keyword"
 )
 
-type MixMatcher struct {
-	typMap map[string]MixMatcherPatternType // Default is MixMatcherStrToPatternTypeDefaultDomain
+type MixMatcher[T any] struct {
+	defaultMatcher string
 
-	// lazy init by getSubMatcher
-	full    Matcher
-	domain  Matcher
-	keyword Matcher
-	regex   Matcher
+	full    Matcher[T]
+	domain  Matcher[T]
+	regex   Matcher[T]
+	keyword Matcher[T]
 }
 
-// NewMixMatcher creates a MixMatcher.
-func NewMixMatcher(options ...MixMatcherOption) *MixMatcher {
-	m := &MixMatcher{} // lazy init
-	for _, f := range options {
-		f(m)
-	}
-	return m
-}
-
-type MixMatcherOption func(mm *MixMatcher)
-
-func WithFullMatcher(m Matcher) MixMatcherOption {
-	return func(mm *MixMatcher) {
-		mm.full = m
+func NewMixMatcher[T any]() *MixMatcher[T] {
+	return &MixMatcher[T]{
+		defaultMatcher: MatcherFull,
+		full:           NewFullMatcher[T](),
+		domain:         NewDomainMatcher[T](),
+		regex:          NewRegexMatcher[T](),
+		keyword:        NewKeywordMatcher[T](),
 	}
 }
 
-func WithKeywordMatcher(m Matcher) MixMatcherOption {
-	return func(mm *MixMatcher) {
-		mm.keyword = m
+func (m *MixMatcher[T]) SetDefaultMatcher(s string) {
+	m.defaultMatcher = s
+}
+
+func (m *MixMatcher[T]) GetSubMatcher(typ string) Matcher[T] {
+	switch typ {
+	case MatcherFull:
+		return m.full
+	case MatcherDomain:
+		return m.domain
+	case MatcherRegexp:
+		return m.regex
+	case MatcherKeyword:
+		return m.keyword
 	}
+	return nil
 }
 
-func WithDomainMatcher(m Matcher) MixMatcherOption {
-	return func(mm *MixMatcher) {
-		mm.domain = m
-	}
-}
-
-func WithRegexpMatcher(m Matcher) MixMatcherOption {
-	return func(mm *MixMatcher) {
-		mm.regex = m
-	}
-}
-
-// NewMixMatcherFrom creates a MixMatcher from those sub matcher.
-// It ok to pass nil Matcher here. MixMatcher can lazy init nil sub matcher.
-func NewMixMatcherFrom(full, domain, keyword, regex Matcher) *MixMatcher {
-	return &MixMatcher{
-		full:    full,
-		domain:  domain,
-		keyword: keyword,
-		regex:   regex,
-	}
-}
-
-var MixMatcherStrToPatternTypeDefaultDomain = map[string]MixMatcherPatternType{
-	"":        MixMatcherPatternTypeDomain,
-	"domain":  MixMatcherPatternTypeDomain,
-	"keyword": MixMatcherPatternTypeKeyword,
-	"regexp":  MixMatcherPatternTypeRegexp,
-	"full":    MixMatcherPatternTypeFull,
-}
-
-var MixMatcherStrToPatternTypeDefaultFull = map[string]MixMatcherPatternType{
-	"domain":  MixMatcherPatternTypeDomain,
-	"keyword": MixMatcherPatternTypeKeyword,
-	"regexp":  MixMatcherPatternTypeRegexp,
-	"full":    MixMatcherPatternTypeFull,
-	"":        MixMatcherPatternTypeFull,
-}
-
-func (m *MixMatcher) SetPattenTypeMap(typMap map[string]MixMatcherPatternType) {
-	m.typMap = typMap
-}
-
-func (m *MixMatcher) Add(pattern string, v interface{}) error {
-	typ, pattern, err := m.splitTypeAndPattern(pattern)
-	if err != nil {
-		return err
-	}
-	return m.AddElem(typ, pattern, v)
-}
-
-func (m *MixMatcher) AddElem(typ MixMatcherPatternType, pattern string, v interface{}) error {
-	return m.getSubMatcher(typ).Add(pattern, v)
-}
-
-func (m *MixMatcher) Match(s string) (v interface{}, ok bool) {
-	for _, matcher := range [...]Matcher{m.full, m.domain, m.regex, m.keyword} {
-		if matcher == nil {
-			continue
+func (m *MixMatcher[T]) Add(s string, v T) error {
+	typ, pattern := m.splitTypeAndPattern(s)
+	if len(typ) == 0 {
+		if len(m.defaultMatcher) != 0 {
+			typ = m.defaultMatcher
+		} else {
+			typ = MatcherFull
 		}
+	}
+	sm := m.GetSubMatcher(typ)
+	if sm == nil {
+		return fmt.Errorf("unsupported match type [%s]", typ)
+	}
+	return sm.Add(pattern, v)
+}
+
+func (m *MixMatcher[T]) Match(s string) (v T, ok bool) {
+	for _, matcher := range [...]Matcher[T]{m.full, m.domain, m.regex, m.keyword} {
 		if v, ok = matcher.Match(s); ok {
-			return
+			return v, true
 		}
 	}
 	return
 }
 
-func (m *MixMatcher) Len() int {
+func (m *MixMatcher[T]) Len() int {
 	sum := 0
-	for _, matcher := range [...]Matcher{m.domain, m.keyword, m.regex, m.full} {
+	for _, matcher := range [...]Matcher[T]{m.full, m.domain, m.regex, m.keyword} {
 		if matcher == nil {
 			continue
 		}
@@ -343,50 +282,12 @@ func (m *MixMatcher) Len() int {
 	return sum
 }
 
-func (m *MixMatcher) splitTypeAndPattern(pattern string) (MixMatcherPatternType, string, error) {
-	typMap := m.typMap
-	if typMap == nil {
-		typMap = MixMatcherStrToPatternTypeDefaultDomain
-	}
-
-	typStr, str, ok := utils.SplitString2(pattern, ":")
+func (m *MixMatcher[T]) splitTypeAndPattern(s string) (string, string) {
+	typ, pattern, ok := utils.SplitString2(s, ":")
 	if !ok {
-		str = pattern
+		pattern = s
 	}
-
-	typ, ok := typMap[typStr]
-	if !ok {
-		return 0, "", fmt.Errorf("unexpected pattern type %s", typStr)
-	}
-
-	return typ, str, nil
-}
-
-func (m *MixMatcher) getSubMatcher(typ MixMatcherPatternType) Matcher {
-	switch typ {
-	case MixMatcherPatternTypeKeyword:
-		if m.keyword == nil {
-			m.keyword = NewKeywordMatcher()
-		}
-		return m.keyword
-	case MixMatcherPatternTypeRegexp:
-		if m.regex == nil {
-			m.regex = NewRegexMatcher()
-		}
-		return m.regex
-	case MixMatcherPatternTypeDomain:
-		if m.domain == nil {
-			m.domain = NewDomainMatcher()
-		}
-		return m.domain
-	case MixMatcherPatternTypeFull:
-		if m.full == nil {
-			m.full = NewFullMatcher()
-		}
-		return m.full
-	default:
-		panic(fmt.Sprintf("MixMatcher: invalid type %d", typ))
-	}
+	return typ, pattern
 }
 
 // TrimDot trims the suffix '.'.

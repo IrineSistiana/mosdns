@@ -244,8 +244,9 @@ func BenchIPMatcher(f string) error {
 }
 
 func BenchDomainMatcher(f string) error {
-	matcher := domain.NewMixMatcher()
-	err := domain.LoadFromFile(matcher, f, nil)
+	matcher := domain.NewMixMatcher[struct{}]()
+	matcher.SetDefaultMatcher(domain.MatcherDomain)
+	err := domain.LoadFromFile[struct{}](matcher, f, nil)
 	if err != nil {
 		return err
 	}
@@ -270,7 +271,7 @@ func ConvertDomainDat(v string) error {
 		wantTag = strings.ToLower(s[1])
 	}
 
-	geoSiteList, err := v2data.LoadGeoSiteList(datFileName)
+	geoSiteList, err := domain.LoadGeoSiteList(datFileName)
 	if err != nil {
 		return err
 	}
@@ -341,7 +342,7 @@ func ConvertIPDat(v string) error {
 		wantTag = strings.ToLower(s[1])
 	}
 
-	geoIPList, err := v2data.LoadGeoIPListFromDAT(datFileName)
+	geoIPList, err := netlist.LoadGeoIPListFromDAT(datFileName)
 	if err != nil {
 		return err
 	}

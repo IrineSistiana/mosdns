@@ -20,30 +20,25 @@ package domain
 import (
 	"bufio"
 	"bytes"
-	"errors"
 	"fmt"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/load_cache"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/matcher/v2data"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/utils"
+	"google.golang.org/protobuf/proto"
 	"io"
 	"os"
+	"reflect"
 	"strings"
+	"time"
 )
 
-var LoadFromDATFunc func(m *MixMatcher, file, countryCode string, processAttr ProcessAttrFunc) error
-
-func LoadFromDAT(m *MixMatcher, file, countryCode string, processAttr ProcessAttrFunc) error {
-	if LoadFromDATFunc == nil {
-		return errors.New("can not load data from v2ray proto, function is not registered")
-	}
-	return LoadFromDATFunc(m, file, countryCode, processAttr)
-}
-
-// ProcessAttrFunc processes the additional attributions. The given []string could have a 0 length or is nil.
-type ProcessAttrFunc func([]string) (v interface{}, accept bool, err error)
+// ProcessAttrFunc processes the additional attributions.
+type ProcessAttrFunc[T any] func(attr string) (v T, err error)
 
 // Load loads data from an entry.
 // If entry begin with "ext:", Load loads the file by using LoadFromFile.
 // Else it loads the entry as a text pattern by using LoadFromText.
-func Load(m Matcher, entry string, processAttr ProcessAttrFunc) error {
+func Load[T any](m Matcher[T], entry string, processAttr ProcessAttrFunc[T]) error {
 	s1, s2, ok := utils.SplitString2(entry, ":")
 	if ok && s1 == "ext" {
 		return LoadFromFile(m, s2, processAttr)
@@ -51,8 +46,8 @@ func Load(m Matcher, entry string, processAttr ProcessAttrFunc) error {
 	return LoadFromText(m, entry, processAttr)
 }
 
-// BatchLoadMatcher loads multiple files or entries using Load.
-func BatchLoadMatcher(m Matcher, entries []string, processAttr ProcessAttrFunc) error {
+// BatchLoad loads multiple files or entries using Load.
+func BatchLoad[T any](m Matcher[T], entries []string, processAttr ProcessAttrFunc[T]) error {
 	for _, e := range entries {
 		err := Load(m, e, processAttr)
 		if err != nil {
@@ -62,42 +57,19 @@ func BatchLoadMatcher(m Matcher, entries []string, processAttr ProcessAttrFunc) 
 	return nil
 }
 
-// BatchLoadMatcherFromFiles loads multiple files using LoadFromFile.
-func BatchLoadMatcherFromFiles(m Matcher, fs []string, processAttr ProcessAttrFunc) error {
-	for _, f := range fs {
-		err := LoadFromFile(m, f, processAttr)
-		if err != nil {
-			return fmt.Errorf("failed to load file %s: %w", f, err)
-		}
-	}
-	return nil
-}
-
 // LoadFromFile loads data from a file.
-// v2ray data file can also have multiple @attr. e.g. 'geosite.dat:cn@attr1@attr2'.
-// Only the record with all the @attr will be loaded.
-func LoadFromFile(m Matcher, file string, processAttr ProcessAttrFunc) error {
+func LoadFromFile[T any](m Matcher[T], file string, processAttr ProcessAttrFunc[T]) error {
 	var err error
 	if tmp := strings.SplitN(file, ":", 2); len(tmp) == 2 { // is a v2ray data file
-		mixMatcher, ok := m.(*MixMatcher)
+		mixMatcher, ok := m.(*MixMatcher[T])
 		if !ok {
-			return errors.New("only MixMatcher can load v2ray data file")
+			return fmt.Errorf("only MixMatcher can load v2ray data file, got a %s", reflect.ValueOf(m).Type().Name())
 		}
 		filePath := tmp[0]
 		tmp := strings.Split(tmp[1], "@")
 		countryCode := tmp[0]
 		wantedAttr := tmp[1:]
-		v2ProcessAttr := func(attr []string) (v interface{}, accept bool, err error) {
-			v2Accept := mustHaveAttr(attr, wantedAttr)
-			if v2Accept {
-				if processAttr != nil {
-					return processAttr(attr)
-				}
-				return nil, true, nil
-			}
-			return nil, false, nil
-		}
-		err = LoadFromDAT(mixMatcher, filePath, countryCode, v2ProcessAttr)
+		err = LoadMixMatcherFromDAT(mixMatcher, filePath, countryCode, wantedAttr)
 	} else { // is a text file
 		err = LoadFromTextFile(m, file, processAttr)
 	}
@@ -108,7 +80,7 @@ func LoadFromFile(m Matcher, file string, processAttr ProcessAttrFunc) error {
 	return nil
 }
 
-func LoadFromTextFile(m Matcher, file string, processAttr ProcessAttrFunc) error {
+func LoadFromTextFile[T any](m Matcher[T], file string, processAttr ProcessAttrFunc[T]) error {
 	data, err := os.ReadFile(file)
 	if err != nil {
 		return err
@@ -117,7 +89,7 @@ func LoadFromTextFile(m Matcher, file string, processAttr ProcessAttrFunc) error
 	return LoadFromTextReader(m, bytes.NewReader(data), processAttr)
 }
 
-func LoadFromTextReader(m Matcher, r io.Reader, processAttr ProcessAttrFunc) error {
+func LoadFromTextReader[T any](m Matcher[T], r io.Reader, processAttr ProcessAttrFunc[T]) error {
 	lineCounter := 0
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
@@ -137,45 +109,112 @@ func LoadFromTextReader(m Matcher, r io.Reader, processAttr ProcessAttrFunc) err
 	return scanner.Err()
 }
 
-func LoadFromText(m Matcher, s string, processAttr ProcessAttrFunc) error {
+func LoadFromText[T any](m Matcher[T], s string, processAttr ProcessAttrFunc[T]) error {
 	if processAttr != nil {
-		e := utils.SplitLine(s)
-		pattern := e[0]
-		attr := e[1:]
-		v, accept, err := processAttr(attr)
+		pattern, attr, ok := utils.SplitString2(s, " ")
+		if !ok {
+			pattern = s
+		}
+		pattern = strings.TrimSpace(pattern)
+		attr = strings.TrimSpace(attr)
+
+		v, err := processAttr(attr)
 		if err != nil {
 			return err
-		}
-		if !accept {
-			return nil
 		}
 		return m.Add(pattern, v)
 	}
 
-	pattern := utils.RemoveComment(s, " ")
-	return m.Add(pattern, nil)
+	var zeroT T
+	return m.Add(strings.TrimSpace(s), zeroT)
 }
 
-// mustHaveAttr checks if attr has all wanted attrs.
-func mustHaveAttr(attr, wanted []string) bool {
-	if len(wanted) == 0 {
-		return true
-	}
-	if len(attr) == 0 {
-		return false
+func LoadMixMatcherFromDAT[T any](m *MixMatcher[T], file, countryCode string, attrs []string) error {
+	geoSite, err := LoadGeoSiteFromDAT(file, countryCode)
+	if err != nil {
+		return err
 	}
 
-	for _, w := range wanted {
-		ok := false
-		for _, got := range attr {
-			if got == w {
-				ok = true
-				break
+	am := make(map[string]struct{})
+	for _, attr := range attrs {
+		am[attr] = struct{}{}
+	}
+
+getDomainLoop:
+	for i, d := range geoSite.GetDomain() {
+		for _, attr := range d.Attribute {
+			if _, ok := am[attr.Key]; !ok {
+				continue getDomainLoop
 			}
 		}
-		if !ok { // this attr is not in d.
-			return false
+
+		var subMatcherType string
+		switch d.Type {
+		case v2data.Domain_Plain:
+			subMatcherType = MatcherKeyword
+		case v2data.Domain_Regex:
+			subMatcherType = MatcherRegexp
+		case v2data.Domain_Domain:
+			subMatcherType = MatcherDomain
+		case v2data.Domain_Full:
+			subMatcherType = MatcherFull
+		default:
+			return fmt.Errorf("invalid v2ray Domain_Type %d", d.Type)
+		}
+
+		sm := m.GetSubMatcher(subMatcherType)
+		if sm == nil {
+			return fmt.Errorf("invalid MixMatcher, missing submatcher %s", subMatcherType)
+		}
+
+		var zeroT T
+		if err := sm.Add(d.Value, zeroT); err != nil {
+			return fmt.Errorf("failed to load value #%d, %w", i, err)
 		}
 	}
-	return true
+	return nil
+}
+
+func LoadGeoSiteFromDAT(file, countryCode string) (*v2data.GeoSite, error) {
+	geoSiteList, err := LoadGeoSiteList(file)
+	if err != nil {
+		return nil, err
+	}
+
+	countryCode = strings.ToLower(countryCode)
+	entry := geoSiteList.GetEntry()
+	for i := range entry {
+		if strings.ToLower(entry[i].CountryCode) == countryCode {
+			return entry[i], nil
+		}
+	}
+
+	return nil, fmt.Errorf("can not find category %s in %s", countryCode, file)
+}
+
+var geoSiteCache = load_cache.GetCache().NewNamespace()
+
+func LoadGeoSiteList(file string) (*v2data.GeoSiteList, error) {
+	// load from cache
+	v, _ := geoSiteCache.Get(file)
+	if geoSiteList, ok := v.(*v2data.GeoSiteList); ok {
+		return geoSiteList, nil
+	}
+
+	// load from disk
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		return nil, err
+	}
+	geoSiteList := new(v2data.GeoSiteList)
+	if err := proto.Unmarshal(raw, geoSiteList); err != nil {
+		return nil, err
+	}
+
+	// cache the file
+	geoSiteCache.Store(file, geoSiteList)
+	time.AfterFunc(time.Second*15, func() { // remove it after 15s
+		geoSiteCache.Remove(file)
+	})
+	return geoSiteList, nil
 }

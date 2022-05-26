@@ -73,8 +73,9 @@ func newResponseMatcher(bp *handler.BP, args *Args) (m *responseMatcher, err err
 	}
 
 	if len(args.CNAME) > 0 {
-		mixMatcher := domain.NewMixMatcher(domain.WithDomainMatcher(domain.NewSimpleDomainMatcher()))
-		err := domain.BatchLoadMatcher(mixMatcher, args.CNAME, nil)
+		mixMatcher := domain.NewMixMatcher[struct{}]()
+		mixMatcher.SetDefaultMatcher(domain.MatcherFull)
+		err := domain.BatchLoad[struct{}](mixMatcher, args.CNAME, nil)
 		if err != nil {
 			return nil, err
 		}

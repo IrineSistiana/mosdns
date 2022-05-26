@@ -30,15 +30,15 @@ var test_hosts = `
      # empty line
 dns.google 8.8.8.8 8.8.4.4 2001:4860:4860::8844 2001:4860:4860::8888
 regexp:^123456789 192.168.1.1
-test.com 1.2.3.4
-test.com 2.3.4.5
+test.com 1.2.3.4 # will be replaced
+test.com 2.3.4.5 
 # nxdomain.com 1.2.3.4
 `
 
 func Test_hostsContainer_Match(t *testing.T) {
-	m := domain.NewMixMatcher()
-	m.SetPattenTypeMap(domain.MixMatcherStrToPatternTypeDefaultFull)
-	err := domain.LoadFromTextReader(m, bytes.NewBuffer([]byte(test_hosts)), ParseIP)
+	m := domain.NewMixMatcher[*IPs]()
+	m.SetDefaultMatcher(domain.MatcherDomain)
+	err := domain.LoadFromTextReader[*IPs](m, bytes.NewBuffer([]byte(test_hosts)), ParseIPs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func Test_hostsContainer_Match(t *testing.T) {
 		{"not matched A", args{name: "sub.dns.google.", typ: dns.TypeA}, false, nil},
 		{"matched regexp A", args{name: "123456789.test.", typ: dns.TypeA}, true, []string{"192.168.1.1"}},
 		{"not matched regexp A", args{name: "0123456789.test.", typ: dns.TypeA}, false, nil},
-		{"test appendable", args{name: "test.com.", typ: dns.TypeA}, true, []string{"1.2.3.4", "2.3.4.5"}},
+		{"test replacement", args{name: "test.com.", typ: dns.TypeA}, true, []string{"2.3.4.5"}},
 		{"test matched domain with mismatched type", args{name: "test.com.", typ: dns.TypeAAAA}, true, nil},
 	}
 	for _, tt := range tests {

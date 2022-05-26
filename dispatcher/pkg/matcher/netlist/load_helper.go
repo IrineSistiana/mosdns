@@ -20,22 +20,16 @@ package netlist
 import (
 	"bufio"
 	"bytes"
-	"errors"
 	"fmt"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/load_cache"
+	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/matcher/v2data"
 	"github.com/IrineSistiana/mosdns/v3/dispatcher/pkg/utils"
+	"google.golang.org/protobuf/proto"
 	"io"
 	"os"
 	"strings"
+	"time"
 )
-
-var LoadFromDATFunc func(l *List, file, tag string) error
-
-func LoadFromDAT(l *List, file, tag string) error {
-	if LoadFromDATFunc == nil {
-		return errors.New("cannot load data from v2ray proto, function is not registered")
-	}
-	return LoadFromDATFunc(l, file, tag)
-}
 
 // BatchLoad is a helper func to load multiple files using Load.
 // It might modify the List and causes List unsorted.
@@ -125,4 +119,78 @@ func LoadFromTextFile(l *List, file string) error {
 		return err
 	}
 	return LoadFromReader(l, bytes.NewReader(b))
+}
+
+// LoadFromDAT loads ip from v2ray proto file.
+// It might modify the List and causes List unsorted.
+func LoadFromDAT(l *List, file, tag string) error {
+	geoIP, err := LoadGeoIPFromDAT(file, tag)
+	if err != nil {
+		return err
+	}
+	return LoadFromV2CIDR(l, geoIP.GetCidr())
+}
+
+// LoadFromV2CIDR loads ip from v2ray CIDR.
+// It might modify the List and causes List unsorted.
+func LoadFromV2CIDR(l *List, cidr []*v2data.CIDR) error {
+	for i, e := range cidr {
+		ipv6, err := Conv(e.Ip)
+		if err != nil {
+			return fmt.Errorf("invalid data ip at index #%d, %w", i, err)
+		}
+		switch len(e.Ip) {
+		case 4:
+			l.Append(NewNet(ipv6, int(e.Prefix+96)))
+		case 16:
+			l.Append(NewNet(ipv6, int(e.Prefix)))
+		default:
+			return fmt.Errorf("invalid cidr ip length at #%d", i)
+		}
+	}
+	return nil
+}
+
+func LoadGeoIPFromDAT(file, tag string) (*v2data.GeoIP, error) {
+	geoIPList, err := LoadGeoIPListFromDAT(file)
+	if err != nil {
+		return nil, err
+	}
+
+	entry := geoIPList.GetEntry()
+	upperTag := strings.ToUpper(tag)
+	for i := range entry {
+		if strings.ToUpper(entry[i].CountryCode) == upperTag {
+			return entry[i], nil
+		}
+	}
+
+	return nil, fmt.Errorf("can not find tag %s in %s", tag, file)
+}
+
+var geoIPCache = load_cache.GetCache().NewNamespace()
+
+func LoadGeoIPListFromDAT(file string) (*v2data.GeoIPList, error) {
+	// load from cache
+	v, _ := geoIPCache.Get(file)
+	if geoIP, ok := v.(*v2data.GeoIPList); ok {
+		return geoIP, nil
+	}
+
+	// load from disk
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		return nil, err
+	}
+	geoIP := new(v2data.GeoIPList)
+	if err := proto.Unmarshal(raw, geoIP); err != nil {
+		return nil, err
+	}
+
+	// cache the file
+	geoIPCache.Store(file, geoIP)
+	time.AfterFunc(time.Second*15, func() { // remove it after 15s
+		geoIPCache.Remove(file)
+	})
+	return geoIP, nil
 }
