@@ -19,7 +19,6 @@ package plugin
 
 // import all plugins
 import (
-	_ "github.com/IrineSistiana/mosdns/v3/dispatcher/plugin/executable/arbitrary"
 	_ "github.com/IrineSistiana/mosdns/v3/dispatcher/plugin/executable/blackhole"
 	_ "github.com/IrineSistiana/mosdns/v3/dispatcher/plugin/executable/bufsize"
 	_ "github.com/IrineSistiana/mosdns/v3/dispatcher/plugin/executable/cache"
