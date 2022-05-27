@@ -201,12 +201,10 @@ func (t *Transport) exchangeWithPipelineConn(ctx context.Context, m *dns.Msg) (*
 			return nil, ctx.Err()
 		}
 
-		conn, qid, resChan := t.getPipelineConn()
-		reusedConn := conn.dialFinished()
-
+		conn, isNewConn, qid, resChan := t.getPipelineConn()
 		r, err := conn.exchange(ctx, m, qid, resChan)
 		if err != nil {
-			if reusedConn && attempt <= 3 {
+			if !isNewConn && attempt <= 3 {
 				t.logger().Debug("retrying pipeline connection", zap.NamedError("previous_err", err), zap.Int("attempt", attempt))
 				continue
 			}
@@ -346,7 +344,7 @@ func (t *Transport) releaseReusableConn(c *reusableConn, deadConn bool) {
 	t.idledReusableConns[c] = struct{}{}
 }
 
-func (t *Transport) getPipelineConn() (conn *pipelineConn, qid uint16, resChan chan *dns.Msg) {
+func (t *Transport) getPipelineConn() (conn *pipelineConn, isNewConn bool, qid uint16, resChan chan *dns.Msg) {
 	t.m.Lock()
 	defer t.m.Unlock()
 
@@ -363,6 +361,7 @@ func (t *Transport) getPipelineConn() (conn *pipelineConn, qid uint16, resChan c
 	// Create a new connection.
 	if conn == nil || (conn.queueLen() > 0 && len(t.pipelineConns) < t.maxConns()) {
 		conn = newPipelineConn(t)
+		isNewConn = true
 		if t.pipelineConns == nil {
 			t.pipelineConns = make(map[*pipelineConn]struct{})
 		}
@@ -376,7 +375,7 @@ func (t *Transport) getPipelineConn() (conn *pipelineConn, qid uint16, resChan c
 		delete(t.pipelineConns, conn)
 	}
 
-	return conn, qid, resChan
+	return conn, isNewConn, qid, resChan
 }
 
 type pipelineConn struct {
@@ -384,15 +383,15 @@ type pipelineConn struct {
 
 	t *Transport
 
-	qm           sync.RWMutex // queue lock
+	queueMu      sync.RWMutex // queue lock
 	accumulateId uint16
 	eol          bool
 	queue        map[uint16]chan *dns.Msg
 
-	cm                 sync.Mutex // connection lock
+	connMu             sync.Mutex
 	dialFinishedNotify chan struct{}
 	c                  net.Conn
-	dialErr            error
+	closeOnce          sync.Once
 	closeNotify        chan struct{}
 	closeErr           error
 
@@ -402,53 +401,45 @@ type pipelineConn struct {
 var pipelineConnIdCounter uint32
 
 func newPipelineConn(t *Transport) *pipelineConn {
-	dialCtx, cancel := context.WithTimeout(context.Background(), defaultDialTimeout)
-	pc := &pipelineConn{
-		t: t,
-
+	c := &pipelineConn{
+		t:                  t,
 		dialFinishedNotify: make(chan struct{}),
 		queue:              make(map[uint16]chan *dns.Msg),
 		closeNotify:        make(chan struct{}),
-
-		connId: atomic.AddUint32(&pipelineConnIdCounter, 1),
+		connId:             atomic.AddUint32(&pipelineConnIdCounter, 1),
 	}
 
 	go func() {
+		dialCtx, cancel := context.WithTimeout(context.Background(), defaultDialTimeout)
 		defer cancel()
-		c, err := t.DialFunc(dialCtx)
-
-		pc.cm.Lock()
-		pc.c = c
-		pc.dialErr = err
-		close(pc.dialFinishedNotify)
-
-		if err != nil { // dial err, close the connection
-			if !utils.ClosedChan(pc.closeNotify) {
-				close(pc.closeNotify)
-			}
-			pc.cm.Unlock()
+		rc, err := c.t.DialFunc(dialCtx)
+		if err != nil {
+			c.closeWithErr(err)
 			return
 		}
 
-		// dial completed.
-		// pipelineConn was closed before dial completing.
-		if utils.ClosedChan(pc.closeNotify) {
-			c.Close() // close the sub connection
-			pc.cm.Unlock()
+		c.connMu.Lock()
+		// pipelineConn is closed before dial is complete.
+		if c.closeErr != nil {
+			c.connMu.Unlock()
+			rc.Close()
 			return
 		}
-		pc.cm.Unlock()
+		c.c = rc
+		close(c.dialFinishedNotify)
+		c.connMu.Unlock()
 
-		pc.readLoop()
+		c.readLoop()
 	}()
-	return pc
+
+	return c
 }
 
 func (c *pipelineConn) acquireQueueId() (qid uint16, resChan chan *dns.Msg, eol bool) {
 	resChan = make(chan *dns.Msg, 1)
 
-	c.qm.Lock()
-	defer c.qm.Unlock()
+	c.queueMu.Lock()
+	defer c.queueMu.Unlock()
 
 	if c.eol {
 		panic("invalid acquireQueueId() call, qid overflowed")
@@ -464,10 +455,6 @@ func (c *pipelineConn) acquireQueueId() (qid uint16, resChan chan *dns.Msg, eol 
 	return qid, resChan, eol
 }
 
-func (c *pipelineConn) dialFinished() bool {
-	return utils.ClosedChan(c.dialFinishedNotify)
-}
-
 func (c *pipelineConn) exchange(
 	ctx context.Context,
 	q *dns.Msg,
@@ -477,8 +464,8 @@ func (c *pipelineConn) exchange(
 
 	// Release qid and close the connection if it's eol.
 	defer func() {
-		c.qm.Lock()
-		defer c.qm.Unlock()
+		c.queueMu.Lock()
+		defer c.queueMu.Unlock()
 
 		delete(c.queue, qid)
 		if c.eol && len(c.queue) == 0 { // last query
@@ -492,10 +479,6 @@ func (c *pipelineConn) exchange(
 		return nil, c.closeErr
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	}
-
-	if c.dialErr != nil {
-		return nil, c.dialErr
 	}
 
 	// We have to modify the query ID, but as a writer we cannot modify q directly.
@@ -541,13 +524,13 @@ func (c *pipelineConn) readLoop() {
 			return
 		}
 
-		c.qm.Lock()
+		c.queueMu.Lock()
 		resChan, ok := c.queue[r.Id]
 		if ok {
 			delete(c.queue, r.Id)
 		}
 		queueLen := len(c.queue)
-		c.qm.Unlock()
+		c.queueMu.Unlock()
 
 		if ok {
 			select {
@@ -570,26 +553,24 @@ func (c *pipelineConn) isClosed() bool {
 }
 
 func (c *pipelineConn) closeWithErr(err error) {
-	c.cm.Lock()
-	defer c.cm.Unlock()
-	if utils.ClosedChan(c.closeNotify) {
+	c.closeOnce.Do(func() {
+		c.connMu.Lock()
+		defer c.connMu.Unlock()
 
-		return
-	}
+		c.closeErr = err
+		close(c.closeNotify)
 
-	c.closeErr = err
-	close(c.closeNotify)
+		if c.c != nil {
+			go c.c.Close()
+		}
 
-	if c.c != nil {
-		go c.c.Close()
-	}
-
-	c.t.logger().Debug("connection closed", zap.Uint32("id", c.connId), zap.Error(err))
+		c.t.logger().Debug("connection closed", zap.Uint32("id", c.connId), zap.Error(err))
+	})
 }
 
 func (c *pipelineConn) queueLen() int {
-	c.qm.RLock()
-	defer c.qm.RUnlock()
+	c.queueMu.RLock()
+	defer c.queueMu.RUnlock()
 
 	return len(c.queue)
 }
