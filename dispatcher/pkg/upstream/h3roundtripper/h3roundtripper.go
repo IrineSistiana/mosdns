@@ -18,6 +18,7 @@
 package h3roundtripper
 
 import (
+	"context"
 	"crypto/tls"
 	"github.com/lucas-clemente/quic-go"
 	"github.com/lucas-clemente/quic-go/http3"
@@ -42,7 +43,7 @@ type H3RTHelper struct {
 	Logger     *zap.Logger
 	TLSConfig  *tls.Config
 	QUICConfig *quic.Config
-	DialFunc   func(network, addr string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlySession, error)
+	DialFunc   func(ctx context.Context, network, addr string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error)
 
 	m  sync.Mutex
 	rt *http3.RoundTripper

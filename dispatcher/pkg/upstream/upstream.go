@@ -224,12 +224,12 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 					InitialConnectionReceiveWindow: 8 * 1024,
 					MaxConnectionReceiveWindow:     64 * 1024,
 				},
-				DialFunc: func(_, _ string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlySession, error) {
+				DialFunc: func(ctx context.Context, _, _ string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error) {
 					ua, err := net.ResolveUDPAddr("udp", dialAddr)
 					if err != nil {
 						return nil, err
 					}
-					return quic.DialEarly(conn, ua, addrURL.Host, tlsCfg, cfg)
+					return quic.DialEarlyContext(ctx, conn, ua, addrURL.Host, tlsCfg, cfg)
 				},
 			}
 		} else {
