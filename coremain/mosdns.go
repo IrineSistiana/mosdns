@@ -27,6 +27,9 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
 	"github.com/IrineSistiana/mosdns/v4/pkg/notifier"
 	"go.uber.org/zap"
+	"runtime"
+	"runtime/debug"
+	"time"
 )
 
 type Mosdns struct {
@@ -112,6 +115,10 @@ func RunMosdns(cfg *Config) error {
 		}
 	}
 
+	time.AfterFunc(time.Second*1, func() {
+		runtime.GC()
+		debug.FreeOSMemory()
+	})
 	<-m.sc.ReceiveCloseSignal()
 	m.sc.Done()
 	m.sc.CloseWait()
