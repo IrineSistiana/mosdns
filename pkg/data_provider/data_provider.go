@@ -26,7 +26,6 @@ import (
 	"go.uber.org/zap"
 	"os"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -68,7 +67,6 @@ type DataProvider struct {
 	file       string
 	autoReload bool
 
-	v         atomic.Value
 	lm        sync.Mutex
 	listeners []DataListener
 
@@ -92,11 +90,10 @@ func NewDataProvider(lg *zap.Logger, cfg *DataProviderConfig) (*DataProvider, er
 }
 
 func (ds *DataProvider) init() error {
-	v, err := ds.loadFromDisk()
+	_, err := ds.loadFromDisk()
 	if err != nil {
 		return err
 	}
-	ds.v.Store(v)
 
 	if ds.autoReload {
 		if err := ds.startFsWatcher(); err != nil {
@@ -118,23 +115,27 @@ func (ds *DataProvider) GetNotifier() *notifier.Notifier {
 // LoadAndAddListener loads the DataListener, returns any error that occurs, and
 // add this DataListener to this DataProvider.
 func (ds *DataProvider) LoadAndAddListener(l DataListener) error {
-	v := ds.GetData()
-	if err := l.Update(v); err != nil {
+	b, err := ds.GetData()
+	if err != nil {
 		return err
 	}
+
 	ds.lm.Lock()
 	defer ds.lm.Unlock()
+	if err := l.Update(b); err != nil {
+		return err
+	}
+
 	ds.listeners = append(ds.listeners, l)
 	return nil
 }
 
-func (ds *DataProvider) GetData() []byte {
-	return ds.v.Load().([]byte)
+func (ds *DataProvider) GetData() ([]byte, error) {
+	return os.ReadFile(ds.file)
 }
 
-// updateData updates ds' v, notify the notifier and trigger all listeners.
-func (ds *DataProvider) updateData(newData []byte) {
-	ds.v.Store(newData)
+// pushData notify the notifier and trigger all listeners.
+func (ds *DataProvider) pushData(newData []byte) {
 	ds.notifier.Notify()
 	ds.lm.Lock()
 	defer ds.lm.Unlock()
@@ -190,7 +191,7 @@ func (ds *DataProvider) startFsWatcher() error {
 								"file reloaded",
 								zap.String("file", ds.file),
 							)
-							ds.updateData(v)
+							ds.pushData(v)
 						}
 					})
 				} else {
