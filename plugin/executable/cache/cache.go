@@ -63,12 +63,14 @@ type Args struct {
 	LazyCacheTTL      int    `yaml:"lazy_cache_ttl"`
 	LazyCacheReplyTTL int    `yaml:"lazy_cache_reply_ttl"`
 	CacheEverything   bool   `yaml:"cache_everything"`
+	WhenHit           string `yaml:"when_hit"`
 }
 
 type cachePlugin struct {
 	*coremain.BP
 	args *Args
 
+	whenHit      executable_seq.Executable
 	backend      cache.Backend
 	lazyUpdateSF singleflight.Group
 }
@@ -98,9 +100,19 @@ func newCachePlugin(bp *coremain.BP, args *Args) (*cachePlugin, error) {
 		args.LazyCacheReplyTTL = 30
 	}
 
+	var whenHit executable_seq.Executable
+	if tag := args.WhenHit; len(tag) > 0 {
+		m := bp.M().GetExecutables()
+		whenHit = m[tag]
+		if whenHit == nil {
+			return nil, fmt.Errorf("cannot find exectable %s", tag)
+		}
+	}
+
 	return &cachePlugin{
 		BP:      bp,
 		args:    args,
+		whenHit: whenHit,
 		backend: c,
 	}, nil
 }
@@ -142,10 +154,15 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, nex
 		} else {
 			msgTTL = time.Duration(dnsutils.GetMinimalTTL(r)) * time.Second
 		}
-		if storedTime.Add(msgTTL).After(time.Now()) { // not expired
+
+		// not expired
+		if storedTime.Add(msgTTL).After(time.Now()) {
 			c.L().Debug("cache hit", qCtx.InfoField())
 			dnsutils.SubtractTTL(r, uint32(time.Since(storedTime).Seconds()))
 			qCtx.SetResponse(r, query_context.ContextStatusResponded)
+			if c.whenHit != nil {
+				return c.whenHit.Exec(ctx, qCtx, nil)
+			}
 			return nil
 		}
 
@@ -181,6 +198,9 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, nex
 				return nil, nil
 			}
 			c.lazyUpdateSF.DoChan(msgKey, lazyUpdateFunc) // DoChan won't block this goroutine
+			if c.whenHit != nil {
+				return c.whenHit.Exec(ctx, qCtx, nil)
+			}
 			return nil
 		}
 	}
