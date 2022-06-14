@@ -23,7 +23,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/AdguardTeam/dnsproxy/fastip"
 	"github.com/AdguardTeam/dnsproxy/upstream"
 	"github.com/IrineSistiana/mosdns/v4/coremain"
 	"github.com/IrineSistiana/mosdns/v4/pkg/bundled_upstream"
@@ -44,11 +43,7 @@ var _ coremain.ExecutablePlugin = (*forwardPlugin)(nil)
 
 type forwardPlugin struct {
 	*coremain.BP
-
-	upstreams []upstream.Upstream // same as upstream, just used by fastIPHandler
-	bu        *bundled_upstream.BundledUpstream
-
-	fastIPHandler *fastip.FastestAddr // nil if fast ip is disabled
+	bu *bundled_upstream.BundledUpstream
 }
 
 type Args struct {
@@ -57,7 +52,6 @@ type Args struct {
 	Timeout            int              `yaml:"timeout"`
 	InsecureSkipVerify bool             `yaml:"insecure_skip_verify"`
 	Bootstrap          []string         `yaml:"bootstrap"`
-	FastestIP          bool             `yaml:"fastest_ip"`
 }
 
 type UpstreamConfig struct {
@@ -112,8 +106,6 @@ func newForwarder(bp *coremain.BP, args *Args) (*forwardPlugin, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to init upsteam: %w", err)
 		}
-
-		f.upstreams = append(f.upstreams, u)
 		bu = append(bu, &upstreamWrapper{
 			dnsproxyUpstream: u,
 			trusted:          conf.Trusted,
@@ -121,10 +113,6 @@ func newForwarder(bp *coremain.BP, args *Args) (*forwardPlugin, error) {
 	}
 
 	f.bu = bundled_upstream.NewBundledUpstream(bu, bp.L())
-
-	if args.FastestIP {
-		f.fastIPHandler = fastip.NewFastestAddr()
-	}
 	return f, nil
 }
 
@@ -179,24 +167,11 @@ func (f *forwardPlugin) Exec(ctx context.Context, qCtx *query_context.Context, n
 }
 
 func (f *forwardPlugin) exec(ctx context.Context, qCtx *query_context.Context) error {
-	var r *dns.Msg
-	var err error
-	q := qCtx.Q()
-	if f.fastIPHandler != nil && len(q.Question) == 1 {
-		// Only call ExchangeFastest if the query has one question.
-		// ExchangeFastest will use the first question name as host name.
-		// It won't check questions range. So it will it panic if len(q.Question) == 0.
-		// Ref: https://github.com/IrineSistiana/mosdns/issues/240
-		r, _, err = f.fastIPHandler.ExchangeFastest(q.Copy(), f.upstreams)
-	} else {
-		r, err = f.bu.ExchangeParallel(ctx, qCtx)
-	}
-
+	r, err := f.bu.ExchangeParallel(ctx, qCtx)
 	if err != nil {
 		qCtx.SetResponse(nil, query_context.ContextStatusServerFailed)
 		return err
 	}
-
 	qCtx.SetResponse(r, query_context.ContextStatusResponded)
 	return nil
 }
