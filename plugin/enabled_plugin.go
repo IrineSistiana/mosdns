@@ -32,6 +32,7 @@ import (
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/hosts"
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/ipset"
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/marker"
+	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/misc_optm"
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/nftset"
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/padding"
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/redirect"
