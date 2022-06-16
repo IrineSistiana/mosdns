@@ -303,7 +303,7 @@ func NewV2rayDomainDat(v *v2data.GeoSiteList, filters ...*V2filter) (*MixMatcher
 }
 
 func BuildDomainMatcher(domains []*v2data.Domain, attrs []string, m *MixMatcher[struct{}]) (*MixMatcher[struct{}], error) {
-	var am map[string]struct{}
+	am := make(map[string]struct{})
 	if len(attrs) > 0 {
 		for _, attr := range attrs {
 			am[attr] = struct{}{}
