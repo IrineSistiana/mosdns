@@ -24,23 +24,16 @@ import (
 	"crypto/tls"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v4/mlog"
-	"github.com/IrineSistiana/mosdns/v4/pkg/matcher/domain"
-	"github.com/IrineSistiana/mosdns/v4/pkg/matcher/netlist"
-	"github.com/IrineSistiana/mosdns/v4/pkg/matcher/v2data"
 	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
 	"github.com/miekg/dns"
 	"github.com/spf13/cobra"
-	"io"
 	"net"
-	"os"
-	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 )
 
-var (
-	IdleTimeoutCmd = &cobra.Command{
+func newIdleTimeoutCmd() *cobra.Command {
+	return &cobra.Command{
 		Use:   "idle-timeout server_addr",
 		Args:  cobra.ExactArgs(1),
 		Short: "Probe server's idle timeout.",
@@ -50,8 +43,10 @@ var (
 			}
 		},
 	}
+}
 
-	ConnReuse = &cobra.Command{
+func newConnReuseCmd() *cobra.Command {
+	return &cobra.Command{
 		Use:   "conn-reuse server_addr",
 		Args:  cobra.ExactArgs(1),
 		Short: "Check whether this server supports RFC 1035 connection reuse.",
@@ -61,8 +56,10 @@ var (
 			}
 		},
 	}
+}
 
-	Pipeline = &cobra.Command{
+func newPipelineCmd() *cobra.Command {
+	return &cobra.Command{
 		Use:   "pipeline server_addr",
 		Args:  cobra.ExactArgs(1),
 		Short: "Check whether this server supports RFC 7766 query pipelining.",
@@ -72,37 +69,6 @@ var (
 			}
 		},
 	}
-
-	UnpackDomain = &cobra.Command{
-		Use:   "unpack-domain [-o output_dir] geosite.dat",
-		Args:  cobra.ExactArgs(1),
-		Short: "Unpack v2ray domain data file to text files.",
-		Run: func(cmd *cobra.Command, args []string) {
-			if err := UnpackDomainDAT(args[0]); err != nil {
-				mlog.S().Fatal(err)
-			}
-		},
-	}
-
-	UnpackIP = &cobra.Command{
-		Use:   "unpack-ip [-o output_dir] geoip.dat",
-		Args:  cobra.ExactArgs(1),
-		Short: "Unpack v2ray ip data file to text files.",
-		Run: func(cmd *cobra.Command, args []string) {
-			if err := UnpackIPDAT(args[0]); err != nil {
-				mlog.S().Fatal(err)
-			}
-		},
-	}
-)
-
-var unpackFlags struct {
-	outputDir string
-}
-
-func init() {
-	UnpackIP.PersistentFlags().StringVarP(&unpackFlags.outputDir, "out", "o", "", "output dir")
-	UnpackDomain.PersistentFlags().AddFlagSet(UnpackIP.PersistentFlags())
 }
 
 func getConn(addr string) (net.Conn, error) {
@@ -265,127 +231,5 @@ func ProbServerTimeout(addr string) error {
 		}
 	}
 	mlog.S().Infof("connection closed by peer, it's idle timeout is %.2f sec", time.Since(start).Seconds())
-	return nil
-}
-
-func UnpackDomainDAT(v string) error {
-	b, err := os.ReadFile(v)
-	if err != nil {
-		return err
-	}
-	geoSiteList, err := domain.LoadGeoSiteList(b)
-	if err != nil {
-		return err
-	}
-
-	for _, geoSite := range geoSiteList.GetEntry() {
-		tag := strings.ToLower(geoSite.GetCountryCode())
-		file := fmt.Sprintf("%s_%s.txt", fileName(v), tag)
-		if len(unpackFlags.outputDir) > 0 {
-			file = filepath.Join(unpackFlags.outputDir, file)
-		}
-		mlog.S().Infof("saving %s domain to %s", tag, file)
-		err := convertV2DomainToTextFile(geoSite.GetDomain(), file)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func fileName(f string) string {
-	f = filepath.Base(f)
-	if i := strings.LastIndexByte(f, '.'); i == -1 {
-		return f
-	} else {
-		return f[:i]
-	}
-}
-
-func convertV2DomainToTextFile(domain []*v2data.Domain, file string) error {
-	f, err := os.Create(file)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	return convertV2DomainToText(domain, f)
-}
-
-func convertV2DomainToText(domain []*v2data.Domain, w io.Writer) error {
-	for _, r := range domain {
-		var prefix string
-		switch r.Type {
-		case v2data.Domain_Plain:
-			prefix = "keyword:"
-		case v2data.Domain_Regex:
-			prefix = "regexp:"
-		case v2data.Domain_Domain:
-			prefix = ""
-		case v2data.Domain_Full:
-			prefix = "full:"
-		default:
-			return fmt.Errorf("invalid domain type %d", r.Type)
-		}
-		_, err := w.Write([]byte(prefix + r.Value + "\n"))
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func UnpackIPDAT(v string) error {
-	b, err := os.ReadFile(v)
-	if err != nil {
-		return err
-	}
-	geoIPList, err := netlist.LoadGeoIPListFromDAT(b)
-	if err != nil {
-		return err
-	}
-
-	for _, ipList := range geoIPList.GetEntry() {
-		tag := strings.ToLower(ipList.GetCountryCode())
-		file := fmt.Sprintf("%s_%s.txt", fileName(v), tag)
-		if len(unpackFlags.outputDir) > 0 {
-			file = filepath.Join(unpackFlags.outputDir, file)
-		}
-		mlog.S().Infof("saving %s ip to %s", tag, file)
-		err := convertV2CidrToTextFile(ipList.GetCidr(), file)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func convertV2CidrToTextFile(cidr []*v2data.CIDR, file string) error {
-	f, err := os.Create(file)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	return convertV2CidrToText(cidr, f)
-}
-
-func convertV2CidrToText(cidr []*v2data.CIDR, w io.Writer) error {
-	for _, record := range cidr {
-		n := net.IPNet{
-			IP: record.Ip,
-		}
-		switch len(record.Ip) {
-		case 4:
-			n.Mask = net.CIDRMask(int(record.Prefix), 32)
-		case 16:
-			n.Mask = net.CIDRMask(int(record.Prefix), 128)
-		}
-		_, err := w.Write([]byte(n.String() + "\n"))
-		if err != nil {
-			return err
-		}
-	}
 	return nil
 }

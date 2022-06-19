@@ -20,16 +20,13 @@
 package coremain
 
 import (
-	"bytes"
-	"github.com/IrineSistiana/mosdns/v4/coremain/tools"
 	"github.com/IrineSistiana/mosdns/v4/mlog"
 	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"os"
-	"path/filepath"
-	"strings"
+	"runtime"
 )
 
 var rootCmd = &cobra.Command{
@@ -48,32 +45,6 @@ func init() {
 	fs.StringVarP(&sf.dir, "dir", "d", "", "working dir")
 	fs.IntVar(&sf.cpu, "cpu", 0, "set runtime.GOMAXPROCS")
 	fs.StringVar(&sf.pprofAddr, "pprof", "", "start pprof server at this address")
-
-	genCmd := &cobra.Command{
-		Use:   "gen-config",
-		Short: "Generate a template config.",
-		Args:  cobra.ExactArgs(1),
-		Run: func(cmd *cobra.Command, args []string) {
-			if err := GenConfig(args[0]); err != nil {
-				mlog.S().Fatal(err)
-			}
-		},
-	}
-	rootCmd.AddCommand(genCmd)
-
-	probeCmd := &cobra.Command{
-		Use:   "probe",
-		Short: "Run server tests. See sub commands for more details.",
-	}
-	probeCmd.AddCommand(tools.ConnReuse, tools.IdleTimeoutCmd, tools.Pipeline)
-	rootCmd.AddCommand(probeCmd)
-
-	v2datCmd := &cobra.Command{
-		Use:   "v2dat",
-		Short: "Tools that can unpack v2ray data file.",
-	}
-	v2datCmd.AddCommand(tools.UnpackDomain, tools.UnpackIP)
-	rootCmd.AddCommand(v2datCmd)
 }
 
 func AddSubCmd(c *cobra.Command) {
@@ -94,6 +65,10 @@ type serverFlags struct {
 var sf = serverFlags{}
 
 func StartServer(cmd *cobra.Command, args []string) {
+	if sf.cpu > 0 {
+		runtime.GOMAXPROCS(sf.cpu)
+	}
+
 	if len(sf.dir) > 0 {
 		err := os.Chdir(sf.dir)
 		if err != nil {
@@ -103,28 +78,15 @@ func StartServer(cmd *cobra.Command, args []string) {
 	}
 
 	v := viper.New()
-	v.SetEnvPrefix("mosdns")
-	v.AutomaticEnv()
-	v.SetConfigType("yaml")
 	if len(sf.c) > 0 {
-		b, err := os.ReadFile(sf.c)
-		if err != nil {
-			mlog.L().Fatal("failed to open config file", zap.Error(err))
-		}
-
-		if ext := filepath.Ext(sf.c); len(ext) > 0 {
-			v.SetConfigType(strings.TrimPrefix(ext, "."))
-		}
-
-		if err := v.ReadConfig(bytes.NewReader(b)); err != nil {
-			mlog.L().Fatal("failed to read config file", zap.Error(err))
-		}
+		v.SetConfigFile(sf.c)
 	} else {
 		v.SetConfigName("config")
 		v.AddConfigPath(".")
-		if err := v.ReadInConfig(); err != nil {
-			mlog.L().Fatal("failed to read config file", zap.Error(err))
-		}
+	}
+
+	if err := v.ReadInConfig(); err != nil {
+		mlog.L().Fatal("failed to read config file", zap.Error(err))
 	}
 
 	cfg := new(Config)

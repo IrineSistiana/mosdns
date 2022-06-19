@@ -17,34 +17,39 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package main
+package tools
 
 import (
-	"fmt"
 	"github.com/IrineSistiana/mosdns/v4/coremain"
-	"github.com/IrineSistiana/mosdns/v4/mlog"
-	_ "github.com/IrineSistiana/mosdns/v4/plugin"
-	_ "github.com/IrineSistiana/mosdns/v4/tools"
 	"github.com/spf13/cobra"
-	_ "net/http/pprof"
-)
-
-var (
-	version = "dev/unknown"
 )
 
 func init() {
-	coremain.AddSubCmd(&cobra.Command{
-		Use:   "version",
-		Short: "Print out version info and exit.",
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println(version)
-		},
-	})
-}
-
-func main() {
-	if err := coremain.Run(); err != nil {
-		mlog.S().Fatal(err)
+	probeCmd := &cobra.Command{
+		Use:   "probe",
+		Short: "Run some server tests.",
 	}
+	probeCmd.AddCommand(
+		newConnReuseCmd(),
+		newIdleTimeoutCmd(),
+		newPipelineCmd(),
+	)
+	coremain.AddSubCmd(probeCmd)
+
+	v2datCmd := &cobra.Command{
+		Use:   "v2dat",
+		Short: "Tools that can unpack v2ray data file to text files.",
+	}
+	v2datCmd.AddCommand(
+		newUnpackDomainCmd(),
+		newUnpackIPCmd(),
+	)
+	coremain.AddSubCmd(v2datCmd)
+
+	configCmd := &cobra.Command{
+		Use:   "config",
+		Short: "Tools that can generate/convert mosdns config file.",
+	}
+	configCmd.AddCommand(newGenCmd(), newConvCmd())
+	coremain.AddSubCmd(configCmd)
 }

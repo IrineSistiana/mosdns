@@ -22,8 +22,6 @@ package coremain
 import (
 	"github.com/IrineSistiana/mosdns/v4/mlog"
 	"github.com/IrineSistiana/mosdns/v4/pkg/data_provider"
-	"gopkg.in/yaml.v3"
-	"os"
 )
 
 type Config struct {
@@ -76,59 +74,4 @@ type ServerListenerConfig struct {
 type LogicConfig struct {
 	Tag  string      `yaml:"tag"`
 	Exec interface{} `yaml:"exec"`
-}
-
-// GenConfig generates a config template to path p.
-func GenConfig(p string) error {
-	c := new(Config)
-	c.Log.Level = "info"
-
-	c.Plugins = append(c.Plugins, PluginConfig{
-		Tag:  "tag",
-		Type: "type",
-		Args: map[string]interface{}{
-			"key": "value",
-		},
-	})
-
-	c.Sequences = append(c.Sequences, LogicConfig{
-		Tag:  "logic1",
-		Exec: []interface{}{"exec1", "exec2"},
-	})
-
-	c.Servers = append(c.Servers, ServerConfig{
-		Exec: "logic1",
-		Listeners: []*ServerListenerConfig{
-			{
-				Protocol: "udp",
-				Addr:     "127.0.0.1:53",
-			},
-		},
-	})
-
-	c.DataProviders = append(c.DataProviders, data_provider.DataProviderConfig{
-		Tag:        "data1",
-		File:       "data.txt",
-		AutoReload: true,
-	})
-
-	return c.Save(p)
-}
-
-func (c *Config) Save(p string) error {
-	f, err := os.Create(p)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	encoder := yaml.NewEncoder(f)
-	encoder.SetIndent(2)
-	defer encoder.Close()
-	err = encoder.Encode(c)
-	if err != nil {
-		return err
-	}
-
-	return err
 }
