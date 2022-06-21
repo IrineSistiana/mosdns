@@ -76,7 +76,7 @@ func (h *Hosts) LookupMsg(m *dns.Msg) *dns.Msg {
 					Name:   fqdn,
 					Rrtype: dns.TypeA,
 					Class:  dns.ClassINET,
-					Ttl:    3600,
+					Ttl:    10,
 				},
 				A: ip.AsSlice(),
 			}
@@ -89,7 +89,7 @@ func (h *Hosts) LookupMsg(m *dns.Msg) *dns.Msg {
 					Name:   fqdn,
 					Rrtype: dns.TypeAAAA,
 					Class:  dns.ClassINET,
-					Ttl:    3600,
+					Ttl:    10,
 				},
 				AAAA: ip.AsSlice(),
 			}
