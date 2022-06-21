@@ -11,9 +11,9 @@ require (
 	github.com/lucas-clemente/quic-go v0.27.1
 	github.com/miekg/dns v1.1.49
 	github.com/mitchellh/mapstructure v1.5.0
+	github.com/nadoo/ipset v0.5.0
 	github.com/spf13/cobra v1.4.0
 	github.com/spf13/viper v1.12.0
-	github.com/vishvananda/netlink v1.2.0-beta
 	go.uber.org/zap v1.21.0
 	golang.org/x/net v0.0.0-20220526153639-5463443f8c37
 	golang.org/x/sync v0.0.0-20220513210516-0976fa681c29
@@ -21,6 +21,8 @@ require (
 	google.golang.org/protobuf v1.28.0
 	gopkg.in/yaml.v3 v3.0.1
 )
+
+replace github.com/nadoo/ipset v0.5.0 => github.com/IrineSistiana/ipset v0.5.1-0.20220621094256-d1171dc8f5a7
 
 require (
 	github.com/AdguardTeam/golibs v0.10.9 // indirect

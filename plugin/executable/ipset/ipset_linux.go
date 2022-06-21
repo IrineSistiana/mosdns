@@ -22,65 +22,87 @@
 package ipset
 
 import (
-	"net"
-	"syscall"
-
-	"github.com/vishvananda/netlink/nl"
-	"golang.org/x/sys/unix"
+	"context"
+	"fmt"
+	"github.com/IrineSistiana/mosdns/v4/coremain"
+	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
+	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
+	"github.com/miekg/dns"
+	"github.com/nadoo/ipset"
+	"go.uber.org/zap"
+	"net/netip"
 )
 
-const (
-	IPSET_ATTR_IPADDR_IPV4 = 1
-	IPSET_ATTR_IPADDR_IPV6 = 2
-)
+var _ coremain.ExecutablePlugin = (*ipsetPlugin)(nil)
 
-type Entry struct {
-	SetName string
-	IP      net.IP
-	Mask    uint8
-	IsNET6  bool
+type ipsetPlugin struct {
+	*coremain.BP
+	args *Args
+	nl   *ipset.NetLink
 }
 
-func AddCIDR(e *Entry) error {
-	req := nl.NewNetlinkRequest(nl.IPSET_CMD_ADD|(unix.NFNL_SUBSYS_IPSET<<8), nl.GetIpsetFlags(nl.IPSET_CMD_ADD))
-
-	var nfgenFamily uint8
-	if e.IsNET6 {
-		nfgenFamily = uint8(unix.AF_INET6)
-	} else {
-		nfgenFamily = uint8(unix.AF_INET)
+func newIpsetPlugin(bp *coremain.BP, args *Args) (*ipsetPlugin, error) {
+	if args.Mask4 == 0 {
+		args.Mask4 = 24
 	}
-	req.AddData(
-		&nl.Nfgenmsg{
-			NfgenFamily: nfgenFamily,
-			Version:     nl.NFNETLINK_V0,
-			ResId:       0,
-		},
-	)
-
-	req.AddData(nl.NewRtAttr(nl.IPSET_ATTR_PROTOCOL, nl.Uint8Attr(nl.IPSET_PROTOCOL)))
-	req.AddData(nl.NewRtAttr(nl.IPSET_ATTR_SETNAME, nl.ZeroTerminated(e.SetName)))
-	data := nl.NewRtAttr(nl.IPSET_ATTR_DATA|int(nl.NLA_F_NESTED), nil)
-
-	// set ip
-	addr := nl.NewRtAttr(nl.IPSET_ATTR_IP|int(nl.NLA_F_NESTED), nil)
-	if e.IsNET6 {
-		addr.AddRtAttr(IPSET_ATTR_IPADDR_IPV6|int(nl.NLA_F_NET_BYTEORDER), e.IP)
-	} else {
-		addr.AddRtAttr(IPSET_ATTR_IPADDR_IPV4|int(nl.NLA_F_NET_BYTEORDER), e.IP)
+	if args.Mask6 == 0 {
+		args.Mask6 = 32
 	}
-	data.AddChild(addr)
 
-	// set mask
-	data.AddRtAttr(nl.IPSET_ATTR_CIDR, nl.Uint8Attr(e.Mask))
-
-	req.AddData(data)
-	_, err := req.Execute(unix.NETLINK_NETFILTER, 0)
-
+	nl, err := ipset.Init()
 	if err != nil {
-		if errno := int(err.(syscall.Errno)); errno >= nl.IPSET_ERR_PRIVATE {
-			err = nl.IPSetError(uintptr(errno))
+		return nil, err
+	}
+
+	return &ipsetPlugin{
+		BP:   bp,
+		args: args,
+		nl:   nl,
+	}, nil
+}
+
+func (p *ipsetPlugin) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
+	r := qCtx.R()
+	if r != nil {
+		er := p.addIPSet(r)
+		if er != nil {
+			p.L().Warn("failed to add response IP to ipset", qCtx.InfoField(), zap.Error(er))
 		}
 	}
-	return err
+
+	return executable_seq.ExecChainNode(ctx, qCtx, next)
+}
+
+func (p *ipsetPlugin) Close() error {
+	return p.nl.Close()
+}
+
+func (p *ipsetPlugin) addIPSet(r *dns.Msg) error {
+	for i := range r.Answer {
+		switch rr := r.Answer[i].(type) {
+		case *dns.A:
+			if len(p.args.SetName4) == 0 {
+				continue
+			}
+			addr, ok := netip.AddrFromSlice(rr.A.To4())
+			if !ok {
+				return fmt.Errorf("invalid A record with ip: %s", rr.A)
+			}
+			return ipset.AddPrefix(p.nl, p.args.SetName4, netip.PrefixFrom(addr, p.args.Mask4))
+
+		case *dns.AAAA:
+			if len(p.args.SetName6) == 0 {
+				continue
+			}
+			addr, ok := netip.AddrFromSlice(rr.AAAA.To16())
+			if !ok {
+				return fmt.Errorf("invalid AAAA record with ip: %s", rr.AAAA)
+			}
+			return ipset.AddPrefix(p.nl, p.args.SetName6, netip.PrefixFrom(addr, p.args.Mask6))
+		default:
+			continue
+		}
+	}
+
+	return nil
 }

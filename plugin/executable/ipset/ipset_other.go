@@ -1,5 +1,4 @@
 //go:build !linux
-// +build !linux
 
 /*
  * Copyright (C) 2020-2022, IrineSistiana
@@ -23,7 +22,20 @@
 package ipset
 
 import (
-	"github.com/miekg/dns"
+	"context"
+	"github.com/IrineSistiana/mosdns/v4/coremain"
+	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
+	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
 )
 
-func (p *ipsetPlugin) addIPSet(_ *dns.Msg) error { return nil }
+type ipsetPlugin struct {
+	*coremain.BP
+}
+
+func newIpsetPlugin(bp *coremain.BP, args *Args) (*ipsetPlugin, error) {
+	return &ipsetPlugin{BP: bp}, nil
+}
+
+func (p *ipsetPlugin) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
+	return executable_seq.ExecChainNode(ctx, qCtx, next)
+}
