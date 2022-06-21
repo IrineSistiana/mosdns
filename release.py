@@ -62,7 +62,7 @@ def go_build():
         logger.error(f'get git tag failed: {e.args}')
 
     try:
-        subprocess.check_call('go run ../ gen-config config.yaml', shell=True, env=os.environ)
+        subprocess.check_call('go run ../ config gen config.yaml', shell=True, env=os.environ)
     except Exception:
         logger.exception('failed to generate config template')
         raise
