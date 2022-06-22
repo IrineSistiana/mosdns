@@ -30,6 +30,7 @@ type Config struct {
 	Plugins       []PluginConfig                     `yaml:"plugins"`
 	Sequences     []LogicConfig                      `yaml:"sequences"`
 	Servers       []ServerConfig                     `yaml:"servers"`
+	API           APIConfig                          `yaml:"api"`
 }
 
 // PluginConfig represents a plugin config
@@ -74,4 +75,8 @@ type ServerListenerConfig struct {
 type LogicConfig struct {
 	Tag  string      `yaml:"tag"`
 	Exec interface{} `yaml:"exec"`
+}
+
+type APIConfig struct {
+	HTTP string `yaml:"http"`
 }

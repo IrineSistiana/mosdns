@@ -27,6 +27,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
 	"github.com/IrineSistiana/mosdns/v4/pkg/notifier"
 	"go.uber.org/zap"
+	"net/http"
 	"runtime"
 	"runtime/debug"
 	"time"
@@ -42,6 +43,9 @@ type Mosdns struct {
 	execs    map[string]executable_seq.Executable
 	matchers map[string]executable_seq.Matcher
 
+	httpAPIMux    *http.ServeMux
+	httpAPIServer *http.Server
+
 	sc *notifier.SafeClose
 }
 
@@ -56,8 +60,8 @@ func RunMosdns(cfg *Config) error {
 		dataManager: data_provider.NewDataManager(),
 		execs:       make(map[string]executable_seq.Executable),
 		matchers:    make(map[string]executable_seq.Matcher),
-
-		sc: notifier.NewSafeClose(),
+		httpAPIMux:  http.NewServeMux(),
+		sc:          notifier.NewSafeClose(),
 	}
 
 	// Init data manager
@@ -115,6 +119,27 @@ func RunMosdns(cfg *Config) error {
 		}
 	}
 
+	if httpAddr := cfg.API.HTTP; len(httpAddr) > 0 {
+		httpServer := &http.Server{
+			Addr:    httpAddr,
+			Handler: m.httpAPIMux,
+		}
+		m.sc.Attach(func(done func(), closeSignal <-chan struct{}) {
+			defer done()
+			errChan := make(chan error, 1)
+			go func() {
+				m.logger.Info("starting api http server", zap.String("addr", httpAddr))
+				errChan <- httpServer.ListenAndServe()
+			}()
+			select {
+			case err := <-errChan:
+				m.sc.SendCloseSignal(err)
+			case <-closeSignal:
+				httpServer.Close()
+			}
+		})
+	}
+
 	time.AfterFunc(time.Second*1, func() {
 		runtime.GC()
 		debug.FreeOSMemory()
@@ -149,4 +174,10 @@ func (m *Mosdns) GetExecutables() map[string]executable_seq.Executable {
 
 func (m *Mosdns) GetMatchers() map[string]executable_seq.Matcher {
 	return m.matchers
+}
+
+// GetHTTPAPIMux returns the api http.ServeMux. Plugin caller should
+// register path "/plugins/plugin_tag"
+func (m *Mosdns) GetHTTPAPIMux() *http.ServeMux {
+	return m.httpAPIMux
 }
