@@ -97,7 +97,7 @@ func RunMosdns(cfg *Config) error {
 		if len(pc.Type) == 0 || len(pc.Tag) == 0 {
 			continue
 		}
-		if _, ok := dupTag[pc.Tag]; ok {
+		if _, dup := dupTag[pc.Tag]; dup {
 			return fmt.Errorf("duplicated plugin tag %s", pc.Tag)
 		}
 		dupTag[pc.Tag] = struct{}{}
@@ -107,7 +107,12 @@ func RunMosdns(cfg *Config) error {
 		if err != nil {
 			return fmt.Errorf("failed to init plugin #%d, %w", i, err)
 		}
+
 		m.addPlugin(p)
+		// Also add it to api mux if plugin implements http.Handler.
+		if h, ok := p.(http.Handler); ok {
+			m.httpAPIMux.Handle(fmt.Sprintf("/plugins/%s/", p.Tag()), h)
+		}
 	}
 
 	if len(cfg.Servers) == 0 {
@@ -119,6 +124,7 @@ func RunMosdns(cfg *Config) error {
 		}
 	}
 
+	// Start http api server
 	if httpAddr := cfg.API.HTTP; len(httpAddr) > 0 {
 		httpServer := &http.Server{
 			Addr:    httpAddr,
@@ -176,8 +182,11 @@ func (m *Mosdns) GetMatchers() map[string]executable_seq.Matcher {
 	return m.matchers
 }
 
-// GetHTTPAPIMux returns the api http.ServeMux. Plugin caller should
-// register path "/plugins/plugin_tag"
+// GetHTTPAPIMux returns the api http.ServeMux.
+// The pattern "/plugins/plugin_tag/" has been registered if
+// Plugin implements http.Handler interface.
+// Plugin caller should register path that has "/plugins/plugin_tag/"
+// prefix only.
 func (m *Mosdns) GetHTTPAPIMux() *http.ServeMux {
 	return m.httpAPIMux
 }

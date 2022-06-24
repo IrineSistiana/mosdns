@@ -75,8 +75,6 @@ func newReverseLookup(bp *coremain.BP, args *Args) coremain.Plugin {
 		args:  args,
 		store: newStore(),
 	}
-
-	bp.M().GetHTTPAPIMux().Handle("/plugins/"+bp.Tag(), p)
 	return p
 }
 
