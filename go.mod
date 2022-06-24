@@ -12,6 +12,7 @@ require (
 	github.com/miekg/dns v1.1.49
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/nadoo/ipset v0.5.0
+	github.com/rcrowley/go-metrics v0.0.0-20201227073835-cf1acfcdf475
 	github.com/spf13/cobra v1.4.0
 	github.com/spf13/viper v1.12.0
 	go.uber.org/zap v1.21.0

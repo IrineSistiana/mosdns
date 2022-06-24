@@ -21,6 +21,7 @@ package coremain
 
 import (
 	"fmt"
+	"github.com/IrineSistiana/mosdns/v4/pkg/metrics"
 	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
 	"go.uber.org/zap"
 	"sync"
@@ -149,12 +150,15 @@ func LoadNewPersetPluginFuncs() map[string]NewPersetPluginFunc {
 // BP represents a basic plugin, which implements Plugin.
 // It also has an internal logger, for convenience.
 type BP struct {
+	Metrics metrics.Registry
+
 	tag, typ string
 
 	l *zap.Logger
 	s *zap.SugaredLogger
 
-	m *Mosdns
+	m          *Mosdns
+	metricsReg *metrics.Registry
 }
 
 // NewBP creates a new BP and initials its logger.
@@ -183,6 +187,12 @@ func (p *BP) S() *zap.SugaredLogger {
 
 func (p *BP) M() *Mosdns {
 	return p.m
+}
+
+func (p *BP) GetMetricsReg() *metrics.Registry {
+	return p.m.pluginsMetricsReg.GetOrSet(p.tag, func() metrics.Var {
+		return metrics.NewRegistry()
+	}).(*metrics.Registry)
 }
 
 func (p *BP) Close() error {

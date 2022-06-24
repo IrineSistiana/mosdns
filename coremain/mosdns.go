@@ -25,7 +25,9 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/mlog"
 	"github.com/IrineSistiana/mosdns/v4/pkg/data_provider"
 	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
+	"github.com/IrineSistiana/mosdns/v4/pkg/metrics"
 	"github.com/IrineSistiana/mosdns/v4/pkg/notifier"
+
 	"go.uber.org/zap"
 	"net/http"
 	"runtime"
@@ -46,6 +48,10 @@ type Mosdns struct {
 	httpAPIMux    *http.ServeMux
 	httpAPIServer *http.Server
 
+	rootMetricsReg    *metrics.Registry
+	pluginsMetricsReg *metrics.Registry
+	serversMetricsReg *metrics.Registry
+
 	sc *notifier.SafeClose
 }
 
@@ -63,6 +69,12 @@ func RunMosdns(cfg *Config) error {
 		httpAPIMux:  http.NewServeMux(),
 		sc:          notifier.NewSafeClose(),
 	}
+	m.rootMetricsReg = metrics.NewRegistry()
+	m.pluginsMetricsReg = metrics.NewRegistry()
+	m.serversMetricsReg = metrics.NewRegistry()
+	m.rootMetricsReg.Set("plugins", m.pluginsMetricsReg)
+	m.rootMetricsReg.Set("servers", m.serversMetricsReg)
+	m.httpAPIMux.HandleFunc("/metrics/", metrics.HandleFunc(m.rootMetricsReg, m.logger))
 
 	// Init data manager
 	dupTag := make(map[string]struct{})
@@ -176,6 +188,14 @@ func (m *Mosdns) GetSafeClose() *notifier.SafeClose {
 
 func (m *Mosdns) GetExecutables() map[string]executable_seq.Executable {
 	return m.execs
+}
+
+func (m *Mosdns) GetPluginMetricsReg() *metrics.Registry {
+	return m.pluginsMetricsReg
+}
+
+func (m *Mosdns) GetServerMetricsReg() *metrics.Registry {
+	return m.serversMetricsReg
 }
 
 func (m *Mosdns) GetMatchers() map[string]executable_seq.Matcher {
