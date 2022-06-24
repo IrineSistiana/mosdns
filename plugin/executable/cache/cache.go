@@ -28,6 +28,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/pkg/cache/redis_cache"
 	"github.com/IrineSistiana/mosdns/v4/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
+	"github.com/IrineSistiana/mosdns/v4/pkg/metrics"
 	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
 	"github.com/go-redis/redis/v8"
@@ -73,6 +74,14 @@ type cachePlugin struct {
 	whenHit      executable_seq.Executable
 	backend      cache.Backend
 	lazyUpdateSF singleflight.Group
+
+	m *cacheMetrics
+}
+
+type cacheMetrics struct {
+	query   *metrics.Counter
+	hit     *metrics.Counter
+	lazyHit *metrics.Counter
 }
 
 func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
@@ -109,12 +118,22 @@ func newCachePlugin(bp *coremain.BP, args *Args) (*cachePlugin, error) {
 		}
 	}
 
-	return &cachePlugin{
+	p := &cachePlugin{
 		BP:      bp,
 		args:    args,
 		whenHit: whenHit,
 		backend: c,
-	}, nil
+	}
+	m := &cacheMetrics{
+		query:   metrics.NewCounter(),
+		hit:     metrics.NewCounter(),
+		lazyHit: metrics.NewCounter(),
+	}
+	bp.GetMetricsReg().Set("query", m.query)
+	bp.GetMetricsReg().Set("hit", m.hit)
+	bp.GetMetricsReg().Set("lazy_hit", m.lazyHit)
+	p.m = m
+	return p, nil
 }
 
 func (c *cachePlugin) skip(q *dns.Msg) bool {
@@ -126,6 +145,7 @@ func (c *cachePlugin) skip(q *dns.Msg) bool {
 }
 
 func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
+	c.m.query.Inc(1)
 	q := qCtx.Q()
 	if c.skip(q) {
 		c.L().Debug("skipped", qCtx.InfoField())
@@ -142,6 +162,7 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, nex
 
 	// cache hit
 	if v != nil {
+		c.m.hit.Inc(1)
 		r := new(dns.Msg)
 		if err := r.Unpack(v); err != nil {
 			return fmt.Errorf("failed to unpack cached data, %w", err)
@@ -168,6 +189,7 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, nex
 
 		// expired but lazy update enabled
 		if c.args.LazyCacheTTL > 0 {
+			c.m.lazyHit.Inc(1)
 			c.L().Debug("expired cache hit", qCtx.InfoField())
 			// prepare a response with 1 ttl
 			dnsutils.SetTTL(r, uint32(c.args.LazyCacheReplyTTL))

@@ -28,10 +28,12 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/coremain"
 	"github.com/IrineSistiana/mosdns/v4/pkg/bundled_upstream"
 	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
+	"github.com/IrineSistiana/mosdns/v4/pkg/metrics"
 	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v4/pkg/upstream"
 	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
 	"github.com/miekg/dns"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -137,7 +139,17 @@ func newFastForward(bp *coremain.BP, args *Args) (*fastForward, error) {
 			address: c.Addr,
 			trusted: c.Trusted,
 			u:       u,
+			m: upstreamMetrics{
+				query:   metrics.NewCounter(),
+				err:     metrics.NewCounter(),
+				latency: metrics.NewHistogram(128),
+			},
 		}
+		upstreamReg := metrics.NewRegistry()
+		upstreamReg.Set("query", wu.m.query)
+		upstreamReg.Set("err", wu.m.err)
+		upstreamReg.Set("latency", wu.m.latency)
+		bp.GetMetricsReg().Set(strconv.Itoa(i), upstreamReg)
 
 		if i == 0 { // Set first upstream as trusted upstream.
 			wu.trusted = true
@@ -155,10 +167,26 @@ type upstreamWrapper struct {
 	address string
 	trusted bool
 	u       upstream.Upstream
+
+	m upstreamMetrics
+}
+
+type upstreamMetrics struct {
+	query   *metrics.Counter
+	err     *metrics.Counter
+	latency *metrics.Histogram
 }
 
 func (u *upstreamWrapper) Exchange(ctx context.Context, q *dns.Msg) (*dns.Msg, error) {
-	return u.u.ExchangeContext(ctx, q)
+	u.m.query.Inc(1)
+	start := time.Now()
+	r, err := u.u.ExchangeContext(ctx, q)
+	if err != nil {
+		u.m.err.Inc(1)
+	} else {
+		u.m.latency.Update(time.Since(start).Milliseconds())
+	}
+	return r, err
 }
 
 func (u *upstreamWrapper) Address() string {
