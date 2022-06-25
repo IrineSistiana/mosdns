@@ -188,21 +188,27 @@ func (f *FallbackNode) doPrimary(ctx context.Context, qCtx *query_context.Contex
 	return err
 }
 
+func makeDdlCtx(ctx context.Context, timeout time.Duration) (context.Context, func()) {
+	ddl, ok := ctx.Deadline()
+	if !ok {
+		ddl = time.Now().Add(timeout)
+	}
+	return context.WithDeadline(context.Background(), ddl)
+}
+
 func (f *FallbackNode) doFastFallback(ctx context.Context, qCtx *query_context.Context) (err error) {
-	fCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	timer := pool.GetTimer(f.fastFallbackDuration)
-	defer pool.ReleaseTimer(timer)
-
 	c := make(chan *parallelECSResult, 2)
 	primFailed := make(chan struct{}) // will be closed if primary returns an error.
-
+	primDone := make(chan struct{})
 	qCtxP := qCtx.Copy()
 	go func() {
-		err := f.doPrimary(fCtx, qCtxP)
+		cCtx, cancel := makeDdlCtx(ctx, defaultParallelTimeout)
+		defer cancel()
+		err := f.doPrimary(cCtx, qCtxP)
 		if err != nil || qCtxP.R() == nil {
 			close(primFailed)
+		} else {
+			close(primDone)
 		}
 		c <- &parallelECSResult{
 			qCtx: qCtxP,
@@ -213,16 +219,20 @@ func (f *FallbackNode) doFastFallback(ctx context.Context, qCtx *query_context.C
 
 	qCtxS := qCtx.Copy()
 	go func() {
+		timer := pool.GetTimer(f.fastFallbackDuration)
+		defer pool.ReleaseTimer(timer)
 		if !f.alwaysStandby { // not always standby, wait here.
 			select {
-			case <-fCtx.Done(): // primary is done, no need to exec this.
+			case <-primDone: // primary is done, no need to exec this.
 				return
-			case <-primFailed: // primary failed or timeout, exec now.
-			case <-timer.C:
+			case <-primFailed: // primary failed
+			case <-timer.C: // or timed out, exec secondary now.
 			}
 		}
 
-		err := f.doSecondary(fCtx, qCtxS)
+		cCtx, cancel := makeDdlCtx(ctx, defaultParallelTimeout)
+		defer cancel()
+		err := f.doSecondary(cCtx, qCtxS)
 		res := &parallelECSResult{
 			qCtx: qCtxS,
 			err:  err,
@@ -231,7 +241,9 @@ func (f *FallbackNode) doFastFallback(ctx context.Context, qCtx *query_context.C
 
 		if f.alwaysStandby { // always standby
 			select {
-			case <-fCtx.Done():
+			case <-ctx.Done():
+				return
+			case <-primDone:
 				return
 			case <-primFailed: // only send secondary result when primary is failed.
 				c <- res
@@ -251,14 +263,13 @@ func (f *FallbackNode) doSecondary(ctx context.Context, qCtx *query_context.Cont
 }
 
 func (f *FallbackNode) doFallback(ctx context.Context, qCtx *query_context.Context) error {
-	fCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	c := make(chan *parallelECSResult, 2) // buf size is 2, avoid blocking.
 
 	qCtxP := qCtx.Copy()
 	go func() {
-		err := f.doPrimary(fCtx, qCtxP)
+		cCtx, cancel := makeDdlCtx(ctx, defaultParallelTimeout)
+		defer cancel()
+		err := f.doPrimary(cCtx, qCtxP)
 		c <- &parallelECSResult{
 			qCtx: qCtxP,
 			err:  err,
@@ -268,7 +279,9 @@ func (f *FallbackNode) doFallback(ctx context.Context, qCtx *query_context.Conte
 
 	qCtxS := qCtx.Copy()
 	go func() {
-		err := f.doSecondary(fCtx, qCtxS)
+		cCtx, cancel := makeDdlCtx(ctx, defaultParallelTimeout)
+		defer cancel()
+		err := f.doSecondary(cCtx, qCtxS)
 		c <- &parallelECSResult{
 			qCtx: qCtxS,
 			err:  err,
