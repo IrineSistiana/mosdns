@@ -101,5 +101,5 @@ servers:
 		return err
 	}
 
-	return v.SafeWriteConfigAs(out)
+	return v.WriteConfigAs(out)
 }
