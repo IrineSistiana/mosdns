@@ -38,7 +38,6 @@ import (
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/redirect"
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/reverse_lookup"
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/sequence"
-	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/single_flight"
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/sleep"
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/ttl"
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/matcher/query_matcher"
