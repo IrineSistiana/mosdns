@@ -147,6 +147,17 @@ func (r *RedisCache) Close() error {
 	return r.Client.Close()
 }
 
+func (r *RedisCache) Len() int {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*50)
+	defer cancel()
+	i, err := r.Client.DBSize(ctx).Result()
+	if err != nil {
+		r.logger().Error("dbsize", zap.Error(err))
+		return 0
+	}
+	return int(i)
+}
+
 // packRedisData packs storedTime, expirationTime and v into one byte slice.
 // The returned []byte should be released by pool.ReleaseBuf().
 func packRedisData(storedTime, expirationTime time.Time, v []byte) *pool.Buffer {

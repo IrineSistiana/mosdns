@@ -39,6 +39,8 @@ type Backend interface {
 	// If expirationTime is already passed, Store is a noop.
 	Store(key string, v []byte, storedTime, expirationTime time.Time)
 
+	Len() int
+
 	// Closer closes the cache backend. Get and Store should become noop calls.
 	io.Closer
 }

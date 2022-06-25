@@ -82,6 +82,7 @@ type cacheMetrics struct {
 	query   *metrics.Counter
 	hit     *metrics.Counter
 	lazyHit *metrics.Counter
+	size    *metrics.GaugeFunc
 }
 
 func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
@@ -128,10 +129,14 @@ func newCachePlugin(bp *coremain.BP, args *Args) (*cachePlugin, error) {
 		query:   metrics.NewCounter(),
 		hit:     metrics.NewCounter(),
 		lazyHit: metrics.NewCounter(),
+		size: metrics.NewGaugeFunc(func() int64 {
+			return int64(c.Len())
+		}),
 	}
 	bp.GetMetricsReg().Set("query", m.query)
 	bp.GetMetricsReg().Set("hit", m.hit)
 	bp.GetMetricsReg().Set("lazy_hit", m.lazyHit)
+	bp.GetMetricsReg().Set("size", m.size)
 	p.m = m
 	return p, nil
 }
