@@ -1,0 +1,61 @@
+name: "Bug report"
+description: "[反馈 Bug 必须用此模板] 程序不能运行？或者没有按照期望的那样工作？"
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: "感谢热心的反馈 bug。描述越详细越有助于定位和解决 Bug。不提供有效信息的反馈可能会被直接关闭。"
+
+  - type: checkboxes
+    id: ensure
+    attributes:
+      label: Verify steps
+      description: "在提交之前，请确认"
+      options:
+        - label: "我已经尝试搜索过 Issue ，但没有找到相关问题。"
+          required: true
+        - label: "我正在使用最新的 mosdns 版本(或者最新的 commit)，问题依旧存在。"
+          required: true
+        - label: "我仔细看过 wiki 后仍然无法自行解决该问题。"
+          required: true
+        - label: "我非常确定这是 mosdns 核心的问题。(如果是通过第三方衍生软件使用 mosdns
+      核心，不确定问题源头时，请先向衍生软件开发者提交问题。)"
+          required: true
+
+  - type: input
+    attributes:
+      label: mosdns 版本
+      description: "不清楚可用 `mosdns version` 查看。"
+      placeholder: v9.9.9
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: 操作系统
+      placeholder: ubuntu
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Bug 描述和复现步骤
+      description: "描述越详细越有助于定位和解决 Bug。"
+      placeholder: "示例: 使用 dig www.google.com 发送请求，mosdns 会崩溃。"
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: 使用的配置文件
+      render: yaml
+      description: "必须是完整的配置文件。不要只复制某个插件的配置片段。"
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: mosdns 的 log 记录
+      render: txt
+      description: "请复制连续的几十行 log，不要只复制一行。大部分情况一行 log 提供的信息有限。建议用 `debug` 级别的 log。"
+
