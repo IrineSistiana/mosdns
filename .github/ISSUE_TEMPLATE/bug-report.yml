@@ -7,10 +7,9 @@ body:
       value: "感谢热心的反馈 bug。描述越详细越有助于定位和解决 Bug。不提供有效信息的反馈可能会被直接关闭。"
 
   - type: checkboxes
-    id: ensure
+    id: pre-check
     attributes:
-      label: Verify steps
-      description: "在提交之前，请确认"
+      label: "在提交之前，请确认"
       options:
         - label: "我已经尝试搜索过 Issue ，但没有找到相关问题。"
           required: true
@@ -23,6 +22,7 @@ body:
           required: true
 
   - type: input
+    id: version
     attributes:
       label: mosdns 版本
       description: "不清楚可用 `mosdns version` 查看。"
@@ -31,6 +31,7 @@ body:
       required: true
 
   - type: input
+    id: system
     attributes:
       label: 操作系统
       placeholder: ubuntu
@@ -38,6 +39,7 @@ body:
       required: true
 
   - type: textarea
+    id: what-happened
     attributes:
       label: Bug 描述和复现步骤
       description: "描述越详细越有助于定位和解决 Bug。"
@@ -46,6 +48,7 @@ body:
       required: true
 
   - type: textarea
+    id: config
     attributes:
       label: 使用的配置文件
       render: yaml
@@ -54,6 +57,7 @@ body:
       required: true
 
   - type: textarea
+    id: log
     attributes:
       label: mosdns 的 log 记录
       render: txt
