@@ -107,7 +107,6 @@ func newQueryMatcher(bp *coremain.BP, args *Args) (m *queryMatcher, err error) {
 	if len(args.Domain) > 0 {
 		mg, err := domain.BatchLoadDomainProvider(
 			args.Domain,
-			domain.NewDomainMixMatcher,
 			bp.M().GetDataManager(),
 		)
 		if err != nil {

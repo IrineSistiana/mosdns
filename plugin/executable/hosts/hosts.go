@@ -51,13 +51,11 @@ func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
 }
 
 func newHostsContainer(bp *coremain.BP, args *Args) (*hostsPlugin, error) {
+	staticMatcher := domain.NewMixMatcher[*hosts.IPs]()
+	staticMatcher.SetDefaultMatcher(domain.MatcherFull)
 	m, err := domain.BatchLoadProvider[*hosts.IPs](
 		args.Hosts,
-		func() domain.WriteableMatcher[*hosts.IPs] {
-			mixMatcher := domain.NewMixMatcher[*hosts.IPs]()
-			mixMatcher.SetDefaultMatcher(domain.MatcherFull)
-			return mixMatcher
-		},
+		staticMatcher,
 		hosts.ParseIPs,
 		bp.M().GetDataManager(),
 		func(b []byte) (domain.Matcher[*hosts.IPs], error) {

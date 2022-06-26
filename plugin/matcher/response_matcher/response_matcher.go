@@ -77,7 +77,6 @@ func newResponseMatcher(bp *coremain.BP, args *Args) (m *responseMatcher, err er
 	if len(args.CNAME) > 0 {
 		mg, err := domain.BatchLoadDomainProvider(
 			args.CNAME,
-			domain.NewDomainMixMatcher,
 			bp.M().GetDataManager(),
 		)
 		if err != nil {

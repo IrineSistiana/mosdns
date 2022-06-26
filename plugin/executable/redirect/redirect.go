@@ -54,14 +54,11 @@ func newRedirect(bp *coremain.BP, args *Args) (*redirectPlugin, error) {
 	attrFunc := func(attr string) (v string, err error) {
 		return v, nil
 	}
-
+	staticMatcher := domain.NewMixMatcher[string]()
+	staticMatcher.SetDefaultMatcher(domain.MatcherFull)
 	m, err := domain.BatchLoadProvider[string](
 		args.Rule,
-		func() domain.WriteableMatcher[string] {
-			mixMatcher := domain.NewMixMatcher[string]()
-			mixMatcher.SetDefaultMatcher(domain.MatcherFull)
-			return mixMatcher
-		},
+		staticMatcher,
 		attrFunc,
 		bp.M().GetDataManager(),
 		func(b []byte) (domain.Matcher[string], error) {

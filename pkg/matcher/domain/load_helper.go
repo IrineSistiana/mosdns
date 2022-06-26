@@ -89,23 +89,24 @@ func (m *MatcherGroup[T]) Len() int {
 	return s
 }
 
+func (m *MatcherGroup[T]) Append(nm Matcher[T]) {
+	m.g = append(m.g, nm)
+	return
+}
+
 // BatchLoadProvider loads multiple data entries.
 func BatchLoadProvider[T any](
 	e []string,
-	newStaticMatcher func() WriteableMatcher[T],
+	staticMatcher WriteableMatcher[T],
 	processAttr ProcessAttrFunc[T],
 	dm *data_provider.DataManager,
 	parserFunc func(b []byte) (Matcher[T], error),
 ) (*MatcherGroup[T], error) {
 	mg := new(MatcherGroup[T])
-	var staticMatcherPH WriteableMatcher[T] // Place holder
+	mg.Append(staticMatcher)
 
 	for _, s := range e {
 		if strings.HasPrefix(s, "provider:") {
-			if staticMatcherPH != nil {
-				mg.g = append(mg.g, staticMatcherPH)
-				staticMatcherPH = nil
-			}
 			s = strings.TrimPrefix(s, "provider:")
 			provider := dm.GetDataProvider(s)
 			if provider == nil {
@@ -117,18 +118,11 @@ func BatchLoadProvider[T any](
 			}
 			mg.g = append(mg.g, m)
 		} else {
-			if staticMatcherPH == nil {
-				staticMatcherPH = newStaticMatcher()
-			}
-			err := Load(staticMatcherPH, s, processAttr)
+			err := Load[T](staticMatcher, s, processAttr)
 			if err != nil {
 				return nil, fmt.Errorf("failed to load data %s: %w", s, err)
 			}
 		}
-	}
-
-	if staticMatcherPH != nil {
-		mg.g = append(mg.g, staticMatcherPH)
 	}
 	return mg, nil
 }
@@ -136,18 +130,13 @@ func BatchLoadProvider[T any](
 // BatchLoadDomainProvider loads multiple domain entries.
 func BatchLoadDomainProvider(
 	e []string,
-	newStaticMatcher func() WriteableMatcher[struct{}],
 	dm *data_provider.DataManager,
 ) (*MatcherGroup[struct{}], error) {
 	mg := new(MatcherGroup[struct{}])
-	var staticMatcherPH WriteableMatcher[struct{}] // Place holder
-
+	staticMatcher := NewDomainMixMatcher()
+	mg.Append(staticMatcher)
 	for _, s := range e {
 		if strings.HasPrefix(s, "provider:") {
-			if staticMatcherPH != nil {
-				mg.g = append(mg.g, staticMatcherPH)
-				staticMatcherPH = nil
-			}
 			s = strings.TrimPrefix(s, "provider:")
 			s, v2suffix, _ := strings.Cut(s, ":")
 			provider := dm.GetDataProvider(s)
@@ -170,18 +159,11 @@ func BatchLoadDomainProvider(
 			}
 			mg.g = append(mg.g, m)
 		} else {
-			if staticMatcherPH == nil {
-				staticMatcherPH = newStaticMatcher()
-			}
-			err := Load(staticMatcherPH, s, nil)
+			err := Load[struct{}](staticMatcher, s, nil)
 			if err != nil {
 				return nil, fmt.Errorf("failed to load data %s: %w", s, err)
 			}
 		}
-	}
-
-	if staticMatcherPH != nil {
-		mg.g = append(mg.g, staticMatcherPH)
 	}
 	return mg, nil
 }
@@ -364,7 +346,7 @@ func LoadGeoSiteList(b []byte) (*v2data.GeoSiteList, error) {
 }
 
 func ParseTextDomainFile(in []byte) (*MixMatcher[struct{}], error) {
-	mixMatcher := NewMixMatcher[struct{}]()
+	mixMatcher := NewDomainMixMatcher()
 	if err := LoadFromTextReader[struct{}](mixMatcher, bytes.NewReader(in), nil); err != nil {
 		return nil, err
 	}
@@ -372,7 +354,7 @@ func ParseTextDomainFile(in []byte) (*MixMatcher[struct{}], error) {
 }
 
 // NewDomainMixMatcher is a helper function for BatchLoadDomainProvider.
-func NewDomainMixMatcher() WriteableMatcher[struct{}] {
+func NewDomainMixMatcher() *MixMatcher[struct{}] {
 	mixMatcher := NewMixMatcher[struct{}]()
 	mixMatcher.SetDefaultMatcher(MatcherDomain)
 	return mixMatcher
