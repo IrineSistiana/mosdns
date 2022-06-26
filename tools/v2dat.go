@@ -36,7 +36,7 @@ import (
 func newUnpackDomainCmd() *cobra.Command {
 	var ourDir string
 	c := &cobra.Command{
-		Use:   "unpack-domain [-o output_dir] geosite.dat",
+		Use:   "unpack-domain [-o output_dir] geosite.dat[:tag1[,tag2]...]",
 		Args:  cobra.ExactArgs(1),
 		Short: "Unpack v2ray domain data file to text files.",
 		Run: func(cmd *cobra.Command, args []string) {
@@ -52,7 +52,7 @@ func newUnpackDomainCmd() *cobra.Command {
 func newUnpackIPCmd() *cobra.Command {
 	var ourDir string
 	c := &cobra.Command{
-		Use:   "unpack-ip [-o output_dir] geoip.dat",
+		Use:   "unpack-ip [-o output_dir] geoip.dat[:tag1[,tag2]...]",
 		Args:  cobra.ExactArgs(1),
 		Short: "Unpack v2ray ip data file to text files.",
 		Run: func(cmd *cobra.Command, args []string) {
@@ -65,8 +65,20 @@ func newUnpackIPCmd() *cobra.Command {
 	return c
 }
 
+func splitTags(s string) (string, []string) {
+	file, tags, ok := strings.Cut(s, ":")
+	if ok {
+		t := strings.FieldsFunc(tags, func(r rune) bool {
+			return r == ','
+		})
+		return file, t
+	}
+	return s, nil
+}
+
 func UnpackDomainDAT(in, outDir string) error {
-	b, err := os.ReadFile(in)
+	filePath, wantTags := splitTags(in)
+	b, err := os.ReadFile(filePath)
 	if err != nil {
 		return err
 	}
@@ -75,8 +87,27 @@ func UnpackDomainDAT(in, outDir string) error {
 		return err
 	}
 
+	entries := make(map[string]*v2data.GeoSite)
+	var wantEntries map[string]*v2data.GeoSite
 	for _, geoSite := range geoSiteList.GetEntry() {
 		tag := strings.ToLower(geoSite.GetCountryCode())
+		entries[tag] = geoSite
+	}
+
+	if len(wantTags) > 0 {
+		wantEntries = make(map[string]*v2data.GeoSite)
+		for _, tag := range wantTags {
+			entry, ok := entries[tag]
+			if !ok {
+				return fmt.Errorf("cannot find entry %s", tag)
+			}
+			wantEntries[tag] = entry
+		}
+	} else {
+		wantEntries = entries
+	}
+
+	for tag, geoSite := range wantEntries {
 		file := fmt.Sprintf("%s_%s.txt", fileName(in), tag)
 		if len(outDir) > 0 {
 			file = filepath.Join(outDir, file)
@@ -133,7 +164,8 @@ func convertV2DomainToText(domain []*v2data.Domain, w io.Writer) error {
 }
 
 func UnpackIPDAT(in, ourDir string) error {
-	b, err := os.ReadFile(in)
+	filePath, wantTags := splitTags(in)
+	b, err := os.ReadFile(filePath)
 	if err != nil {
 		return err
 	}
@@ -142,8 +174,27 @@ func UnpackIPDAT(in, ourDir string) error {
 		return err
 	}
 
-	for _, ipList := range geoIPList.GetEntry() {
-		tag := strings.ToLower(ipList.GetCountryCode())
+	entries := make(map[string]*v2data.GeoIP)
+	var wantEntries map[string]*v2data.GeoIP
+	for _, geoSite := range geoIPList.GetEntry() {
+		tag := strings.ToLower(geoSite.GetCountryCode())
+		entries[tag] = geoSite
+	}
+
+	if len(wantTags) > 0 {
+		wantEntries = make(map[string]*v2data.GeoIP)
+		for _, tag := range wantTags {
+			entry, ok := entries[tag]
+			if !ok {
+				return fmt.Errorf("cannot find entry %s", tag)
+			}
+			wantEntries[tag] = entry
+		}
+	} else {
+		wantEntries = entries
+	}
+
+	for tag, ipList := range wantEntries {
 		file := fmt.Sprintf("%s_%s.txt", fileName(in), tag)
 		if len(ourDir) > 0 {
 			file = filepath.Join(ourDir, file)
