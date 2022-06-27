@@ -25,7 +25,8 @@ import (
 )
 
 type Config struct {
-	Log           mlog.LogConfig                     `yaml:"log" `
+	Log           mlog.LogConfig                     `yaml:"log"`
+	Include       []string                           `yaml:"include"`
 	DataProviders []data_provider.DataProviderConfig `yaml:"data_providers"`
 	Plugins       []PluginConfig                     `yaml:"plugins"`
 	Sequences     []LogicConfig                      `yaml:"sequences"`

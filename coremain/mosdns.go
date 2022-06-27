@@ -27,7 +27,6 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
 	"github.com/IrineSistiana/mosdns/v4/pkg/metrics"
 	"github.com/IrineSistiana/mosdns/v4/pkg/notifier"
-
 	"go.uber.org/zap"
 	"net/http"
 	"runtime"

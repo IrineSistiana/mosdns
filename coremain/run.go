@@ -20,13 +20,16 @@
 package coremain
 
 import (
+	"fmt"
 	"github.com/IrineSistiana/mosdns/v4/mlog"
 	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"os"
+	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 var rootCmd = &cobra.Command{
@@ -44,7 +47,6 @@ func init() {
 	fs.StringVarP(&sf.c, "config", "c", "", "config file")
 	fs.StringVarP(&sf.dir, "dir", "d", "", "working dir")
 	fs.IntVar(&sf.cpu, "cpu", 0, "set runtime.GOMAXPROCS")
-	fs.StringVar(&sf.pprofAddr, "pprof", "", "start pprof server at this address")
 }
 
 func AddSubCmd(c *cobra.Command) {
@@ -56,10 +58,9 @@ func Run() error {
 }
 
 type serverFlags struct {
-	c         string
-	dir       string
-	cpu       int
-	pprofAddr string
+	c   string
+	dir string
+	cpu int
 }
 
 var sf = serverFlags{}
@@ -90,15 +91,68 @@ func StartServer(cmd *cobra.Command, args []string) {
 	}
 
 	cfg := new(Config)
-	if err := v.Unmarshal(cfg, func(cfg *mapstructure.DecoderConfig) {
-		cfg.ErrorUnused = true
-		cfg.TagName = "yaml"
-		cfg.WeaklyTypedInput = true
-	}); err != nil {
+	if err := v.Unmarshal(cfg, decoderOpt); err != nil {
 		mlog.L().Fatal("failed to parse config file", zap.Error(err))
+	}
+
+	cfgPath := v.ConfigFileUsed()
+	if err := mergeInclude(cfg, 0, []string{cfgPath}, []string{tryGetAbsPath(cfgPath)}); err != nil {
+		mlog.L().Fatal("failed to load sub config file", zap.Error(err))
 	}
 
 	if err := RunMosdns(cfg); err != nil {
 		mlog.L().Fatal("mosdns exited", zap.Error(err))
 	}
+}
+
+func decoderOpt(cfg *mapstructure.DecoderConfig) {
+	cfg.ErrorUnused = true
+	cfg.TagName = "yaml"
+	cfg.WeaklyTypedInput = true
+}
+
+func mergeInclude(cfg *Config, depth int, paths, absPaths []string) error {
+	depth++
+	if depth > 8 {
+		return fmt.Errorf("maximun include depth reached, include path is %s", strings.Join(paths, " -> "))
+	}
+	for _, subCfgFile := range cfg.Include {
+		subPaths := append(paths, subCfgFile)
+		subCfgAbsPath := tryGetAbsPath(subCfgFile)
+		subAbsPaths := append(absPaths, subCfgAbsPath)
+		for _, includedAbsPath := range absPaths {
+			if includedAbsPath == subCfgAbsPath {
+				return fmt.Errorf("cycle include depth detected, include path is %s", strings.Join(subPaths, " -> "))
+			}
+		}
+
+		mlog.L().Info("reading sub config", zap.String("file", subCfgFile))
+		subV := viper.New()
+		subV.SetConfigFile(subCfgFile)
+		if err := subV.ReadInConfig(); err != nil {
+			mlog.L().Fatal("failed to read sub config file", zap.String("file", subCfgFile), zap.Error(err))
+		}
+		subCfg := new(Config)
+		if err := subV.Unmarshal(subCfg, decoderOpt); err != nil {
+			mlog.L().Fatal("failed to parse sub config file", zap.String("file", subCfgFile), zap.Error(err))
+		}
+		if err := mergeInclude(subCfg, depth, subPaths, subAbsPaths); err != nil {
+			return err
+		}
+
+		cfg.DataProviders = append(cfg.DataProviders, subCfg.DataProviders...)
+		cfg.Plugins = append(cfg.Plugins, subCfg.Plugins...)
+		if len(subCfg.Servers) > 0 {
+			mlog.L().Warn("server config in sub config files will be ignored", zap.String("file", subCfgFile))
+		}
+	}
+	return nil
+}
+
+func tryGetAbsPath(s string) string {
+	p, err := filepath.Abs(s)
+	if err != nil {
+		return s
+	}
+	return p
 }
