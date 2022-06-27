@@ -29,6 +29,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/pkg/notifier"
 	"go.uber.org/zap"
 	"net/http"
+	"net/http/pprof"
 	"runtime"
 	"runtime/debug"
 	"time"
@@ -73,7 +74,13 @@ func RunMosdns(cfg *Config) error {
 	m.serversMetricsReg = metrics.NewRegistry()
 	m.rootMetricsReg.Set("plugins", m.pluginsMetricsReg)
 	m.rootMetricsReg.Set("servers", m.serversMetricsReg)
+
 	m.httpAPIMux.HandleFunc("/metrics/", metrics.HandleFunc(m.rootMetricsReg, m.logger))
+	m.httpAPIMux.HandleFunc("/debug/pprof/", pprof.Index)
+	m.httpAPIMux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	m.httpAPIMux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	m.httpAPIMux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	m.httpAPIMux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 
 	// Init data manager
 	dupTag := make(map[string]struct{})
