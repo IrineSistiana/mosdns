@@ -26,6 +26,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
 	"github.com/IrineSistiana/mosdns/v4/pkg/matcher/domain"
 	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
+	"github.com/miekg/dns"
 	"go.uber.org/zap"
 )
 
@@ -52,7 +53,7 @@ func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
 
 func newRedirect(bp *coremain.BP, args *Args) (*redirectPlugin, error) {
 	attrFunc := func(attr string) (v string, err error) {
-		return v, nil
+		return dns.Fqdn(attr), nil
 	}
 	staticMatcher := domain.NewMixMatcher[string]()
 	staticMatcher.SetDefaultMatcher(domain.MatcherFull)
