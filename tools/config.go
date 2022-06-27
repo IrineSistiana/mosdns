@@ -41,6 +41,7 @@ func newConvCmd() *cobra.Command {
 				mlog.S().Fatal(err)
 			}
 		},
+		DisableFlagsInUseLine: true,
 	}
 	c.Flags().StringVarP(&in, "in", "i", "", "input config")
 	c.Flags().StringVarP(&out, "out", "o", "", "output config")
@@ -61,6 +62,7 @@ func newGenCmd() *cobra.Command {
 				mlog.S().Fatal(err)
 			}
 		},
+		DisableFlagsInUseLine: true,
 	}
 	return c
 }

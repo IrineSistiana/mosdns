@@ -44,6 +44,7 @@ func newUnpackDomainCmd() *cobra.Command {
 				mlog.S().Fatal(err)
 			}
 		},
+		DisableFlagsInUseLine: true,
 	}
 	c.Flags().StringVarP(&ourDir, "out", "o", "", "output dir")
 	return c
@@ -60,6 +61,7 @@ func newUnpackIPCmd() *cobra.Command {
 				mlog.S().Fatal(err)
 			}
 		},
+		DisableFlagsInUseLine: true,
 	}
 	c.Flags().StringVarP(&ourDir, "out", "o", "", "output dir")
 	return c

@@ -42,6 +42,7 @@ func newIdleTimeoutCmd() *cobra.Command {
 				mlog.S().Fatal(err)
 			}
 		},
+		DisableFlagsInUseLine: true,
 	}
 }
 
@@ -55,6 +56,7 @@ func newConnReuseCmd() *cobra.Command {
 				mlog.S().Fatal(err)
 			}
 		},
+		DisableFlagsInUseLine: true,
 	}
 }
 
@@ -68,6 +70,7 @@ func newPipelineCmd() *cobra.Command {
 				mlog.S().Fatal(err)
 			}
 		},
+		DisableFlagsInUseLine: true,
 	}
 }
 
