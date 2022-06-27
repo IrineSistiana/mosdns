@@ -29,7 +29,6 @@ type Config struct {
 	Include       []string                           `yaml:"include"`
 	DataProviders []data_provider.DataProviderConfig `yaml:"data_providers"`
 	Plugins       []PluginConfig                     `yaml:"plugins"`
-	Sequences     []LogicConfig                      `yaml:"sequences"`
 	Servers       []ServerConfig                     `yaml:"servers"`
 	API           APIConfig                          `yaml:"api"`
 }
@@ -71,11 +70,6 @@ type ServerListenerConfig struct {
 	GetUserIPFromHeader string `yaml:"get_user_ip_from_header"` // used by doh, http.
 
 	IdleTimeout uint `yaml:"idle_timeout"` // (sec) used by tcp, dot, doh as connection idle timeout.
-}
-
-type LogicConfig struct {
-	Tag  string      `yaml:"tag"`
-	Exec interface{} `yaml:"exec"`
 }
 
 type APIConfig struct {
