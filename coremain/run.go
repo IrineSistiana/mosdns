@@ -146,6 +146,8 @@ func mergeInclude(cfg *Config, depth int, paths, absPaths []string) error {
 	if depth > 8 {
 		return fmt.Errorf("maximun include depth reached, include path is %s", strings.Join(paths, " -> "))
 	}
+
+	includedCfg := new(Config)
 	for _, subCfgFile := range cfg.Include {
 		subPaths := append(paths, subCfgFile)
 		subCfgAbsPath := tryGetAbsPath(subCfgFile)
@@ -170,12 +172,15 @@ func mergeInclude(cfg *Config, depth int, paths, absPaths []string) error {
 			return err
 		}
 
-		cfg.DataProviders = append(cfg.DataProviders, subCfg.DataProviders...)
-		cfg.Plugins = append(cfg.Plugins, subCfg.Plugins...)
+		includedCfg.DataProviders = append(includedCfg.DataProviders, subCfg.DataProviders...)
+		includedCfg.Plugins = append(includedCfg.Plugins, subCfg.Plugins...)
 		if len(subCfg.Servers) > 0 {
 			mlog.L().Warn("server config in sub config files will be ignored", zap.String("file", subCfgFile))
 		}
 	}
+
+	cfg.DataProviders = append(includedCfg.DataProviders, cfg.DataProviders...)
+	cfg.Plugins = append(includedCfg.Plugins, cfg.Plugins...)
 	return nil
 }
 
