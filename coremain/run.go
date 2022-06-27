@@ -22,6 +22,7 @@ package coremain
 import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v4/mlog"
+	"github.com/kardianos/service"
 	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -32,21 +33,57 @@ import (
 	"strings"
 )
 
+type serverFlags struct {
+	c         string
+	dir       string
+	cpu       int
+	asService bool
+}
+
 var rootCmd = &cobra.Command{
 	Use: "mosdns",
 }
 
 func init() {
+	sf := new(serverFlags)
 	startCmd := &cobra.Command{
-		Use:   "start",
+		Use:   "start [-c config_file] [-d working_dir]",
 		Short: "Start mosdns main program.",
-		Run:   StartServer,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if sf.asService {
+				svc, err := service.New(&serverService{f: sf}, svcCfg)
+				if err != nil {
+					return fmt.Errorf("failed to init service, %w", err)
+				}
+				return svc.Run()
+			}
+			return StartServer(sf)
+		},
+		DisableFlagsInUseLine: true,
+		SilenceUsage:          true,
 	}
 	rootCmd.AddCommand(startCmd)
-	fs := startCmd.PersistentFlags()
+	fs := startCmd.Flags()
 	fs.StringVarP(&sf.c, "config", "c", "", "config file")
 	fs.StringVarP(&sf.dir, "dir", "d", "", "working dir")
 	fs.IntVar(&sf.cpu, "cpu", 0, "set runtime.GOMAXPROCS")
+	fs.BoolVar(&sf.asService, "as-service", false, "start as a service")
+	fs.MarkHidden("as-service")
+
+	serviceCmd := &cobra.Command{
+		Use:   "service",
+		Short: "Manage mosdns as a system service.",
+	}
+	serviceCmd.PersistentPreRunE = initService
+	serviceCmd.AddCommand(
+		newSvcInstallCmd(),
+		newSvcUninstallCmd(),
+		newSvcStartCmd(),
+		newSvcStopCmd(),
+		newSvcRestartCmd(),
+		newSvcStatusCmd(),
+	)
+	rootCmd.AddCommand(serviceCmd)
 }
 
 func AddSubCmd(c *cobra.Command) {
@@ -57,15 +94,7 @@ func Run() error {
 	return rootCmd.Execute()
 }
 
-type serverFlags struct {
-	c   string
-	dir string
-	cpu int
-}
-
-var sf = serverFlags{}
-
-func StartServer(cmd *cobra.Command, args []string) {
+func StartServer(sf *serverFlags) error {
 	if sf.cpu > 0 {
 		runtime.GOMAXPROCS(sf.cpu)
 	}
@@ -73,7 +102,7 @@ func StartServer(cmd *cobra.Command, args []string) {
 	if len(sf.dir) > 0 {
 		err := os.Chdir(sf.dir)
 		if err != nil {
-			mlog.L().Fatal("failed to change the current working directory", zap.Error(err))
+			return fmt.Errorf("failed to change the current working directory, %w", err)
 		}
 		mlog.L().Info("working directory changed", zap.String("path", sf.dir))
 	}
@@ -87,22 +116,23 @@ func StartServer(cmd *cobra.Command, args []string) {
 	}
 
 	if err := v.ReadInConfig(); err != nil {
-		mlog.L().Fatal("failed to read config file", zap.Error(err))
+		return fmt.Errorf("failed to read config file, %w", err)
 	}
 
 	cfg := new(Config)
 	if err := v.Unmarshal(cfg, decoderOpt); err != nil {
-		mlog.L().Fatal("failed to parse config file", zap.Error(err))
+		return fmt.Errorf("failed to parse config file, %w", err)
 	}
 
 	cfgPath := v.ConfigFileUsed()
 	if err := mergeInclude(cfg, 0, []string{cfgPath}, []string{tryGetAbsPath(cfgPath)}); err != nil {
-		mlog.L().Fatal("failed to load sub config file", zap.Error(err))
+		return fmt.Errorf("failed to load sub config file, %w", err)
 	}
 
 	if err := RunMosdns(cfg); err != nil {
-		mlog.L().Fatal("mosdns exited", zap.Error(err))
+		return fmt.Errorf("mosdns exited, %w", err)
 	}
+	return nil
 }
 
 func decoderOpt(cfg *mapstructure.DecoderConfig) {

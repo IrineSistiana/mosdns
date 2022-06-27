@@ -8,6 +8,7 @@ require (
 	github.com/fsnotify/fsnotify v1.5.4
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/google/nftables v0.0.0-20220516205333-a9775fb167d2
+	github.com/kardianos/service v1.2.1
 	github.com/lucas-clemente/quic-go v0.27.1
 	github.com/miekg/dns v1.1.49
 	github.com/mitchellh/mapstructure v1.5.0

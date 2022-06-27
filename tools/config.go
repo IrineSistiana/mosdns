@@ -42,8 +42,8 @@ func newConvCmd() *cobra.Command {
 			}
 		},
 	}
-	c.PersistentFlags().StringVarP(&in, "in", "i", "", "input config")
-	c.PersistentFlags().StringVarP(&out, "out", "o", "", "output config")
+	c.Flags().StringVarP(&in, "in", "i", "", "input config")
+	c.Flags().StringVarP(&out, "out", "o", "", "output config")
 	c.MarkFlagRequired("in")
 	c.MarkFlagRequired("out")
 	c.MarkFlagFilename("in")

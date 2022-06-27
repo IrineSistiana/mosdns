@@ -45,7 +45,7 @@ func newUnpackDomainCmd() *cobra.Command {
 			}
 		},
 	}
-	c.PersistentFlags().StringVarP(&ourDir, "out", "o", "", "output dir")
+	c.Flags().StringVarP(&ourDir, "out", "o", "", "output dir")
 	return c
 }
 
@@ -61,7 +61,7 @@ func newUnpackIPCmd() *cobra.Command {
 			}
 		},
 	}
-	c.PersistentFlags().StringVarP(&ourDir, "out", "o", "", "output dir")
+	c.Flags().StringVarP(&ourDir, "out", "o", "", "output dir")
 	return c
 }
 
