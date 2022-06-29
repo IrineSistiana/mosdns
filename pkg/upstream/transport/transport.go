@@ -353,7 +353,7 @@ func (t *Transport) getPipelineConn() (conn *pipelineConn, isNewConn bool, qid u
 	// Try to get an existing connection.
 	for c := range t.pipelineConns {
 		if c.isClosed() {
-			delete(t.pipelineConns, conn)
+			delete(t.pipelineConns, c)
 			continue
 		}
 		conn = c
