@@ -87,15 +87,10 @@ func (d *DynamicMatcher) Len() int {
 // BatchLoadProvider is a helper func to load multiple files using Load.
 func BatchLoadProvider(e []string, dm *data_provider.DataManager) (*MatcherGroup, error) {
 	mg := new(MatcherGroup)
-
-	var staticMatcherPH *List
+	staticMatcher := NewList()
+	mg.g = append(mg.g, staticMatcher)
 	for _, s := range e {
 		if strings.HasPrefix(s, "provider:") {
-			if staticMatcherPH != nil {
-				staticMatcherPH.Sort()
-				mg.g = append(mg.g, staticMatcherPH)
-				staticMatcherPH = nil
-			}
 			providerName := strings.TrimPrefix(s, "provider:")
 			providerName, v2suffix, _ := strings.Cut(providerName, ":")
 			provider := dm.GetDataProvider(providerName)
@@ -123,19 +118,13 @@ func BatchLoadProvider(e []string, dm *data_provider.DataManager) (*MatcherGroup
 			}
 			mg.g = append(mg.g, m)
 		} else {
-			if staticMatcherPH == nil {
-				staticMatcherPH = NewList()
-			}
-			if err := LoadFromText(staticMatcherPH, s); err != nil {
+			if err := LoadFromText(staticMatcher, s); err != nil {
 				return nil, fmt.Errorf("failed to load data %s, %w", s, err)
 			}
 		}
 	}
 
-	if staticMatcherPH != nil {
-		staticMatcherPH.Sort()
-		mg.g = append(mg.g, staticMatcherPH)
-	}
+	staticMatcher.Sort()
 	return mg, nil
 }
 
