@@ -24,28 +24,6 @@ import (
 	"testing"
 )
 
-func TestSplitLine(t *testing.T) {
-
-	tests := []struct {
-		name string
-		s    string
-		want []string
-	}{
-		{"blank", "", []string{}},
-		{"space", "   ", []string{}},
-		{"space", "   a   ", []string{"a"}},
-		{"space", "   a", []string{"a"}},
-		{"split", " 1 22 333 4444  ", []string{"1", "22", "333", "4444"}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := SplitLine(tt.s); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("SplitLine() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestSplitString2(t *testing.T) {
 	type args struct {
 		s      string

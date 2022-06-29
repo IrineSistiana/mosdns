@@ -182,18 +182,6 @@ func SplitLineReg(s string) []string {
 	return charBlockExpr.FindAllString(s, -1)
 }
 
-// SplitLine removes all spaces " " and extracts words from s.
-func SplitLine(s string) []string {
-	t := strings.Split(s, " ")
-	t2 := t[:0]
-	for _, sub := range t {
-		if sub != "" {
-			t2 = append(t2, sub)
-		}
-	}
-	return t2
-}
-
 // RemoveComment removes comment after "symbol".
 func RemoveComment(s, symbol string) string {
 	if i := strings.Index(s, symbol); i >= 0 {
@@ -202,7 +190,7 @@ func RemoveComment(s, symbol string) string {
 	return s
 }
 
-//SplitString2 split s to two parts by given symbol
+// SplitString2 split s to two parts by given symbol
 func SplitString2(s, symbol string) (s1 string, s2 string, ok bool) {
 	if len(symbol) == 0 {
 		return "", s, true

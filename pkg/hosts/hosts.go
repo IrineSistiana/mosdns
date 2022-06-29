@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v4/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v4/pkg/matcher/domain"
-	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
 	"github.com/miekg/dns"
 	"net/netip"
 	"strings"
@@ -113,8 +112,7 @@ var _ domain.ProcessAttrFunc[*IPs] = ParseIPs
 
 func ParseIPs(s string) (*IPs, error) {
 	v := new(IPs)
-	for _, ipStr := range utils.SplitLine(s) {
-		ipStr = strings.TrimSpace(ipStr)
+	for _, ipStr := range strings.Fields(s) {
 		ip, err := netip.ParseAddr(ipStr)
 		if err != nil {
 			return nil, fmt.Errorf("invalid ip addr %s, %w", ipStr, err)
