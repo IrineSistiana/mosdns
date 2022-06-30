@@ -44,9 +44,18 @@ func NewList() *List {
 	}
 }
 
+func mustValid(l []netip.Prefix) {
+	for i, prefix := range l {
+		if !prefix.IsValid() {
+			panic(fmt.Sprintf("invalid prefix at #%d", i))
+		}
+	}
+}
+
 // NewListFrom returns a *List using l as its initial contents.
 // The new List takes ownership of l, and the caller should not use l after this call.
 func NewListFrom(l []netip.Prefix) *List {
+	mustValid(l)
 	return &List{
 		e: l,
 	}
@@ -55,6 +64,7 @@ func NewListFrom(l []netip.Prefix) *List {
 // Append appends new netip.Prefix(s) to the list.
 // This modified the list. Caller must call List.Sort() before calling List.Contains()
 func (list *List) Append(newNet ...netip.Prefix) {
+	mustValid(newNet)
 	list.e = append(list.e, newNet...)
 	list.sorted = false
 }
@@ -74,9 +84,6 @@ func (list *List) Sort() {
 	}
 
 	for i, n := range list.e {
-		if !n.IsValid() {
-			panic("invalid prefix in list")
-		}
 		addr := netip.AddrFrom16(n.Addr().As16())
 		bits := n.Bits()
 		if n.Addr().Is4() {
