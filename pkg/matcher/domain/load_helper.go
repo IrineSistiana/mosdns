@@ -61,7 +61,7 @@ func BatchLoad[T any](m WriteableMatcher[T], b []string, processAttr ProcessAttr
 	for _, s := range b {
 		err := Load(m, s, processAttr)
 		if err != nil {
-			return fmt.Errorf("failed to load dada %s: %w", s, err)
+			return fmt.Errorf("failed to load data %s: %w", s, err)
 		}
 	}
 	return nil
@@ -107,14 +107,14 @@ func BatchLoadProvider[T any](
 
 	for _, s := range e {
 		if strings.HasPrefix(s, "provider:") {
-			s = strings.TrimPrefix(s, "provider:")
-			provider := dm.GetDataProvider(s)
+			providerTag := strings.TrimPrefix(s, "provider:")
+			provider := dm.GetDataProvider(providerTag)
 			if provider == nil {
-				return nil, fmt.Errorf("cannot find provider %s", s)
+				return nil, fmt.Errorf("cannot find provider %s", providerTag)
 			}
 			m := NewDynamicMatcher[T](parserFunc)
 			if err := provider.LoadAndAddListener(m); err != nil {
-				return nil, fmt.Errorf("failed to load data from provider, %w", err)
+				return nil, fmt.Errorf("failed to load data from provider %s, %w", providerTag, err)
 			}
 			mg.g = append(mg.g, m)
 		} else {
@@ -137,11 +137,11 @@ func BatchLoadDomainProvider(
 	mg.Append(staticMatcher)
 	for _, s := range e {
 		if strings.HasPrefix(s, "provider:") {
-			s = strings.TrimPrefix(s, "provider:")
-			s, v2suffix, _ := strings.Cut(s, ":")
-			provider := dm.GetDataProvider(s)
+			providerTag := strings.TrimPrefix(s, "provider:")
+			providerTag, v2suffix, _ := strings.Cut(providerTag, ":")
+			provider := dm.GetDataProvider(providerTag)
 			if provider == nil {
-				return nil, fmt.Errorf("cannot find provider %s", s)
+				return nil, fmt.Errorf("cannot find provider %s", providerTag)
 			}
 			var parseFunc func(b []byte) (Matcher[struct{}], error)
 			if len(v2suffix) > 0 {
@@ -155,7 +155,7 @@ func BatchLoadDomainProvider(
 			}
 			m := NewDynamicMatcher[struct{}](parseFunc)
 			if err := provider.LoadAndAddListener(m); err != nil {
-				return nil, fmt.Errorf("failed to load data from provider, %w", err)
+				return nil, fmt.Errorf("failed to load data from provider %s, %w", providerTag, err)
 			}
 			mg.g = append(mg.g, m)
 		} else {
