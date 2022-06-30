@@ -223,14 +223,18 @@ func LoadFromV2CIDR(l *List, cidr []*v2data.CIDR) error {
 	for i, e := range cidr {
 		ip, ok := netip.AddrFromSlice(e.Ip)
 		if !ok {
-			return fmt.Errorf("invalid data ip at index #%d: %s", i, e.Ip)
+			return fmt.Errorf("invalid ip data at index #%d: %s", i, e.Ip)
 		}
 
-		prefix := e.Prefix
+		bits := e.Prefix
 		if len(e.Ip) == 4 {
-			prefix += 96
+			bits += 96
 		}
-		l.Append(netip.PrefixFrom(netip.AddrFrom16(ip.As16()), int(e.Prefix)))
+		prefix := netip.PrefixFrom(netip.AddrFrom16(ip.As16()), int(e.Prefix))
+		if !prefix.IsValid() {
+			return fmt.Errorf("invalid cidr data at index #%d: %s", i, e.String())
+		}
+		l.Append(prefix)
 	}
 	return nil
 }
