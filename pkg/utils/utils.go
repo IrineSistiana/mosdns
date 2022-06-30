@@ -202,11 +202,15 @@ func SplitString2(s, symbol string) (s1 string, s2 string, ok bool) {
 }
 
 // ClosedChan returns true if c is closed.
-// c must be an unbuffered chan.
+// c must not use for sending data and must be used in close() only.
+// If ClosedChan receives something from c, it panics.
 func ClosedChan(c chan struct{}) bool {
 	select {
-	case <-c:
-		return true
+	case _, ok := <-c:
+		if !ok {
+			return true
+		}
+		panic("received from the chan")
 	default:
 		return false
 	}

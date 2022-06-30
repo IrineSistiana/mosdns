@@ -35,8 +35,6 @@ import (
 var (
 	errEOL             = errors.New("end of life")
 	errClosedTransport = errors.New("transport has been closed")
-	errIdleTimeout     = errors.New("idle timeout")
-	errConnDead        = errors.New("dead connection")
 
 	nopLogger = zap.NewNop()
 )
@@ -172,7 +170,7 @@ func (t *Transport) CloseIdleConnections() {
 		}
 	}
 	for conn := range t.idledReusableConns {
-		conn.closeWithErr(errEOL)
+		conn.close()
 		delete(t.idledReusableConns, conn)
 	}
 }
@@ -189,7 +187,8 @@ func (t *Transport) Close() error {
 		conn.closeWithErr(errClosedTransport)
 	}
 	for conn := range t.reusableConns {
-		conn.closeWithErr(errClosedTransport)
+		conn.close()
+		delete(t.reusableConns, conn)
 		delete(t.idledReusableConns, conn)
 	}
 	return nil
@@ -203,8 +202,12 @@ func (t *Transport) exchangeWithPipelineConn(ctx context.Context, m *dns.Msg) (*
 			return nil, ctx.Err()
 		}
 
-		conn, isNewConn, qid, resChan := t.getPipelineConn()
-		r, err := conn.exchange(ctx, m, qid, resChan)
+		conn, isNewConn, qid, err := t.getPipelineConn()
+		if err != nil {
+			return nil, err
+		}
+
+		r, err := conn.exchange(ctx, m, qid)
 		if err != nil {
 			if !isNewConn && attempt <= 3 {
 				t.logger().Debug("retrying pipeline connection", zap.NamedError("previous_err", err), zap.Int("attempt", attempt))
@@ -289,24 +292,37 @@ func (t *Transport) exchangeWithReusableConn(ctx context.Context, q *dns.Msg) (*
 	}
 }
 
+func (t *Transport) getReusableConnFromPool() (c *reusableConn, err error) {
+	t.m.Lock()
+	defer t.m.Unlock()
+
+	if t.closed {
+		return nil, errClosedTransport
+	}
+
+	for c = range t.idledReusableConns {
+		delete(t.idledReusableConns, c)
+		if ok := c.stopIdle(); ok {
+			return c, nil
+		} else { // idle timed out, this connection is closed by its inner timer.
+			c.close()
+		}
+	}
+	return nil, nil
+}
+
 // getReusableConn returns a *reusableConn.
 // The idle time of *reusableConn is still within Transport.IdleTimeout
 // but the inner socket may be unusable (closed, reset, etc.).
 // The caller must call releaseReusableConn to release the reusableConn.
 func (t *Transport) getReusableConn() (c *reusableConn, reused bool, err error) {
-	// Get a connection from pool.
-	t.m.Lock()
-	for c = range t.idledReusableConns {
-		delete(t.idledReusableConns, c)
-		if ok := c.stopIdle(); ok {
-			t.m.Unlock()
-			return c, true, nil
-		} else { // Conn is already dead.
-			c.closeWithErr(errIdleTimeout)
-			delete(t.reusableConns, c)
-		}
+	c, err = t.getReusableConnFromPool()
+	if err != nil {
+		return nil, false, err
 	}
-	t.m.Unlock()
+	if c != nil {
+		return c, true, nil
+	}
 
 	// Dial a new connection.
 	ctx, cancel := context.WithTimeout(context.Background(), t.dialTimeout())
@@ -315,9 +331,13 @@ func (t *Transport) getReusableConn() (c *reusableConn, reused bool, err error) 
 	if err != nil {
 		return nil, false, err
 	}
-
 	rc := newReusableConn(t, conn)
+
 	t.m.Lock()
+	if t.closed {
+		t.m.Unlock()
+		return nil, false, errClosedTransport
+	}
 	if t.reusableConns == nil {
 		t.reusableConns = make(map[*reusableConn]struct{})
 	}
@@ -329,26 +349,33 @@ func (t *Transport) getReusableConn() (c *reusableConn, reused bool, err error) 
 
 func (t *Transport) releaseReusableConn(c *reusableConn, deadConn bool) {
 	if deadConn {
-		c.closeWithErr(errConnDead)
-		t.m.Lock()
-		delete(t.reusableConns, c)
-		t.m.Unlock()
+		c.close()
 		return
 	}
 
 	t.m.Lock()
-	defer t.m.Unlock()
-
-	if t.idledReusableConns == nil {
-		t.idledReusableConns = make(map[*reusableConn]struct{})
+	closed := t.closed
+	if !closed {
+		if t.idledReusableConns == nil {
+			t.idledReusableConns = make(map[*reusableConn]struct{})
+		}
+		c.startIdle()
+		t.idledReusableConns[c] = struct{}{}
 	}
-	c.startIdle()
-	t.idledReusableConns[c] = struct{}{}
+	t.m.Unlock()
+
+	if closed {
+		c.close()
+	}
 }
 
-func (t *Transport) getPipelineConn() (conn *pipelineConn, isNewConn bool, qid uint16, resChan chan *dns.Msg) {
+func (t *Transport) getPipelineConn() (conn *pipelineConn, isNewConn bool, qid uint16, err error) {
 	t.m.Lock()
 	defer t.m.Unlock()
+
+	if t.closed {
+		return nil, false, 0, errClosedTransport
+	}
 
 	// Try to get an existing connection.
 	for c := range t.pipelineConns {
@@ -370,14 +397,14 @@ func (t *Transport) getPipelineConn() (conn *pipelineConn, isNewConn bool, qid u
 		t.pipelineConns[conn] = struct{}{}
 	}
 
-	qid, resChan, eol := conn.acquireQueueId()
+	qid, eol := conn.acquireQueueId()
 	if eol { // This connection has served too many queries.
 		// Note: the connection will close and clean up itself after its last query finished.
 		// We can't close it here. Some queries may still on that connection.
 		delete(t.pipelineConns, conn)
 	}
 
-	return conn, isNewConn, qid, resChan
+	return conn, isNewConn, qid, nil
 }
 
 type pipelineConn struct {
@@ -385,9 +412,9 @@ type pipelineConn struct {
 
 	t *Transport
 
+	accumulateId uint32
+	wg           sync.WaitGroup
 	queueMu      sync.RWMutex // queue lock
-	accumulateId uint16
-	eol          bool
 	queue        map[uint16]chan *dns.Msg
 
 	connMu             sync.Mutex
@@ -396,8 +423,6 @@ type pipelineConn struct {
 	closeOnce          sync.Once
 	closeNotify        chan struct{}
 	closeErr           error
-
-	atomicReadDdlOnce atomic.Value
 }
 
 var pipelineConnIdCounter uint32
@@ -422,7 +447,7 @@ func newPipelineConn(t *Transport) *pipelineConn {
 
 		c.connMu.Lock()
 		// pipelineConn is closed before dial is complete.
-		if c.closeErr != nil {
+		if utils.ClosedChan(c.closeNotify) {
 			c.connMu.Unlock()
 			rc.Close()
 			return
@@ -437,43 +462,32 @@ func newPipelineConn(t *Transport) *pipelineConn {
 	return c
 }
 
-func (c *pipelineConn) acquireQueueId() (qid uint16, resChan chan *dns.Msg, eol bool) {
-	resChan = make(chan *dns.Msg, 1)
-
-	c.queueMu.Lock()
-	defer c.queueMu.Unlock()
-
-	if c.eol {
-		panic("invalid acquireQueueId() call, qid overflowed")
+// acquireQueueId returns a qid for the next exchange() call and an eol mark
+// indicates the pipelineConn is end-of-life (can't' serve more requests).
+// Note: exchange() must be called after acquireQueueId()
+func (c *pipelineConn) acquireQueueId() (qid uint16, eol bool) {
+	maxQid := uint32(c.t.maxQueryPerConn())
+	id := atomic.AddUint32(&c.accumulateId, 1)
+	if id > maxQid {
+		panic("qid overflowed")
 	}
-
-	c.accumulateId++
-	qid = c.accumulateId
-	if qid >= c.t.maxQueryPerConn() {
-		eol = true
-		c.eol = true
+	c.wg.Add(1)
+	eol = id == maxQid
+	if eol {
+		go func() {
+			c.wg.Wait()
+			c.closeWithErr(errEOL)
+		}()
 	}
-	c.queue[qid] = resChan
-	return qid, resChan, eol
+	return uint16(id), eol
 }
 
 func (c *pipelineConn) exchange(
 	ctx context.Context,
 	q *dns.Msg,
 	qid uint16,
-	resChan chan *dns.Msg,
 ) (*dns.Msg, error) {
-
-	// Release qid and close the connection if it's eol.
-	defer func() {
-		c.queueMu.Lock()
-		defer c.queueMu.Unlock()
-
-		delete(c.queue, qid)
-		if c.eol && len(c.queue) == 0 { // last query
-			c.closeWithErr(errEOL)
-		}
-	}()
+	defer c.wg.Done()
 
 	select {
 	case <-c.dialFinishedNotify:
@@ -487,17 +501,13 @@ func (c *pipelineConn) exchange(
 	// We make a copy of q.
 	qCopy := shadowCopy(q)
 	qCopy.Id = qid
-	c.c.SetWriteDeadline(time.Now().Add(writeTimeout))
 
-	// Set read ddl only for the first request that start up a queue.
-	// The ddl for the following requests will be set and updated in the
-	// read loop.
-	once, ok := c.atomicReadDdlOnce.Load().(*sync.Once)
-	if ok {
-		once.Do(func() {
-			c.c.SetReadDeadline(time.Now().Add(defaultReadTimeout))
-		})
-	}
+	resChan := make(chan *dns.Msg, 1)
+	c.queueMu.Lock()
+	c.queue[qid] = resChan
+	c.queueMu.Unlock()
+
+	c.c.SetWriteDeadline(time.Now().Add(writeTimeout))
 	_, err := c.t.WriteFunc(c.c, qCopy)
 	if err != nil {
 		// Write error usually is fatal. Abort and close this connection.
@@ -518,8 +528,13 @@ func (c *pipelineConn) exchange(
 }
 
 func (c *pipelineConn) readLoop() {
-	c.c.SetReadDeadline(time.Now().Add(defaultReadTimeout))
 	for {
+		if c.queueLen() == 0 {
+			c.c.SetReadDeadline(time.Now().Add(c.t.idleTimeout()))
+		} else {
+			c.c.SetReadDeadline(time.Now().Add(defaultReadTimeout))
+		}
+
 		r, _, err := c.t.ReadFunc(c.c)
 		if err != nil {
 			c.closeWithErr(err) // abort this connection.
@@ -531,7 +546,6 @@ func (c *pipelineConn) readLoop() {
 		if ok {
 			delete(c.queue, r.Id)
 		}
-		queueLen := len(c.queue)
 		c.queueMu.Unlock()
 
 		if ok {
@@ -539,13 +553,6 @@ func (c *pipelineConn) readLoop() {
 			case resChan <- r: // resChan has buffer
 			default:
 			}
-		}
-
-		if queueLen > 0 {
-			c.c.SetReadDeadline(time.Now().Add(defaultReadTimeout))
-		} else {
-			c.c.SetReadDeadline(time.Now().Add(c.t.idleTimeout()))
-			c.atomicReadDdlOnce.Store(new(sync.Once))
 		}
 	}
 }
@@ -563,7 +570,7 @@ func (c *pipelineConn) closeWithErr(err error) {
 		close(c.closeNotify)
 
 		if c.c != nil {
-			go c.c.Close()
+			c.c.Close()
 		}
 
 		c.t.logger().Debug("connection closed", zap.Uint32("id", c.connId), zap.Error(err))
@@ -571,9 +578,8 @@ func (c *pipelineConn) closeWithErr(err error) {
 }
 
 func (c *pipelineConn) queueLen() int {
-	c.queueMu.RLock()
-	defer c.queueMu.RUnlock()
-
+	c.queueMu.Lock()
+	defer c.queueMu.Unlock()
 	return len(c.queue)
 }
 
@@ -605,7 +611,7 @@ func (rc *reusableConn) exchange(m *dns.Msg) (*dns.Msg, error) {
 }
 
 // If stopIdle returns false, then nc is closed by the
-// idle timer
+// idle timer.
 func (rc *reusableConn) stopIdle() bool {
 	rc.m.Lock()
 	defer rc.m.Unlock()
@@ -630,15 +636,12 @@ func (rc *reusableConn) startIdle() {
 		rc.idleTimeoutTimer.Reset(rc.t.idleTimeout())
 	} else {
 		rc.idleTimeoutTimer = time.AfterFunc(rc.t.idleTimeout(), func() {
-			rc.closeWithErr(errIdleTimeout)
+			rc.close()
 		})
 	}
 }
 
-func (rc *reusableConn) closeWithErr(err error) {
-	if err == nil {
-		panic("nil err")
-	}
+func (rc *reusableConn) close() {
 	rc.m.Lock()
 	defer rc.m.Unlock()
 
@@ -646,8 +649,7 @@ func (rc *reusableConn) closeWithErr(err error) {
 		if rc.idleTimeoutTimer != nil {
 			rc.idleTimeoutTimer.Stop()
 		}
-		go rc.c.Close()
+		rc.c.Close()
 		rc.closed = true
-		rc.closeErr = err
 	}
 }
