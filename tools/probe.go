@@ -34,7 +34,7 @@ import (
 
 func newIdleTimeoutCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "idle-timeout server_addr",
+		Use:   "idle-timeout {tcp|tls}://server_addr[:port]",
 		Args:  cobra.ExactArgs(1),
 		Short: "Probe server's idle timeout.",
 		Run: func(cmd *cobra.Command, args []string) {
@@ -48,7 +48,7 @@ func newIdleTimeoutCmd() *cobra.Command {
 
 func newConnReuseCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "conn-reuse server_addr",
+		Use:   "conn-reuse {tcp|tls}://server_addr[:port]",
 		Args:  cobra.ExactArgs(1),
 		Short: "Check whether this server supports RFC 1035 connection reuse.",
 		Run: func(cmd *cobra.Command, args []string) {
@@ -62,7 +62,7 @@ func newConnReuseCmd() *cobra.Command {
 
 func newPipelineCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "pipeline server_addr",
+		Use:   "pipeline {tcp|tls}://server_addr[:port]",
 		Args:  cobra.ExactArgs(1),
 		Short: "Check whether this server supports RFC 7766 query pipelining.",
 		Run: func(cmd *cobra.Command, args []string) {

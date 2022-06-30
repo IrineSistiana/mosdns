@@ -33,7 +33,7 @@ func newConvCmd() *cobra.Command {
 	)
 
 	c := &cobra.Command{
-		Use:   "conv -i input_cfg.yaml -o output_cfg.json",
+		Use:   "conv -i input_cfg -o output_cfg",
 		Args:  cobra.NoArgs,
 		Short: "Convert configuration file format. Supported extensions: " + strings.Join(viper.SupportedExts, ", "),
 		Run: func(cmd *cobra.Command, args []string) {
@@ -54,7 +54,7 @@ func newConvCmd() *cobra.Command {
 
 func newGenCmd() *cobra.Command {
 	c := &cobra.Command{
-		Use:   "gen config.yaml",
+		Use:   "gen config_file",
 		Short: "Generate a template config. Supported extensions: " + strings.Join(viper.SupportedExts, ", "),
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
