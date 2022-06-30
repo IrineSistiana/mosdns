@@ -29,6 +29,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"io"
 	"net"
+	"net/netip"
 	"strings"
 	"sync/atomic"
 )
@@ -163,11 +164,24 @@ func LoadFromReader(l *List, reader io.Reader) error {
 // LoadFromText loads an IP from s.
 // It might modify the List and causes List unsorted.
 func LoadFromText(l *List, s string) error {
-	ipNet, err := ParseCIDR(s)
+	if strings.ContainsRune(s, '/') {
+		ipNet, err := netip.ParsePrefix(s)
+		if err != nil {
+			return err
+		}
+		l.Append(ipNet)
+		return nil
+	}
+
+	addr, err := netip.ParseAddr(s)
 	if err != nil {
 		return err
 	}
-	l.Append(ipNet)
+	bits := 32
+	if addr.Is6() {
+		bits = 128
+	}
+	l.Append(netip.PrefixFrom(addr, bits))
 	return nil
 }
 
@@ -207,15 +221,15 @@ func NewV2rayIPDat(v *v2data.GeoIPList, args string) (*List, error) {
 // It might modify the List and causes List unsorted.
 func LoadFromV2CIDR(l *List, cidr []*v2data.CIDR) error {
 	for i, e := range cidr {
-		ipv6, err := Conv(e.Ip)
-		if err != nil {
-			return fmt.Errorf("invalid data ip at index #%d, %w", i, err)
+		ip, ok := netip.AddrFromSlice(e.Ip)
+		if !ok {
+			return fmt.Errorf("invalid data ip at index #%d: %s", i, e.Ip)
 		}
 		switch len(e.Ip) {
 		case 4:
-			l.Append(NewNet(ipv6, int(e.Prefix+96)))
+			l.Append(netip.PrefixFrom(ip, int(e.Prefix+96)))
 		case 16:
-			l.Append(NewNet(ipv6, int(e.Prefix)))
+			l.Append(netip.PrefixFrom(ip, int(e.Prefix)))
 		default:
 			return fmt.Errorf("invalid cidr ip length at #%d", i)
 		}

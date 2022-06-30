@@ -21,38 +21,40 @@ package netlist
 
 import (
 	"errors"
+	"fmt"
 	"net"
+	"net/netip"
 	"sort"
 )
 
 var ErrNotSorted = errors.New("list is not sorted")
 
-// List is a list of Net. It stores all Net in one single slice
+// List is a list of netip.Prefix. It stores all netip.Prefix in one single slice
 // and use binary search.
 // It is suitable for large static cidr search.
 type List struct {
-	e      []Net
+	e      []netip.Prefix
 	sorted bool
 }
 
 // NewList returns a *List.
 func NewList() *List {
 	return &List{
-		e: make([]Net, 0),
+		e: make([]netip.Prefix, 0),
 	}
 }
 
 // NewListFrom returns a *List using l as its initial contents.
 // The new List takes ownership of l, and the caller should not use l after this call.
-func NewListFrom(l []Net) *List {
+func NewListFrom(l []netip.Prefix) *List {
 	return &List{
 		e: l,
 	}
 }
 
-// Append appends new Nets to the list.
+// Append appends new netip.Prefix(s) to the list.
 // This modified the list. Caller must call List.Sort() before calling List.Contains()
-func (list *List) Append(newNet ...Net) {
+func (list *List) Append(newNet ...netip.Prefix) {
 	list.e = append(list.e, newNet...)
 	list.sorted = false
 }
@@ -71,26 +73,38 @@ func (list *List) Sort() {
 		return
 	}
 
-	sort.Sort(list)
-
-	result := list.e[:0]
-	var lastValid *Net
 	for i, n := range list.e {
-		switch {
-		case i == 0:
-			result = append(result, n)
-			lastValid = &result[len(result)-1]
-		case lastValid.ip == n.ip:
-			if n.mask < lastValid.mask {
-				lastValid.mask = n.mask
-			}
-		case !lastValid.Contains(n.ip):
-			result = append(result, n)
-			lastValid = &result[len(result)-1]
+		if !n.IsValid() {
+			panic("invalid prefix in list")
 		}
+		addr := netip.AddrFrom16(n.Addr().As16())
+		bits := n.Bits()
+		if n.Addr().Is4() {
+			bits += 96
+		}
+		list.e[i] = netip.PrefixFrom(addr, bits)
 	}
 
-	list.e = result
+	sort.Sort(list)
+	out := make([]netip.Prefix, 0)
+	for i, n := range list.e {
+		if i == 0 {
+			out = append(out, n)
+		} else {
+			lv := &out[len(out)-1]
+			switch {
+			case n.Addr() == lv.Addr():
+				if n.Bits() < lv.Bits() {
+					*lv = n
+				}
+			case !lv.Contains(n.Addr()):
+				out = append(out, n)
+			}
+		}
+
+	}
+
+	list.e = out
 	list.sorted = true
 }
 
@@ -101,7 +115,7 @@ func (list *List) Len() int {
 
 // Less implements sort Interface.
 func (list *List) Less(i, j int) bool {
-	return smallOrEqual(list.e[i].ip, list.e[j].ip)
+	return smallOrEqual(list.e[i], list.e[j])
 }
 
 // Swap implements sort Interface.
@@ -110,25 +124,25 @@ func (list *List) Swap(i, j int) {
 }
 
 func (list *List) Match(ip net.IP) (bool, error) {
-	ipv6, err := Conv(ip)
-	if err != nil {
-		return false, err
+	ipv6, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return false, fmt.Errorf("invalid ip %s", ip)
 	}
-
 	return list.Contains(ipv6)
 }
 
 // Contains reports whether the list includes the given ipv6.
-func (list *List) Contains(ipv6 IPv6) (bool, error) {
+func (list *List) Contains(addr netip.Addr) (bool, error) {
 	if !list.sorted {
 		return false, ErrNotSorted
 	}
 
+	addr = to6(addr)
+
 	i, j := 0, len(list.e)
 	for i < j {
 		h := int(uint(i+j) >> 1) // avoid overflow when computing h
-
-		if smallOrEqual(list.e[h].ip, ipv6) {
+		if list.e[h].Addr().Compare(addr) <= 0 {
 			i = h + 1
 		} else {
 			j = h
@@ -139,16 +153,13 @@ func (list *List) Contains(ipv6 IPv6) (bool, error) {
 		return false, nil
 	}
 
-	return list.e[i-1].Contains(ipv6), nil
+	return list.e[i-1].Contains(addr), nil
 }
 
-// smallOrEqual IP1 <= IP2 ?
-func smallOrEqual(IP1, IP2 IPv6) bool {
-	for k := 0; k < 2; k++ {
-		if IP1[k] == IP2[k] {
-			continue
-		}
-		return IP1[k] < IP2[k]
-	}
-	return true
+func smallOrEqual(IP1, IP2 netip.Prefix) bool {
+	return IP1.Addr().Less(IP2.Addr())
+}
+
+func to6(addr netip.Addr) netip.Addr {
+	return netip.AddrFrom16(addr.As16())
 }
