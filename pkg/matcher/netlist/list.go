@@ -27,12 +27,16 @@ import (
 	"sort"
 )
 
-var ErrNotSorted = errors.New("list is not sorted")
+var (
+	ErrNotSorted   = errors.New("list is not sorted")
+	ErrInvalidAddr = errors.New("addr is invalid")
+)
 
 // List is a list of netip.Prefix. It stores all netip.Prefix in one single slice
 // and use binary search.
 // It is suitable for large static cidr search.
 type List struct {
+	// stores valid and masked netip.Prefix(s)
 	e      []netip.Prefix
 	sorted bool
 }
@@ -52,27 +56,19 @@ func mustValid(l []netip.Prefix) {
 	}
 }
 
-// NewListFrom returns a *List using l as its initial contents.
-// The new List takes ownership of l, and the caller should not use l after this call.
-func NewListFrom(l []netip.Prefix) *List {
-	mustValid(l)
-	return &List{
-		e: l,
-	}
-}
-
 // Append appends new netip.Prefix(s) to the list.
 // This modified the list. Caller must call List.Sort() before calling List.Contains()
 func (list *List) Append(newNet ...netip.Prefix) {
+	for i, n := range newNet {
+		addr := to6(n.Addr())
+		bits := n.Bits()
+		if n.Addr().Is4() {
+			bits += 96
+		}
+		newNet[i] = netip.PrefixFrom(addr, bits).Masked()
+	}
 	mustValid(newNet)
 	list.e = append(list.e, newNet...)
-	list.sorted = false
-}
-
-// Merge merges srcList with list
-// This modified the list. Caller must call List.Sort() before calling List.Contains()
-func (list *List) Merge(srcList *List) {
-	list.e = append(list.e, srcList.e...)
 	list.sorted = false
 }
 
@@ -81,15 +77,6 @@ func (list *List) Merge(srcList *List) {
 func (list *List) Sort() {
 	if list.sorted {
 		return
-	}
-
-	for i, n := range list.e {
-		addr := netip.AddrFrom16(n.Addr().As16())
-		bits := n.Bits()
-		if n.Addr().Is4() {
-			bits += 96
-		}
-		list.e[i] = netip.PrefixFrom(addr, bits)
 	}
 
 	sort.Sort(list)
@@ -122,7 +109,7 @@ func (list *List) Len() int {
 
 // Less implements sort Interface.
 func (list *List) Less(i, j int) bool {
-	return smallOrEqual(list.e[i], list.e[j])
+	return list.e[i].Addr().Less(list.e[j].Addr())
 }
 
 // Swap implements sort Interface.
@@ -131,17 +118,20 @@ func (list *List) Swap(i, j int) {
 }
 
 func (list *List) Match(ip net.IP) (bool, error) {
-	ipv6, ok := netip.AddrFromSlice(ip)
+	addr, ok := netip.AddrFromSlice(ip)
 	if !ok {
 		return false, fmt.Errorf("invalid ip %s", ip)
 	}
-	return list.Contains(ipv6)
+	return list.Contains(addr)
 }
 
-// Contains reports whether the list includes the given ipv6.
+// Contains reports whether the list includes the given netip.Addr.
 func (list *List) Contains(addr netip.Addr) (bool, error) {
 	if !list.sorted {
 		return false, ErrNotSorted
+	}
+	if !addr.IsValid() {
+		return false, ErrInvalidAddr
 	}
 
 	addr = to6(addr)
@@ -163,10 +153,9 @@ func (list *List) Contains(addr netip.Addr) (bool, error) {
 	return list.e[i-1].Contains(addr), nil
 }
 
-func smallOrEqual(IP1, IP2 netip.Prefix) bool {
-	return IP1.Addr().Less(IP2.Addr())
-}
-
 func to6(addr netip.Addr) netip.Addr {
+	if addr.Is6() {
+		return addr
+	}
 	return netip.AddrFrom16(addr.As16())
 }
