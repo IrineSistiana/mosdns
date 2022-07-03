@@ -24,7 +24,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-replace github.com/nadoo/ipset v0.5.0 => github.com/IrineSistiana/ipset v0.5.1-0.20220621094256-d1171dc8f5a7
+replace github.com/nadoo/ipset v0.5.0 => github.com/IrineSistiana/ipset v0.5.1-0.20220703061533-6e0fc3b04c0a
 
 require (
 	github.com/AdguardTeam/golibs v0.10.9 // indirect
