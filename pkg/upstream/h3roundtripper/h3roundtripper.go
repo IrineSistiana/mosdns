@@ -45,7 +45,7 @@ type H3RTHelper struct {
 	Logger     *zap.Logger
 	TLSConfig  *tls.Config
 	QUICConfig *quic.Config
-	DialFunc   func(ctx context.Context, network, addr string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error)
+	DialFunc   func(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error)
 
 	m  sync.Mutex
 	rt *http3.RoundTripper
