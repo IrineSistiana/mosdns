@@ -22,6 +22,7 @@ package domain
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v4/pkg/data_provider"
 	"github.com/IrineSistiana/mosdns/v4/pkg/matcher/v2data"
@@ -32,34 +33,33 @@ import (
 	"sync"
 )
 
-// ProcessAttrFunc processes the additional attributions.
-type ProcessAttrFunc[T any] func(attr string) (v T, err error)
+// ParseStringFunc parse data string to matcher pattern and additional attributions.
+type ParseStringFunc[T any] func(s string) (pattern string, v T, err error)
+
+func patternOnly[T any](s string) (pattern string, v T, err error) {
+	out := strings.Fields(s)
+	if len(out) == 1 {
+		return out[0], v, nil
+	}
+	return "", v, errors.New("string does not only contain pattern")
+}
 
 // Load loads data from a string. LoadFromText.
-func Load[T any](m WriteableMatcher[T], s string, processAttr ProcessAttrFunc[T]) error {
-	if processAttr != nil {
-		pattern, attr, ok := utils.SplitString2(s, " ")
-		if !ok {
-			pattern = s
-		}
-		pattern = strings.TrimSpace(pattern)
-		attr = strings.TrimSpace(attr)
-
-		v, err := processAttr(attr)
-		if err != nil {
-			return err
-		}
-		return m.Add(pattern, v)
+func Load[T any](m WriteableMatcher[T], s string, parseString ParseStringFunc[T]) error {
+	if parseString == nil {
+		parseString = patternOnly[T]
 	}
-
-	var zeroT T
-	return m.Add(strings.TrimSpace(s), zeroT)
+	pattern, v, err := parseString(s)
+	if err != nil {
+		return err
+	}
+	return m.Add(pattern, v)
 }
 
 // BatchLoad loads multiple data strings using Load.
-func BatchLoad[T any](m WriteableMatcher[T], b []string, processAttr ProcessAttrFunc[T]) error {
+func BatchLoad[T any](m WriteableMatcher[T], b []string, parseString ParseStringFunc[T]) error {
 	for _, s := range b {
-		err := Load(m, s, processAttr)
+		err := Load(m, s, parseString)
 		if err != nil {
 			return fmt.Errorf("failed to load data %s: %w", s, err)
 		}
@@ -98,7 +98,7 @@ func (m *MatcherGroup[T]) Append(nm Matcher[T]) {
 func BatchLoadProvider[T any](
 	e []string,
 	staticMatcher WriteableMatcher[T],
-	processAttr ProcessAttrFunc[T],
+	parseString ParseStringFunc[T],
 	dm *data_provider.DataManager,
 	parserFunc func(b []byte) (Matcher[T], error),
 ) (*MatcherGroup[T], error) {
@@ -118,7 +118,7 @@ func BatchLoadProvider[T any](
 			}
 			mg.g = append(mg.g, m)
 		} else {
-			err := Load[T](staticMatcher, s, processAttr)
+			err := Load[T](staticMatcher, s, parseString)
 			if err != nil {
 				return nil, fmt.Errorf("failed to load data %s: %w", s, err)
 			}
@@ -204,7 +204,7 @@ func (d *DynamicMatcher[T]) Update(b []byte) error {
 }
 
 // LoadFromTextReader loads multiple lines from reader r. r
-func LoadFromTextReader[T any](m WriteableMatcher[T], r io.Reader, processAttr ProcessAttrFunc[T]) error {
+func LoadFromTextReader[T any](m WriteableMatcher[T], r io.Reader, parseString ParseStringFunc[T]) error {
 	lineCounter := 0
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
@@ -216,7 +216,7 @@ func LoadFromTextReader[T any](m WriteableMatcher[T], r io.Reader, processAttr P
 			continue
 		}
 
-		err := Load(m, s, processAttr)
+		err := Load(m, s, parseString)
 		if err != nil {
 			return fmt.Errorf("line %d: %v", lineCounter, err)
 		}

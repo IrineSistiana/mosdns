@@ -108,26 +108,28 @@ type IPs struct {
 	IPv6 []netip.Addr
 }
 
-var _ domain.ProcessAttrFunc[*IPs] = ParseIPs
+var _ domain.ParseStringFunc[*IPs] = ParseIPs
 
-func ParseIPs(s string) (*IPs, error) {
+func ParseIPs(s string) (string, *IPs, error) {
+	f := strings.Fields(s)
+	if len(f) == 0 {
+		return "", nil, errors.New("empty string")
+	}
+
+	pattern := f[0]
 	v := new(IPs)
-	for _, ipStr := range strings.Fields(s) {
+	for _, ipStr := range f[1:] {
 		ip, err := netip.ParseAddr(ipStr)
 		if err != nil {
-			return nil, fmt.Errorf("invalid ip addr %s, %w", ipStr, err)
+			return "", nil, fmt.Errorf("invalid ip addr %s, %w", ipStr, err)
 		}
 
 		if ip.Is4() { // is ipv4
 			v.IPv4 = append(v.IPv4, ip)
-		} else if ip.Is6() { // is ipv6
+		} else { // is ipv6
 			v.IPv6 = append(v.IPv6, ip)
-		} else { // invalid
-			return nil, fmt.Errorf("%s is not an ipv4 or ipv6 addr", ipStr)
 		}
 	}
-	if len(v.IPv4)+len(v.IPv6) == 0 {
-		return nil, errors.New("no valid ip")
-	}
-	return v, nil
+
+	return pattern, v, nil
 }

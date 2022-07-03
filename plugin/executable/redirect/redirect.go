@@ -22,12 +22,14 @@ package redirect
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"github.com/IrineSistiana/mosdns/v4/coremain"
 	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
 	"github.com/IrineSistiana/mosdns/v4/pkg/matcher/domain"
 	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
+	"strings"
 )
 
 const PluginType = "redirect"
@@ -52,20 +54,24 @@ func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
 }
 
 func newRedirect(bp *coremain.BP, args *Args) (*redirectPlugin, error) {
-	attrFunc := func(attr string) (v string, err error) {
-		return dns.Fqdn(attr), nil
+	parseFunc := func(s string) (p, v string, err error) {
+		f := strings.Fields(s)
+		if len(f) != 2 {
+			return "", "", fmt.Errorf("redirect rule must have 2 fields, but got %d", len(f))
+		}
+		return f[0], dns.Fqdn(f[1]), nil
 	}
 	staticMatcher := domain.NewMixMatcher[string]()
 	staticMatcher.SetDefaultMatcher(domain.MatcherFull)
 	m, err := domain.BatchLoadProvider[string](
 		args.Rule,
 		staticMatcher,
-		attrFunc,
+		parseFunc,
 		bp.M().GetDataManager(),
 		func(b []byte) (domain.Matcher[string], error) {
 			mixMatcher := domain.NewMixMatcher[string]()
 			mixMatcher.SetDefaultMatcher(domain.MatcherFull)
-			if err := domain.LoadFromTextReader[string](mixMatcher, bytes.NewReader(b), attrFunc); err != nil {
+			if err := domain.LoadFromTextReader[string](mixMatcher, bytes.NewReader(b), parseFunc); err != nil {
 				return nil, err
 			}
 			return mixMatcher, nil
