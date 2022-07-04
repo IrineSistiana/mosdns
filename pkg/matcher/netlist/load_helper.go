@@ -226,11 +226,7 @@ func LoadFromV2CIDR(l *List, cidr []*v2data.CIDR) error {
 			return fmt.Errorf("invalid ip data at index #%d: %s", i, e.Ip)
 		}
 
-		bits := e.Prefix
-		if len(e.Ip) == 4 {
-			bits += 96
-		}
-		prefix := netip.PrefixFrom(netip.AddrFrom16(ip.As16()), int(e.Prefix))
+		prefix := netip.PrefixFrom(ip, int(e.Prefix))
 		if !prefix.IsValid() {
 			return fmt.Errorf("invalid cidr data at index #%d: %s", i, e.String())
 		}
