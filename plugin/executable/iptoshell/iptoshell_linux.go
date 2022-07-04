@@ -67,9 +67,6 @@ func (p *iptoshellPlugin) Exec(ctx context.Context, qCtx *query_context.Context,
 	return executable_seq.ExecChainNode(ctx, qCtx, next)
 }
 
-func (p *iptoshellPlugin) Close() error {
-	return p.nl.Close()
-}
 
 func (p *iptoshellPlugin) addIPtoshell(r *dns.Msg) error {
 	for i := range r.Answer {
