@@ -26,7 +26,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/pkg/data_provider"
 	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
 	"github.com/IrineSistiana/mosdns/v4/pkg/metrics"
-	"github.com/IrineSistiana/mosdns/v4/pkg/notifier"
+	"github.com/IrineSistiana/mosdns/v4/pkg/safe_close"
 	"go.uber.org/zap"
 	"net/http"
 	"net/http/pprof"
@@ -52,7 +52,7 @@ type Mosdns struct {
 	pluginsMetricsReg *metrics.Registry
 	serversMetricsReg *metrics.Registry
 
-	sc *notifier.SafeClose
+	sc *safe_close.SafeClose
 }
 
 func RunMosdns(cfg *Config) error {
@@ -67,7 +67,7 @@ func RunMosdns(cfg *Config) error {
 		execs:       make(map[string]executable_seq.Executable),
 		matchers:    make(map[string]executable_seq.Matcher),
 		httpAPIMux:  http.NewServeMux(),
-		sc:          notifier.NewSafeClose(),
+		sc:          safe_close.NewSafeClose(),
 	}
 	m.rootMetricsReg = metrics.NewRegistry()
 	m.pluginsMetricsReg = metrics.NewRegistry()
@@ -188,7 +188,7 @@ func (m *Mosdns) GetDataManager() *data_provider.DataManager {
 	return m.dataManager
 }
 
-func (m *Mosdns) GetSafeClose() *notifier.SafeClose {
+func (m *Mosdns) GetSafeClose() *safe_close.SafeClose {
 	return m.sc
 }
 

@@ -21,7 +21,7 @@ package data_provider
 
 import (
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v4/pkg/notifier"
+	"github.com/IrineSistiana/mosdns/v4/pkg/safe_close"
 	"github.com/fsnotify/fsnotify"
 	"go.uber.org/zap"
 	"os"
@@ -70,8 +70,7 @@ type DataProvider struct {
 	lm        sync.Mutex
 	listeners []DataListener
 
-	notifier *notifier.Notifier
-	sc       *notifier.SafeClose
+	sc *safe_close.SafeClose
 }
 
 func NewDataProvider(lg *zap.Logger, cfg *DataProviderConfig) (*DataProvider, error) {
@@ -80,8 +79,7 @@ func NewDataProvider(lg *zap.Logger, cfg *DataProviderConfig) (*DataProvider, er
 	dp.file = cfg.File
 	dp.autoReload = cfg.AutoReload
 
-	dp.notifier = notifier.NewNotifier()
-	dp.sc = notifier.NewSafeClose()
+	dp.sc = safe_close.NewSafeClose()
 
 	if err := dp.init(); err != nil {
 		return nil, err
@@ -108,10 +106,6 @@ func (ds *DataProvider) Close() {
 	ds.sc.CloseWait()
 }
 
-func (ds *DataProvider) GetNotifier() *notifier.Notifier {
-	return ds.notifier
-}
-
 // LoadAndAddListener loads the DataListener, returns any error that occurs, and
 // add this DataListener to this DataProvider.
 func (ds *DataProvider) LoadAndAddListener(l DataListener) error {
@@ -136,10 +130,12 @@ func (ds *DataProvider) GetData() ([]byte, error) {
 
 // pushData notify the notifier and trigger all listeners.
 func (ds *DataProvider) pushData(newData []byte) {
-	ds.notifier.Notify()
 	ds.lm.Lock()
-	defer ds.lm.Unlock()
-	for _, l := range ds.listeners {
+	ls := make([]DataListener, 0)
+	ls = append(ls, ds.listeners...)
+	ds.lm.Unlock()
+
+	for _, l := range ls {
 		if err := l.Update(newData); err != nil {
 			ds.logger.Error(
 				"failed to update data listener",
@@ -163,7 +159,9 @@ func (ds *DataProvider) startFsWatcher() error {
 	}
 
 	go func() {
-		var delayTimer *time.Timer
+		defer w.Close()
+
+		var delayReloadTimer *time.Timer
 		for {
 			select {
 			case e, ok := <-w.Events:
@@ -172,31 +170,44 @@ func (ds *DataProvider) startFsWatcher() error {
 				}
 				ds.logger.Info(
 					"fs event",
-					zap.Stringer("event", e),
+					zap.Stringer("event", e.Op),
+					zap.String("file", e.Name),
 				)
-				if delayTimer == nil {
-					delayTimer = time.AfterFunc(time.Second, func() {
-						ds.logger.Info(
-							"reloading file",
-							zap.String("file", ds.file),
-						)
-						if v, err := ds.loadFromDisk(); err != nil {
+
+				if delayReloadTimer != nil {
+					delayReloadTimer.Stop()
+				}
+				delayReloadTimer = time.AfterFunc(time.Second, func() {
+					if hasOp(e, fsnotify.Remove) {
+						_ = w.Remove(ds.file)
+						if err := w.Add(ds.file); err != nil {
 							ds.logger.Error(
-								"failed to reload file",
+								"failed to re-watch file, auto reload may not work anymore",
 								zap.String("file", ds.file),
 								zap.Error(err),
 							)
-						} else {
-							ds.logger.Info(
-								"file reloaded",
-								zap.String("file", ds.file),
-							)
-							ds.pushData(v)
 						}
-					})
-				} else {
-					delayTimer.Reset(time.Second)
-				}
+					}
+
+					ds.logger.Info(
+						"reloading file",
+						zap.String("file", ds.file),
+					)
+					if v, err := ds.loadFromDisk(); err != nil {
+						ds.logger.Error(
+							"failed to reload file",
+							zap.String("file", ds.file),
+							zap.Error(err),
+						)
+					} else {
+						ds.logger.Info(
+							"file reloaded",
+							zap.String("file", ds.file),
+						)
+						ds.pushData(v)
+					}
+				})
+
 			case err, ok := <-w.Errors:
 				if !ok {
 					return
@@ -208,4 +219,8 @@ func (ds *DataProvider) startFsWatcher() error {
 		}
 	}()
 	return nil
+}
+
+func hasOp(e fsnotify.Event, op fsnotify.Op) bool {
+	return e.Op&op == op
 }
