@@ -336,6 +336,7 @@ func (t *Transport) getReusableConn() (c *reusableConn, reused bool, err error) 
 	t.m.Lock()
 	if t.closed {
 		t.m.Unlock()
+		rc.close()
 		return nil, false, errClosedTransport
 	}
 	if t.reusableConns == nil {
@@ -348,23 +349,24 @@ func (t *Transport) getReusableConn() (c *reusableConn, reused bool, err error) 
 }
 
 func (t *Transport) releaseReusableConn(c *reusableConn, deadConn bool) {
-	if deadConn {
-		c.close()
-		return
-	}
+	var closeConn bool
 
 	t.m.Lock()
-	closed := t.closed
-	if !closed {
+	if deadConn {
+		delete(t.reusableConns, c)
+	}
+	if !t.closed || !deadConn {
 		if t.idledReusableConns == nil {
 			t.idledReusableConns = make(map[*reusableConn]struct{})
 		}
 		c.startIdle()
 		t.idledReusableConns[c] = struct{}{}
+	} else {
+		closeConn = true
 	}
 	t.m.Unlock()
 
-	if closed {
+	if closeConn {
 		c.close()
 	}
 }
