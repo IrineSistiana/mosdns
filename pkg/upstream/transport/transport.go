@@ -355,7 +355,7 @@ func (t *Transport) releaseReusableConn(c *reusableConn, deadConn bool) {
 	if deadConn {
 		delete(t.reusableConns, c)
 	}
-	if !t.closed || !deadConn {
+	if !t.closed && !deadConn {
 		if t.idledReusableConns == nil {
 			t.idledReusableConns = make(map[*reusableConn]struct{})
 		}
