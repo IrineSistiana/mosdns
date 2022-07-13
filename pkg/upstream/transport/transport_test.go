@@ -335,29 +335,33 @@ func TestTransport_Exchange(t *testing.T) {
 			// Wait until all connections are timed out.
 			time.Sleep(tt.fields.IdleTimeout + time.Millisecond*200)
 
-			transport.m.Lock()
-			for conn := range transport.pipelineConns {
-				if conn.isClosed() {
-					delete(transport.pipelineConns, conn)
-				}
+			pipelineConn, newConn, _, err := transport.getPipelineConn()
+			if err != nil {
+				t.Fatal(err)
 			}
-			if n := len(transport.pipelineConns); n != 0 {
-				t.Errorf("len(t.pipelineConns), want 0, got %d", n)
+			if !newConn {
+				t.Fatal("pipelineConn should be a new connection")
 			}
+			pipelineConn.pipelineWg.Done()
 
-			for conn := range transport.idledReusableConns {
-				if ok := conn.stopIdle(); !ok {
-					delete(transport.idledReusableConns, conn)
-					delete(transport.reusableConns, conn)
-				}
+			reusableConn, reused, err := transport.getReusableConn()
+			if err != nil {
+				t.Fatal(err)
 			}
-			if n := len(transport.idledReusableConns); n != 0 {
-				t.Errorf("len(t.idledReusableConns), want 0, got %d", n)
+			if reused {
+				t.Fatal("reusableConn should be a new connection")
 			}
-			if n := len(transport.reusableConns); n != 0 {
-				t.Errorf("len(t.reusableConns), want 0, got %d", n)
+			transport.releaseReusableConn(reusableConn, nil)
+
+			if n := len(transport.idledReusableConns); n != 1 {
+				t.Errorf("len(t.idledReusableConns), want 1, got %d", n)
 			}
-			transport.m.Unlock()
+			if n := len(transport.reusableConns); n != 1 {
+				t.Errorf("len(t.reusableConns), want 1, got %d", n)
+			}
+			if n := len(transport.pipelineConns); n != 1 {
+				t.Errorf("len(t.pipelineConns), want 1, got %d", n)
+			}
 		})
 	}
 }
