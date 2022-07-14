@@ -21,13 +21,12 @@ package mem_cache
 
 import (
 	"github.com/IrineSistiana/mosdns/v4/pkg/concurrent_lru"
-	"sync"
 	"sync/atomic"
 	"time"
 )
 
 const (
-	shardSize              = 256
+	shardSize              = 64
 	defaultCleanerInterval = time.Minute
 )
 
@@ -35,9 +34,8 @@ const (
 // It is safe for concurrent use.
 type MemCache struct {
 	closed           uint32
-	closeCleanerOnce sync.Once
 	closeCleanerChan chan struct{}
-	lru              *concurrent_lru.ConcurrentLRU
+	lru              *concurrent_lru.ShardedLRU[*elem]
 }
 
 type elem struct {
@@ -52,15 +50,14 @@ type elem struct {
 // and discards expired values. If cleanerInterval <= 0, a default
 // interval will be used.
 func NewMemCache(size int, cleanerInterval time.Duration) *MemCache {
-
 	sizePerShard := size / shardSize
-	if sizePerShard < 4 {
-		sizePerShard = 4
+	if sizePerShard < 16 {
+		sizePerShard = 16
 	}
 
 	c := &MemCache{
 		closeCleanerChan: make(chan struct{}),
-		lru:              concurrent_lru.NewConcurrentLRU(shardSize, sizePerShard, nil, nil),
+		lru:              concurrent_lru.NewShardedLRU[*elem](shardSize, sizePerShard, nil),
 	}
 	go c.startCleaner(cleanerInterval)
 	return c
@@ -72,10 +69,9 @@ func (c *MemCache) isClosed() bool {
 
 // Close closes the cache and its cleaner.
 func (c *MemCache) Close() error {
-	atomic.StoreUint32(&c.closed, 1)
-	c.closeCleanerOnce.Do(func() {
+	if atomic.CompareAndSwapUint32(&c.closed, 0, 1) {
 		close(c.closeCleanerChan)
-	})
+	}
 	return nil
 }
 
@@ -85,7 +81,6 @@ func (c *MemCache) Get(key string) (v []byte, storedTime, expirationTime time.Ti
 	}
 
 	if e, ok := c.lru.Get(key); ok {
-		e := e.(*elem)
 		return e.v, e.storedTime, e.expirationTime
 	}
 
@@ -131,10 +126,10 @@ func (c *MemCache) startCleaner(interval time.Duration) {
 	}
 }
 
-func (c *MemCache) cleanFunc() func(_ string, v interface{}) bool {
+func (c *MemCache) cleanFunc() func(_ string, v *elem) bool {
 	now := time.Now()
-	return func(_ string, v interface{}) bool {
-		return v.(*elem).expirationTime.Before(now)
+	return func(_ string, v *elem) bool {
+		return v.expirationTime.Before(now)
 	}
 }
 
