@@ -20,64 +20,66 @@
 package lru
 
 import (
-	"reflect"
 	"testing"
 )
 
 func Test_lru(t *testing.T) {
-	onEvict := func(key string, v interface{}) {}
-	var q *LRU
+	var q *LRU[int, int]
 	reset := func(maxSize int) {
-		q = NewLRU(maxSize, onEvict)
+		t.Helper()
+		q = NewLRU[int, int](maxSize, nil)
 	}
 
-	add := func(keys ...string) {
+	add := func(keys ...int) {
+		t.Helper()
 		for _, key := range keys {
 			q.Add(key, key)
 		}
 	}
 
-	mustGet := func(keys ...string) {
+	mustGet := func(keys ...int) {
+		t.Helper()
 		for _, key := range keys {
 			gotV, ok := q.Get(key)
-			if !ok || !reflect.DeepEqual(gotV, key) {
+			if !ok || gotV != key {
 				t.Fatalf("want %v, got %v", key, gotV)
 			}
 		}
 	}
 
-	emptyGet := func(keys ...string) {
+	emptyGet := func(keys ...int) {
+		t.Helper()
 		for _, key := range keys {
 			gotV, ok := q.Get(key)
-			if ok || gotV != nil {
+			if ok {
 				t.Fatalf("want empty, got %v", gotV)
 			}
 		}
 	}
 
-	mustPop := func(keys ...string) {
+	mustPopOldest := func(keys ...int) {
+		t.Helper()
 		for _, key := range keys {
 			gotKey, gotV, ok := q.PopOldest()
 			if !ok {
 				t.Fatal()
 			}
-			if gotKey != key || !reflect.DeepEqual(gotV, key) {
+			if gotKey != key || gotV != gotKey {
 				t.Fatalf("want key: %v, v: %v, got key: %v, v:%v", key, key, gotKey, gotV)
 			}
 		}
 	}
 
 	emptyPop := func() {
+		t.Helper()
 		gotKey, gotV, ok := q.PopOldest()
 		if ok {
-			t.Fatal()
-		}
-		if gotKey != "" || gotV != nil {
 			t.Fatalf("want empty result, got key: %v, v:%v", gotKey, gotV)
 		}
 	}
 
 	checkLen := func(want int) {
+		t.Helper()
 		if q.l.Len() != len(q.m) {
 			t.Fatalf("possible mem leak: q.l.Len() %v != len(q.m){ %v", q.l.Len(), len(q.m))
 		}
@@ -88,37 +90,37 @@ func Test_lru(t *testing.T) {
 
 	// test add
 	reset(4)
-	add("1", "1", "1", "1", "1", "2", "3")
+	add(1, 1, 1, 1, 1, 1, 2, 3)
 	checkLen(3)
-	mustGet("1", "2", "3")
+	mustGet(1, 2, 3)
 
 	// test add overflow
 	reset(2)
-	add("1", "2", "3", "4")
+	add(1, 2, 3, 4, 5)
 	checkLen(2)
-	mustGet("3", "4")
-	emptyGet("1", "2")
+	mustGet(4, 5)
+	emptyGet(1, 2, 3)
 
 	// test pop
 	reset(3)
-	add("1", "2", "3")
-	mustPop("1", "2", "3")
+	add(1, 2, 3)
+	mustPopOldest(1, 2, 3)
 	checkLen(0)
 	emptyPop()
 
 	// test del
 	reset(3)
-	add("1", "2", "3")
-	q.Del("2")
-	q.Del("9999")
-	mustPop("1", "3")
+	add(1, 2, 3)
+	q.Del(2)
+	q.Del(9999)
+	mustPopOldest(1, 3)
 
 	// test clean
-	reset(3)
-	add("1", "2", "3")
-	cleanFunc := func(key string, v interface{}) (remove bool) {
+	reset(4)
+	add(1, 2, 3, 4)
+	cleanFunc := func(key int, v int) (remove bool) {
 		switch key {
-		case "1", "3":
+		case 1, 3:
 			return true
 		}
 		return false
@@ -126,11 +128,11 @@ func Test_lru(t *testing.T) {
 	if cleaned := q.Clean(cleanFunc); cleaned != 2 {
 		t.Fatalf("q.Clean want cleaned = 2, got %v", cleaned)
 	}
-	mustPop("2")
+	mustPopOldest(2, 4)
 
 	// test lru
 	reset(4)
-	add("1", "2", "3", "4") // 1 2 3 4
-	mustGet("2", "3")       // 1 4 2 3
-	mustPop("1", "4", "2", "3")
+	add(1, 2, 3, 4) // 1 2 3 4
+	mustGet(2, 3)   // 1 4 2 3
+	mustPopOldest(1, 4, 2, 3)
 }

@@ -26,87 +26,81 @@ import (
 )
 
 func TestConcurrentLRU(t *testing.T) {
-	onEvict := func(key string, v interface{}) {}
-	onGet := func(key string, v interface{}) interface{} {
-		if v.(string) != key {
-			t.Fatalf("kv pair mismatched: key: %s, v: %s", key, v)
-		}
-		return v
+	onEvict := func(key string, v int) {}
+
+	var cache *ShardedLRU[int]
+	reset := func(shardNum, maxShardSize int) {
+		cache = NewShardedLRU[int](shardNum, maxShardSize, onEvict)
 	}
 
-	var lru *ConcurrentLRU
-	reset := func() {
-		lru = NewConcurrentLRU(4, 16, onEvict, onGet) // max size 64
-	}
-
-	add := func(keys ...string) {
+	add := func(keys ...int) {
 		for _, key := range keys {
-			lru.Add(key, key)
+			cache.Add(strconv.Itoa(key), key)
 		}
 	}
 
-	mustGet := func(keys ...string) {
+	mustGet := func(keys ...int) {
 		for _, key := range keys {
-			gotV, ok := lru.Get(key)
+			gotV, ok := cache.Get(strconv.Itoa(key))
 			if !ok || !reflect.DeepEqual(gotV, key) {
 				t.Fatalf("want %v, got %v", key, gotV)
 			}
 		}
 	}
 
-	emptyGet := func(keys ...string) {
+	emptyGet := func(keys ...int) {
 		for _, key := range keys {
-			gotV, ok := lru.Get(key)
-			if ok || gotV != nil {
+			gotV, ok := cache.Get(strconv.Itoa(key))
+			if ok {
 				t.Fatalf("want empty, got %v", gotV)
 			}
 		}
 	}
 
 	checkLen := func(want int) {
-		if want != lru.Len() {
-			t.Fatalf("want %v, got %v", want, lru.Len())
+		if want != cache.Len() {
+			t.Fatalf("want %v, got %v", want, cache.Len())
 		}
 	}
 
 	// test add
-	reset()
-	add("1", "1", "1", "1", "1", "2", "3")
-	checkLen(3)
-	mustGet("1", "2", "3")
-	emptyGet("4", "5", "6")
+	reset(4, 16)
+	add(1, 1, 1, 1, 2, 2, 3, 3, 4)
+	checkLen(4)
+	mustGet(1, 2, 3, 4)
+	emptyGet(5, 6, 7, 9999)
 
 	// test add overflow
-	reset()
-	for i := 0; i < 1024; i++ { // max size is 64
-		add(strconv.Itoa(i))
+	reset(4, 16) // max size is 64
+	for i := 0; i < 1024; i++ {
+		add(i)
 	}
-	if lru.Len() > 64 {
-		t.Fatalf("lru overflowed: want len = %d, got = %d", 64, lru.Len())
+	if cache.Len() > 64 {
+		t.Fatalf("lru overflowed: want len = %d, got = %d", 64, cache.Len())
 	}
 
 	// test del
-	reset()
-	add("1", "2", "3", "4")
-	lru.Del("2")
-	lru.Del("4")
-	lru.Del("9999")
-	mustGet("1", "3")
-	emptyGet("2", "4")
+	reset(4, 16)
+	add(1, 2, 3, 4)
+	cache.Del("2")
+	cache.Del("4")
+	cache.Del("9999")
+	mustGet(1, 3)
+	emptyGet(2, 4)
 
 	// test clean
-	reset()
-	add("1", "2", "3")
-	cleanFunc := func(key string, v interface{}) (remove bool) {
+	reset(4, 16)
+	add(1, 2, 3, 4)
+	cleanFunc := func(key string, v int) (remove bool) {
 		switch key {
 		case "1", "3":
 			return true
 		}
 		return false
 	}
-	if cleaned := lru.Clean(cleanFunc); cleaned != 2 {
+	if cleaned := cache.Clean(cleanFunc); cleaned != 2 {
 		t.Fatalf("q.Clean want cleaned = 2, got %v", cleaned)
 	}
-	mustGet("2")
-	emptyGet("1", "3")
+	mustGet(2, 4)
+	emptyGet(1, 3)
 }

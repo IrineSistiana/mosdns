@@ -20,49 +20,40 @@
 package lru
 
 import (
-	"container/list"
 	"fmt"
+	"github.com/IrineSistiana/mosdns/v4/pkg/list"
 )
 
-type LRULike interface {
-	Add(key string, v interface{})
-	Del(key string)
-	Clean(f func(key string, v interface{}) (remove bool)) (removed int)
-	Get(key string) (v interface{}, ok bool)
-	Len() int
-}
-
-type LRU struct {
+type LRU[K comparable, V any] struct {
 	maxSize int
-	onEvict func(key string, v interface{})
+	onEvict func(key K, v V)
 
-	l *list.List
-	m map[string]*list.Element
+	l *list.List[KV[K, V]]
+	m map[K]*list.Elem[KV[K, V]]
 }
 
-type listValue struct {
-	key string
-	v   interface{}
+type KV[K comparable, V any] struct {
+	key K
+	v   V
 }
 
-func NewLRU(maxSize int, onEvict func(key string, v interface{})) *LRU {
+func NewLRU[K comparable, V any](maxSize int, onEvict func(key K, v V)) *LRU[K, V] {
 	if maxSize <= 0 {
 		panic(fmt.Sprintf("LRU: invalid max size: %d", maxSize))
 	}
 
-	return &LRU{
+	return &LRU[K, V]{
 		maxSize: maxSize,
 		onEvict: onEvict,
-		l:       list.New(),
-		m:       make(map[string]*list.Element),
+		l:       list.New[KV[K, V]](),
+		m:       make(map[K]*list.Elem[KV[K, V]]),
 	}
 }
 
-func (q *LRU) Add(key string, v interface{}) {
-	e, ok := q.m[key]
-	if ok { // update existed key
-		e.Value.(*listValue).v = v
-		q.l.MoveToBack(e)
+func (q *LRU[K, V]) Add(key K, v V) {
+	if e, ok := q.m[key]; ok { // update existed key
+		e.Value.v = v
+		q.l.PushBack(q.l.PopElem(e))
 		return
 	}
 
@@ -75,63 +66,65 @@ func (q *LRU) Add(key string, v interface{}) {
 		o--
 	}
 
-	q.m[key] = q.l.PushBack(&listValue{
+	e := list.NewElem(KV[K, V]{
 		key: key,
 		v:   v,
 	})
+	q.m[key] = e
+	q.l.PushBack(e)
 }
 
-func (q *LRU) Del(key string) {
+func (q *LRU[K, V]) Del(key K) {
 	e := q.m[key]
 	if e != nil {
-		q.mustDel(key, e)
+		q.delElem(e)
 	}
 }
 
-func (q *LRU) mustDel(key string, e *list.Element) {
-	lv := q.l.Remove(e).(*listValue)
+func (q *LRU[K, V]) delElem(e *list.Elem[KV[K, V]]) {
+	key, v := e.Value.key, e.Value.v
+	q.l.PopElem(e)
 	delete(q.m, key)
 	if q.onEvict != nil {
-		q.onEvict(key, lv.v)
+		q.onEvict(key, v)
 	}
 }
 
-func (q *LRU) PopOldest() (key string, v interface{}, ok bool) {
+func (q *LRU[K, V]) PopOldest() (key K, v V, ok bool) {
 	e := q.l.Front()
 	if e != nil {
-		lv := q.l.Remove(e).(*listValue)
-		delete(q.m, lv.key)
-		key, v = lv.key, lv.v
+		q.l.PopElem(e)
+		key, v = e.Value.key, e.Value.v
+		delete(q.m, key)
 		ok = true
 		return
 	}
-	return "", nil, false
+	return
 }
 
-func (q *LRU) Clean(f func(key string, v interface{}) (remove bool)) (removed int) {
-	next := q.l.Front()
-	for next != nil {
-		e := next
-		next = e.Next()
-		lv := e.Value.(*listValue)
-		key, v := lv.key, lv.v
+func (q *LRU[K, V]) Clean(f func(key K, v V) (remove bool)) (removed int) {
+	e := q.l.Front()
+	for e != nil {
+		next := e.Next() // Delete e will clean its pointers. Save it first.
+		key, v := e.Value.key, e.Value.v
 		if remove := f(key, v); remove {
-			q.mustDel(key, e)
+			q.delElem(e)
 			removed++
 		}
+		e = next
 	}
 	return removed
 }
 
-func (q *LRU) Get(key string) (interface{}, bool) {
+func (q *LRU[K, V]) Get(key K) (v V, ok bool) {
 	e, ok := q.m[key]
 	if !ok {
-		return nil, false
+		return
 	}
-	q.l.MoveToBack(e)
-	return e.Value.(*listValue).v, true
+	q.l.PushBack(q.l.PopElem(e))
+	return e.Value.v, true
 }
 
-func (q *LRU) Len() int {
+func (q *LRU[K, V]) Len() int {
 	return q.l.Len()
 }

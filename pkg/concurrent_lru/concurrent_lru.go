@@ -25,67 +25,65 @@ import (
 	"sync"
 )
 
-type ConcurrentLRU struct {
+type ShardedLRU[V any] struct {
 	seed maphash.Seed
-	l    []*shardedLRU
+	l    []*ConcurrentLRU[string, V]
 }
 
-func NewConcurrentLRU(
+func NewShardedLRU[V any](
 	shardNum, maxSizePerShard int,
-	onEvict func(key string, v interface{}),
-	onGet func(key string, v interface{}) interface{},
-) *ConcurrentLRU {
-	cl := &ConcurrentLRU{
+	onEvict func(key string, v V),
+) *ShardedLRU[V] {
+	cl := &ShardedLRU[V]{
 		seed: maphash.MakeSeed(),
-		l:    make([]*shardedLRU, shardNum),
+		l:    make([]*ConcurrentLRU[string, V], shardNum),
 	}
 
 	for i := range cl.l {
-		cl.l[i] = &shardedLRU{
-			onGet: onGet,
-			lru:   lru.NewLRU(maxSizePerShard, onEvict),
+		cl.l[i] = &ConcurrentLRU[string, V]{
+			lru: lru.NewLRU[string, V](maxSizePerShard, onEvict),
 		}
 	}
 
 	return cl
 }
 
-func (c *ConcurrentLRU) Add(key string, v interface{}) {
-	sl := c.getShardedLRU(key)
+func (c *ShardedLRU[V]) Add(key string, v V) {
+	sl := c.getShard(key)
 	sl.Add(key, v)
 }
 
-func (c *ConcurrentLRU) Del(key string) {
-	sl := c.getShardedLRU(key)
+func (c *ShardedLRU[V]) Del(key string) {
+	sl := c.getShard(key)
 	sl.Del(key)
 }
 
-func (c *ConcurrentLRU) Clean(f func(key string, v interface{}) (remove bool)) (removed int) {
+func (c *ShardedLRU[V]) Clean(f func(key string, v V) (remove bool)) (removed int) {
 	for i := range c.l {
 		removed += c.l[i].Clean(f)
 	}
 	return removed
 }
 
-func (c *ConcurrentLRU) Get(key string) (v interface{}, ok bool) {
-	sl := c.getShardedLRU(key)
+func (c *ShardedLRU[V]) Get(key string) (v V, ok bool) {
+	sl := c.getShard(key)
 	v, ok = sl.Get(key)
 	return
 }
 
-func (c *ConcurrentLRU) Len() int {
+func (c *ShardedLRU[V]) Len() int {
 	sum := 0
-	for _, lru := range c.l {
-		sum += lru.Len()
+	for _, shard := range c.l {
+		sum += shard.Len()
 	}
 	return sum
 }
 
-func (c *ConcurrentLRU) shardNum() int {
+func (c *ShardedLRU[V]) shardNum() int {
 	return len(c.l)
 }
 
-func (c *ConcurrentLRU) getShardedLRU(key string) *shardedLRU {
+func (c *ShardedLRU[V]) getShard(key string) *ConcurrentLRU[string, V] {
 	h := maphash.Hash{}
 	h.SetSeed(c.seed)
 
@@ -94,48 +92,51 @@ func (c *ConcurrentLRU) getShardedLRU(key string) *shardedLRU {
 	return c.l[n]
 }
 
-type shardedLRU struct {
-	onGet func(key string, v interface{}) interface{}
-
+// ConcurrentLRU is a lru.LRU with a lock.
+// It is concurrent safe.
+type ConcurrentLRU[K comparable, V any] struct {
 	sync.Mutex
-	lru *lru.LRU
+	lru *lru.LRU[K, V]
 }
 
-func (sl *shardedLRU) Add(key string, v interface{}) {
-	sl.Lock()
-	defer sl.Unlock()
-
-	sl.lru.Add(key, v)
-}
-
-func (sl *shardedLRU) Del(key string) {
-	sl.Lock()
-	defer sl.Unlock()
-
-	sl.lru.Del(key)
-}
-
-func (sl *shardedLRU) Clean(f func(key string, v interface{}) (remove bool)) (removed int) {
-	sl.Lock()
-	defer sl.Unlock()
-
-	return sl.lru.Clean(f)
-}
-
-func (sl *shardedLRU) Get(key string) (v interface{}, ok bool) {
-	sl.Lock()
-	defer sl.Unlock()
-
-	v, ok = sl.lru.Get(key)
-	if ok && sl.onGet != nil {
-		v = sl.onGet(key, v)
+func NewConecurrentLRU[K comparable, V any](maxSize int, onEvict func(key K, v V)) *ConcurrentLRU[K, V] {
+	return &ConcurrentLRU[K, V]{
+		lru: lru.NewLRU[K, V](maxSize, onEvict),
 	}
+}
+
+func (c *ConcurrentLRU[K, V]) Add(key K, v V) {
+	c.Lock()
+	defer c.Unlock()
+
+	c.lru.Add(key, v)
+}
+
+func (c *ConcurrentLRU[K, V]) Del(key K) {
+	c.Lock()
+	defer c.Unlock()
+
+	c.lru.Del(key)
+}
+
+func (c *ConcurrentLRU[K, V]) Clean(f func(key K, v V) (remove bool)) (removed int) {
+	c.Lock()
+	defer c.Unlock()
+
+	return c.lru.Clean(f)
+}
+
+func (c *ConcurrentLRU[K, V]) Get(key K) (v V, ok bool) {
+	c.Lock()
+	defer c.Unlock()
+
+	v, ok = c.lru.Get(key)
 	return
 }
 
-func (sl *shardedLRU) Len() int {
-	sl.Lock()
-	defer sl.Unlock()
+func (c *ConcurrentLRU[K, V]) Len() int {
+	c.Lock()
+	defer c.Unlock()
 
-	return sl.lru.Len()
+	return c.lru.Len()
 }
