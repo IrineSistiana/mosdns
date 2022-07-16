@@ -45,7 +45,8 @@ const (
 	defaultMaxConns                = 2
 	defaultMaxQueryPerConn         = 65535
 
-	writeTimeout = time.Second
+	writeTimeout        = time.Second
+	connTooOldThreshold = time.Millisecond * 500
 )
 
 // Transport is a DNS msg transport that supposes DNS over UDP,TCP,TLS.
@@ -296,7 +297,7 @@ func (t *Transport) getReusableConn() (c *dnsConn, reused bool, err error) {
 
 	for c = range t.idledReusableConns {
 		delete(t.idledReusableConns, c)
-		if c.isClosed() {
+		if c.isClosed() || t.connTooOld(c) {
 			delete(t.reusableConns, c)
 			continue
 		}
@@ -347,7 +348,7 @@ func (t *Transport) getPipelineConn() (conn *dnsConn, isNewConn bool, allocatedQ
 
 	// Try to get an existing connection.
 	for c := range t.pipelineConns {
-		if c.isClosed() {
+		if c.isClosed() || t.connTooOld(c) {
 			delete(t.pipelineConns, c)
 			continue
 		}
@@ -375,6 +376,15 @@ func (t *Transport) getPipelineConn() (conn *dnsConn, isNewConn bool, allocatedQ
 	return conn, isNewConn, allocatedQid, nil
 }
 
+// connTooOld returns true if c's last read time is close to
+// its idle deadline.
+func (t *Transport) connTooOld(c *dnsConn) bool {
+	if ddl := t.idleTimeout() - connTooOldThreshold; ddl > 0 {
+		return c.getLastReadTime().Add(ddl).Before(time.Now())
+	}
+	return false
+}
+
 var dnsConnIdCounter uint32
 
 type dnsConn struct {
@@ -393,6 +403,9 @@ type dnsConn struct {
 	closed             bool
 	closeNotify        chan struct{}
 	closeErr           error
+
+	statMu   sync.Mutex
+	lastRead time.Time
 }
 
 func newDNSConn(t *Transport) *dnsConn {
@@ -507,6 +520,7 @@ func (dc *dnsConn) readLoop() {
 			dc.closeWithErr(err) // abort this connection.
 			return
 		}
+		dc.updateReadTime()
 
 		resChan := dc.getQueueC(r.Id)
 		if resChan != nil {
@@ -564,4 +578,17 @@ func (dc *dnsConn) deleteQueueC(qid uint16) {
 	dc.queueMu.Lock()
 	defer dc.queueMu.Unlock()
 	delete(dc.queue, qid)
+}
+
+func (dc *dnsConn) updateReadTime() {
+	t := time.Now()
+	dc.statMu.Lock()
+	defer dc.statMu.Unlock()
+	dc.lastRead = t
+}
+
+func (dc *dnsConn) getLastReadTime() time.Time {
+	dc.statMu.Lock()
+	defer dc.statMu.Unlock()
+	return dc.lastRead
 }
