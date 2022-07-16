@@ -379,8 +379,13 @@ func (t *Transport) getPipelineConn() (conn *dnsConn, isNewConn bool, allocatedQ
 // connTooOld returns true if c's last read time is close to
 // its idle deadline.
 func (t *Transport) connTooOld(c *dnsConn) bool {
-	if ddl := t.idleTimeout() - connTooOldThreshold; ddl > 0 {
-		return c.getLastReadTime().Add(ddl).Before(time.Now())
+	lrt := c.getLastReadTime()
+	if lrt.IsZero() {
+		return false
+	}
+	if tooOldTimeout := t.idleTimeout() - connTooOldThreshold; tooOldTimeout > 0 {
+		tooOldDdl := lrt.Add(tooOldTimeout)
+		return time.Now().After(tooOldDdl)
 	}
 	return false
 }
