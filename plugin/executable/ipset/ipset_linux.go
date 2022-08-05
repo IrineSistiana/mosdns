@@ -88,7 +88,9 @@ func (p *ipsetPlugin) addIPSet(r *dns.Msg) error {
 			if !ok {
 				return fmt.Errorf("invalid A record with ip: %s", rr.A)
 			}
-			return ipset.AddPrefix(p.nl, p.args.SetName4, netip.PrefixFrom(addr, p.args.Mask4))
+			if err := ipset.AddPrefix(p.nl, p.args.SetName4, netip.PrefixFrom(addr, p.args.Mask4)); err != nil {
+				return err
+			}
 
 		case *dns.AAAA:
 			if len(p.args.SetName6) == 0 {
@@ -98,7 +100,9 @@ func (p *ipsetPlugin) addIPSet(r *dns.Msg) error {
 			if !ok {
 				return fmt.Errorf("invalid AAAA record with ip: %s", rr.AAAA)
 			}
-			return ipset.AddPrefix(p.nl, p.args.SetName6, netip.PrefixFrom(addr, p.args.Mask6))
+			if err := ipset.AddPrefix(p.nl, p.args.SetName6, netip.PrefixFrom(addr, p.args.Mask6)); err != nil {
+				return err
+			}
 		default:
 			continue
 		}
