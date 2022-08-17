@@ -144,7 +144,7 @@ func decoderOpt(cfg *mapstructure.DecoderConfig) {
 func mergeInclude(cfg *Config, depth int, paths, absPaths []string) error {
 	depth++
 	if depth > 8 {
-		return fmt.Errorf("maximun include depth reached, include path is %s", strings.Join(paths, " -> "))
+		return fmt.Errorf("maximum include depth reached, include path is %s", strings.Join(paths, " -> "))
 	}
 
 	includedCfg := new(Config)
