@@ -107,7 +107,7 @@ func newCachePlugin(bp *coremain.BP, args *Args) (*cachePlugin, error) {
 	}
 
 	if args.LazyCacheReplyTTL <= 0 {
-		args.LazyCacheReplyTTL = 30
+		args.LazyCacheReplyTTL = 5
 	}
 
 	var whenHit executable_seq.Executable
