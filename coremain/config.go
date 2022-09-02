@@ -41,8 +41,10 @@ type PluginConfig struct {
 	// Type, required
 	Type string `yaml:"type"`
 
-	// Args, might be required by some plugins
-	Args map[string]interface{} `yaml:"args"`
+	// Args, might be required by some plugins.
+	// The type of Args is depended on RegNewPluginFunc.
+	// If it's a map[string]interface{}, it will be converted by mapstruct.
+	Args interface{} `yaml:"args"`
 }
 
 type ServerConfig struct {

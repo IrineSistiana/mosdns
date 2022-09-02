@@ -24,6 +24,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/pkg/metrics"
 	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
 	"go.uber.org/zap"
+	"reflect"
 	"sync"
 )
 
@@ -96,10 +97,20 @@ func NewPlugin(c *PluginConfig, lg *zap.Logger, m *Mosdns) (p Plugin, err error)
 	// parse args
 	if typeInfo.NewArgs != nil {
 		args := typeInfo.NewArgs()
-		err = utils.WeakDecode(c.Args, args)
-		if err != nil {
-			return nil, fmt.Errorf("unable to decode plugin args: %w", err)
+		if m, ok := c.Args.(map[string]interface{}); ok {
+			if err = utils.WeakDecode(m, args); err != nil {
+				return nil, fmt.Errorf("unable to decode plugin args: %w", err)
+			}
+		} else {
+			tc := reflect.TypeOf(c.Args) // args type from config
+			tp := reflect.TypeOf(args)   // args type from plugin init func
+			if tc == tp {
+				args = c.Args
+			} else {
+				return nil, fmt.Errorf("invalid plugin args type, want %s, got %s", tp.String(), tc.String())
+			}
 		}
+
 		return typeInfo.NewPlugin(bp, args)
 	}
 
