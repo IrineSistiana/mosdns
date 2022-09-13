@@ -21,6 +21,7 @@ package querymatcher
 
 import (
 	"context"
+
 	"github.com/IrineSistiana/mosdns/v4/coremain"
 	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
 	"github.com/IrineSistiana/mosdns/v4/pkg/matcher/domain"
@@ -97,7 +98,7 @@ func newQueryMatcher(bp *coremain.BP, args *Args) (m *queryMatcher, err error) {
 		bp.L().Info("client ip matcher loaded", zap.Int("length", l.Len()))
 	}
 	if len(args.ECS) > 0 {
-		l, err := netlist.BatchLoadProvider(args.ClientIP, bp.M().GetDataManager())
+		l, err := netlist.BatchLoadProvider(args.ECS, bp.M().GetDataManager())
 		if err != nil {
 			return nil, err
 		}
