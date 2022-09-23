@@ -25,6 +25,7 @@ import (
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/blackhole"
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/bufsize"
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/cache"
+	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/client_limiter"
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/dual_selector"
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/ecs"
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/fast_forward"
