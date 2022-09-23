@@ -21,199 +21,47 @@ package bootstrap
 
 import (
 	"context"
-	"fmt"
-	"github.com/IrineSistiana/mosdns/v4/pkg/upstream"
-	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
-	"github.com/miekg/dns"
-	"go.uber.org/zap"
 	"net"
-	"sync"
-	"sync/atomic"
-	"time"
+	"strconv"
+	"strings"
 )
 
-const (
-	bootstrapTimeout       = time.Second * 5
-	bootstrapRetryInterval = time.Second * 2
-)
-
-type BootstrapMode int
-
-// BootstrapMode
-const (
-	BootstrapModeInvalid BootstrapMode = iota
-	BootstrapModeV4
-	BootstrapModeV6
-)
-
-const (
-	DefaultMinimumUpdateInterval = time.Second * 600  // 10 min
-	DefaultMaximumUpdateInterval = time.Second * 3600 // 1 hour
-)
-
-var (
-	nopLogger = zap.NewNop()
-)
-
-type Bootstrap struct {
-	// Fqdn is the fully qualified domain name that needs to be resolved.
-	Fqdn string
-
-	// Upstream for this Bootstrap to send queries to.
-	Upstream upstream.Upstream
-
-	// Mode specifies whether this Bootstrap works on IPv4 or IPv6.
-	// A zero value Mode is invalid.
-	Mode BootstrapMode
-
-	// MinimumUpdateInterval specifies the minimum update interval.
-	// Default is DefaultMinimumUpdateInterval.
-	MinimumUpdateInterval time.Duration
-
-	// MaximumUpdateInterval specifies the maximum update interval.
-	// Default is DefaultMaximumUpdateInterval.
-	MaximumUpdateInterval time.Duration
-
-	Logger *zap.Logger
-
-	m          sync.Mutex
-	booted     chan struct{}
-	ipAddr     string
-	expireTime time.Time
-
-	updating       uint32 // atomic
-	lastUpdateTime time.Time
-}
-
-func (b *Bootstrap) logger() *zap.Logger {
-	if b.Logger != nil {
-		return b.Logger
+// NewPlainBootstrap returns a customized *net.Resolver which Dial func is modified to dial s.
+// s SHOULD be a literal IP address and the port SHOULD also be literal.
+// Port can be omitted. In this case, the default port is :53.
+// e.g. NewPlainBootstrap("8.8.8.8"), NewPlainBootstrap("127.0.0.1:5353")
+// If s is empty, NewPlainBootstrap returns nil. (A nil *net.Resolver is valid in net.Dialer.)
+// Note that not all platform support a customized *net.Resolver. It also depends on the
+// version of go runtime.
+// See the package docs from the net package for more info.
+func NewPlainBootstrap(s string) *net.Resolver {
+	if len(s) == 0 {
+		return nil
 	}
-	return nopLogger
-}
-
-func (b *Bootstrap) minimumUpdateInterval() time.Duration {
-	if b.MinimumUpdateInterval > 0 {
-		return b.MinimumUpdateInterval
-	}
-	return DefaultMinimumUpdateInterval
-}
-
-func (b *Bootstrap) maximumUpdateInterval() time.Duration {
-	if b.MaximumUpdateInterval > 0 {
-		return b.MaximumUpdateInterval
-	}
-	return DefaultMaximumUpdateInterval
-}
-
-func (b *Bootstrap) GetAddr(ctx context.Context) (string, error) {
-	now := time.Now()
-
-	b.m.Lock()
-	if b.booted == nil {
-		b.booted = make(chan struct{})
+	// Add port.
+	_, _, err := net.SplitHostPort(s)
+	if err != nil { // no port, add it.
+		s = net.JoinHostPort(strings.Trim(s, "[]"), "53")
 	}
 
-	if b.expireTime.Before(now) {
-		b.tryBackgroundUpdate()
-	}
-
-	if ip := b.ipAddr; len(ip) != 0 {
-		b.m.Unlock()
-		return ip, nil
-	}
-	b.m.Unlock()
-
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	case <-b.booted:
-		b.m.Lock()
-		ip := b.ipAddr
-		b.m.Unlock()
-		return ip, nil
+	return &net.Resolver{
+		PreferGo:     true,
+		StrictErrors: false,
+		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			d := new(net.Dialer)
+			return d.DialContext(ctx, network, s)
+		},
 	}
 }
 
-func (b *Bootstrap) tryBackgroundUpdate() {
-	if atomic.CompareAndSwapUint32(&b.updating, 0, 1) {
-		defer atomic.StoreUint32(&b.updating, 0)
-	} else {
-		return
+func getDialAddrWithPort(host, dialAddr string, defaultPort int) string {
+	addr := host
+	if len(dialAddr) > 0 {
+		addr = dialAddr
 	}
-
-	if b.lastUpdateTime.Add(bootstrapRetryInterval).After(time.Now()) {
-		return
+	_, _, err := net.SplitHostPort(addr)
+	if err != nil { // no port, add it.
+		return net.JoinHostPort(strings.Trim(addr, "[]"), strconv.Itoa(defaultPort))
 	}
-
-	go func() {
-		ip, ttl, err := b.update()
-		if err != nil {
-			b.logger().Warn("failed to update bootstrap", zap.Error(err))
-			return
-		}
-
-		b.logger().Debug("bootstrap address updated", zap.Stringer("new_addr", ip), zap.Duration("ttl", ttl))
-		expireTime := time.Now().Add(ttl)
-
-		b.m.Lock()
-		b.ipAddr = ip.String()
-		b.expireTime = expireTime
-		if b.booted != nil && !utils.ClosedChan(b.booted) {
-			close(b.booted)
-		}
-		b.m.Unlock()
-	}()
-}
-
-func (b *Bootstrap) restrictTtl(ttl time.Duration) time.Duration {
-	if minTtl := b.minimumUpdateInterval(); ttl < minTtl {
-		ttl = minTtl
-	}
-	if maxTtl := b.maximumUpdateInterval(); ttl > maxTtl {
-		ttl = maxTtl
-	}
-	return ttl
-}
-
-func (b *Bootstrap) update() (net.IP, time.Duration, error) {
-	m := new(dns.Msg)
-	var qType uint16
-	switch b.Mode {
-	case BootstrapModeV4:
-		qType = dns.TypeA
-	case BootstrapModeV6:
-		qType = dns.TypeAAAA
-	default:
-		panic(fmt.Sprintf("invalid bootstrap mode %d", b.Mode))
-	}
-	m.SetQuestion(b.Fqdn, qType)
-
-	ctx, cancel := context.WithTimeout(context.Background(), bootstrapTimeout)
-	defer cancel()
-	r, err := b.Upstream.ExchangeContext(ctx, m)
-	if err != nil {
-		return nil, 0, fmt.Errorf("upstream failed, %w", err)
-	}
-
-	var (
-		ip  net.IP
-		ttl uint32
-	)
-
-	for _, rr := range r.Answer {
-		switch rr := rr.(type) {
-		case *dns.A:
-			ip = rr.A
-			ttl = rr.Hdr.Ttl
-		case *dns.AAAA:
-			ip = rr.AAAA
-			ttl = rr.Hdr.Ttl
-		}
-	}
-
-	if ip == nil {
-		return nil, 0, fmt.Errorf("response does not have valid ip, [%s]", r)
-	}
-	return ip, b.restrictTtl(time.Duration(ttl) * time.Second), nil
+	return addr
 }

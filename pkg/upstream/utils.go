@@ -26,15 +26,14 @@ import (
 	"net"
 )
 
-func dialTCP(ctx context.Context, addr, socks5 string, mark int) (net.Conn, error) {
+func dialTCP(ctx context.Context, addr, socks5 string, dialer *net.Dialer) (net.Conn, error) {
 	if len(socks5) > 0 {
-		socks5Dialer, err := proxy.SOCKS5("tcp", socks5, nil, nil)
+		socks5Dialer, err := proxy.SOCKS5("tcp", socks5, nil, dialer)
 		if err != nil {
 			return nil, fmt.Errorf("failed to init socks5 dialer: %w", err)
 		}
 		return socks5Dialer.(proxy.ContextDialer).DialContext(ctx, "tcp", addr)
 	}
 
-	d := net.Dialer{Control: getSetMarkFunc(mark)}
-	return d.DialContext(ctx, "tcp", addr)
+	return dialer.DialContext(ctx, "tcp", addr)
 }
