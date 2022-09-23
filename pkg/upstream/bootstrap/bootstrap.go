@@ -22,7 +22,6 @@ package bootstrap
 import (
 	"context"
 	"net"
-	"strconv"
 	"strings"
 )
 
@@ -52,16 +51,4 @@ func NewPlainBootstrap(s string) *net.Resolver {
 			return d.DialContext(ctx, network, s)
 		},
 	}
-}
-
-func getDialAddrWithPort(host, dialAddr string, defaultPort int) string {
-	addr := host
-	if len(dialAddr) > 0 {
-		addr = dialAddr
-	}
-	_, _, err := net.SplitHostPort(addr)
-	if err != nil { // no port, add it.
-		return net.JoinHostPort(strings.Trim(addr, "[]"), strconv.Itoa(defaultPort))
-	}
-	return addr
 }
