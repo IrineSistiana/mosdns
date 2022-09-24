@@ -20,88 +20,37 @@
 package reverselookup
 
 import (
-	"net/netip"
-	"sync"
+	"github.com/IrineSistiana/mosdns/v4/pkg/cache"
+	"github.com/IrineSistiana/mosdns/v4/pkg/cache/mem_cache"
 	"time"
 )
 
 type store struct {
-	sync.RWMutex
-	m map[netip.Addr]*elem
-
-	closeOnce sync.Once
-	closeChan chan struct{}
+	cache cache.Backend
 }
 
-type elem struct {
-	expire time.Time
-	d      string
+func newStore(size int) (*store, error) {
+	return &store{
+		cache: mem_cache.NewMemCache(size, 0),
+	}, nil
 }
 
-func newStore() *store {
-	s := &store{
-		m:         make(map[netip.Addr]*elem),
-		closeChan: make(chan struct{}),
-	}
-
-	go func() {
-		ticker := time.NewTicker(time.Second * 5)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-s.closeChan:
-				return
-			case <-ticker.C:
-				s.clean()
-			}
-		}
-	}()
-
-	return s
-}
-
-func (s *store) save(domain string, ttl time.Duration, ip ...netip.Addr) {
-	if len(ip) == 0 {
+func (s *store) save(ip string, fqdn string, ttl time.Duration) {
+	if len(fqdn) == 0 || len(ip) == 0 || ttl <= 0 {
 		return
 	}
-
-	e := &elem{
-		expire: time.Now().Add(ttl),
-		d:      domain,
-	}
-
-	s.Lock()
-	for _, addr := range ip {
-		s.m[addr] = e
-	}
-	s.Unlock()
+	now := time.Now()
+	s.cache.Store(ip, []byte(fqdn), now, now.Add(ttl))
 }
 
-func (s *store) lookup(ip netip.Addr) string {
-	s.RLock()
-	defer s.RUnlock()
-	d := s.m[ip]
-	if d == nil {
+func (s *store) lookup(ip string) string {
+	v, _, _ := s.cache.Get(ip)
+	if v == nil {
 		return ""
 	}
-	return d.d
-}
-
-func (s *store) clean() {
-	now := time.Now()
-	s.Lock()
-	defer s.Unlock()
-
-	for addr, e := range s.m {
-		if e.expire.Before(now) {
-			delete(s.m, addr)
-		}
-	}
+	return string(v)
 }
 
 func (s *store) close() {
-	s.closeOnce.Do(func() {
-		close(s.closeChan)
-	})
+	s.cache.Close()
 }
