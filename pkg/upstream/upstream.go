@@ -24,6 +24,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v4/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v4/pkg/upstream/bootstrap"
 	"github.com/IrineSistiana/mosdns/v4/pkg/upstream/doh"
 	"github.com/IrineSistiana/mosdns/v4/pkg/upstream/h3roundtripper"
 	"github.com/IrineSistiana/mosdns/v4/pkg/upstream/transport"
@@ -93,6 +94,14 @@ type Opt struct {
 	// Default is 1.
 	MaxConns int
 
+	// Bootstrap specifies a plain dns server for the go runtime to solve the
+	// domain of the upstream server. It SHOULD be an IP address. Custom port
+	// is supported.
+	// Note: Use a domain address may cause dead resolve loop and additional
+	// latency to dial upstream server.
+	// HTTP3 is not supported.
+	Bootstrap string
+
 	// TLSConfig specifies the tls.Config that the TLS client will use.
 	// Available for DoT, DoH upstreams.
 	TLSConfig *tls.Config
@@ -122,7 +131,8 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 			Logger: opt.Logger,
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
 				d := net.Dialer{
-					Control: getSetMarkFunc(opt.SoMark),
+					Resolver: bootstrap.NewPlainBootstrap(opt.Bootstrap),
+					Control:  getSetMarkFunc(opt.SoMark),
 				}
 				return d.DialContext(ctx, "udp", dialAddr)
 			},
@@ -138,7 +148,8 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 			Logger: opt.Logger,
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
 				d := net.Dialer{
-					Control: getSetMarkFunc(opt.SoMark),
+					Resolver: bootstrap.NewPlainBootstrap(opt.Bootstrap),
+					Control:  getSetMarkFunc(opt.SoMark),
 				}
 				return d.DialContext(ctx, "tcp", dialAddr)
 			},
@@ -154,7 +165,11 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 		t := &transport.Transport{
 			Logger: opt.Logger,
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
-				return dialTCP(ctx, dialAddr, opt.Socks5, opt.SoMark)
+				d := &net.Dialer{
+					Resolver: bootstrap.NewPlainBootstrap(opt.Bootstrap),
+					Control:  getSetMarkFunc(opt.SoMark),
+				}
+				return dialTCP(ctx, dialAddr, opt.Socks5, d)
 			},
 			WriteFunc:      dnsutils.WriteMsgToTCP,
 			ReadFunc:       dnsutils.ReadMsgFromTCP,
@@ -178,7 +193,11 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 		t := &transport.Transport{
 			Logger: opt.Logger,
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
-				conn, err := dialTCP(ctx, dialAddr, opt.Socks5, opt.SoMark)
+				d := &net.Dialer{
+					Resolver: bootstrap.NewPlainBootstrap(opt.Bootstrap),
+					Control:  getSetMarkFunc(opt.SoMark),
+				}
+				conn, err := dialTCP(ctx, dialAddr, opt.Socks5, d)
 				if err != nil {
 					return nil, err
 				}
@@ -227,7 +246,7 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 					MaxConnectionReceiveWindow:     64 * 1024,
 				},
 				DialFunc: func(ctx context.Context, _ string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error) {
-					ua, err := net.ResolveUDPAddr("udp", dialAddr)
+					ua, err := net.ResolveUDPAddr("udp", dialAddr) // TODO: Support bootstrap.
 					if err != nil {
 						return nil, err
 					}
@@ -237,7 +256,11 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 		} else {
 			t1 := &http.Transport{
 				DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) { // overwrite server addr
-					return dialTCP(ctx, dialAddr, opt.Socks5, opt.SoMark)
+					d := &net.Dialer{
+						Resolver: bootstrap.NewPlainBootstrap(opt.Bootstrap),
+						Control:  getSetMarkFunc(opt.SoMark),
+					}
+					return dialTCP(ctx, dialAddr, opt.Socks5, d)
 				},
 				TLSClientConfig:     opt.TLSConfig,
 				TLSHandshakeTimeout: tlsHandshakeTimeout,

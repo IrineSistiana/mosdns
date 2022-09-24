@@ -66,11 +66,12 @@ type UpstreamConfig struct {
 	Socks5   string `yaml:"socks5"`
 	SoMark   int    `yaml:"so_mark"`
 
-	IdleTimeout        int  `yaml:"idle_timeout"`
-	MaxConns           int  `yaml:"max_conns"`
-	EnablePipeline     bool `yaml:"enable_pipeline"`
-	EnableHTTP3        bool `yaml:"enable_http3"`
-	InsecureSkipVerify bool `yaml:"insecure_skip_verify"`
+	IdleTimeout        int    `yaml:"idle_timeout"`
+	MaxConns           int    `yaml:"max_conns"`
+	EnablePipeline     bool   `yaml:"enable_pipeline"`
+	EnableHTTP3        bool   `yaml:"enable_http3"`
+	Bootstrap          string `yaml:"bootstrap"`
+	InsecureSkipVerify bool   `yaml:"insecure_skip_verify"`
 }
 
 func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
@@ -121,6 +122,7 @@ func newFastForward(bp *coremain.BP, args *Args) (*fastForward, error) {
 			MaxConns:       c.MaxConns,
 			EnablePipeline: c.EnablePipeline,
 			EnableHTTP3:    c.EnableHTTP3,
+			Bootstrap:      c.Bootstrap,
 			TLSConfig: &tls.Config{
 				InsecureSkipVerify: c.InsecureSkipVerify,
 				RootCAs:            rootCAs,
