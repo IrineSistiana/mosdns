@@ -127,7 +127,7 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 	switch addrURL.Scheme {
 	case "", "udp":
 		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 53)
-		ut := &transport.Transport{
+		uto := transport.Opts{
 			Logger: opt.Logger,
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
 				d := net.Dialer{
@@ -144,7 +144,11 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 			MaxConns:       opt.MaxConns,
 			IdleTimeout:    time.Second * 60,
 		}
-		tt := &transport.Transport{
+		ut, err := transport.NewTransport(uto)
+		if err != nil {
+			return nil, fmt.Errorf("cannot init udp transport, %w", err)
+		}
+		tto := transport.Opts{
 			Logger: opt.Logger,
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
 				d := net.Dialer{
@@ -156,13 +160,17 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 			WriteFunc: dnsutils.WriteMsgToTCP,
 			ReadFunc:  dnsutils.ReadMsgFromTCP,
 		}
+		tt, err := transport.NewTransport(tto)
+		if err != nil {
+			return nil, fmt.Errorf("cannot init tcp transport, %w", err)
+		}
 		return &udpWithFallback{
 			u: ut,
 			t: tt,
 		}, nil
 	case "tcp":
 		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 53)
-		t := &transport.Transport{
+		to := transport.Opts{
 			Logger: opt.Logger,
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
 				d := &net.Dialer{
@@ -177,7 +185,7 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 			EnablePipeline: opt.EnablePipeline,
 			MaxConns:       opt.MaxConns,
 		}
-		return t, nil
+		return transport.NewTransport(to)
 	case "tls":
 		var tlsConfig *tls.Config
 		if opt.TLSConfig != nil {
@@ -190,7 +198,7 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 		}
 
 		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 853)
-		t := &transport.Transport{
+		to := transport.Opts{
 			Logger: opt.Logger,
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
 				d := &net.Dialer{
@@ -214,7 +222,7 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 			EnablePipeline: opt.EnablePipeline,
 			MaxConns:       opt.MaxConns,
 		}
-		return t, nil
+		return transport.NewTransport(to)
 	case "https":
 		idleConnTimeout := time.Second * 30
 		if opt.IdleTimeout > 0 {

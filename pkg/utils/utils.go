@@ -32,6 +32,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/pkg/pool"
 	"github.com/miekg/dns"
 	"github.com/mitchellh/mapstructure"
+	"golang.org/x/exp/constraints"
 	"math/big"
 	"net"
 	"os"
@@ -231,4 +232,10 @@ func WeakDecode(in map[string]interface{}, output interface{}) error {
 	}
 
 	return decoder.Decode(in)
+}
+
+func SetDefaultNum[K constraints.Integer | constraints.Float](p *K, d K) {
+	if *p == 0 {
+		*p = d
+	}
 }
