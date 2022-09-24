@@ -20,52 +20,121 @@
 package concurrent_limiter
 
 import (
-	"github.com/IrineSistiana/mosdns/v4/pkg/concurrent_map"
+	"net/netip"
+	"sync"
+	"time"
 )
 
-type ClientQueryLimiter struct {
-	maxQueries int
-	m          *concurrent_map.ConcurrentMap
+type ClientLimiter interface {
+	Acquire(addr netip.Addr) bool
+	GC(now time.Time)
 }
 
-func NewClientQueryLimiter(maxQueries int) *ClientQueryLimiter {
-	return &ClientQueryLimiter{
-		maxQueries: maxQueries,
-		m:          concurrent_map.NewConcurrentMap(64),
+const (
+	counterIdleTimeout = time.Second * 10
+	hpLimiterShardSize = 64
+)
+
+var _ ClientLimiter = (*ClientLimiterNoLock)(nil)
+
+// ClientLimiterNoLock is a simple ClientLimiter for single thread.
+type ClientLimiterNoLock struct {
+	maxQPS int
+	m      map[netip.Addr]*counter
+}
+
+type counter struct {
+	c         int
+	startTime time.Time
+}
+
+func NewClientLimiterNoLock(maxQPS int) ClientLimiterNoLock {
+	return ClientLimiterNoLock{
+		maxQPS: maxQPS,
+		m:      make(map[netip.Addr]*counter),
 	}
 }
 
-func (l *ClientQueryLimiter) Acquire(key string) bool {
-	return l.m.TestAndSet(key, l.acquireTestAndSet)
-}
-
-func (l *ClientQueryLimiter) acquireTestAndSet(v interface{}, ok bool) (newV interface{}, wantUpdate, passed bool) {
-	n := 0
-	if ok {
-		n = v.(int)
-	}
-	if n >= l.maxQueries {
-		return nil, false, false
-	}
-	n++
-	return n, true, true
-}
-
-func (l *ClientQueryLimiter) doneTestAndSet(v interface{}, ok bool) (newV interface{}, wantUpdate, passed bool) {
+func (l *ClientLimiterNoLock) Acquire(addr netip.Addr) bool {
+	now := time.Now()
+	e, ok := l.m[addr]
 	if !ok {
-		panic("ClientQueryLimiter doneTestAndSet: value is not exist")
+		e = new(counter)
+		l.m[addr] = e
 	}
-	n := v.(int)
-	n--
-	if n < 0 {
-		panic("ClientQueryLimiter doneTestAndSet: value becomes negative")
+
+	// Another second is passed. Reset the counter.
+	if e.startTime.Add(time.Second).Before(now) {
+		e.startTime = now
+		e.c = 0
 	}
-	if n == 0 {
-		return nil, true, true
+
+	if e.c <= l.maxQPS {
+		e.c++
+		return true
 	}
-	return n, true, true
+	return false
 }
 
-func (l *ClientQueryLimiter) Done(key string) {
-	l.m.TestAndSet(key, l.doneTestAndSet)
+func (l *ClientLimiterNoLock) GC(now time.Time) {
+	for addr, counter := range l.m {
+		if counter.startTime.Add(counterIdleTimeout).Before(now) {
+			delete(l.m, addr)
+		}
+	}
+}
+
+// ClientLimiterWithLock is a simple ClientLimiter. It has a inner lock.
+// So it's safe for concurrent use.
+type ClientLimiterWithLock struct {
+	l      sync.Mutex
+	noLock ClientLimiterNoLock
+}
+
+func NewClientLimiterWithLock(maxQPS int) *ClientLimiterWithLock {
+	return &ClientLimiterWithLock{
+		noLock: NewClientLimiterNoLock(maxQPS),
+	}
+}
+
+func (l *ClientLimiterWithLock) Acquire(addr netip.Addr) bool {
+	l.l.Lock()
+	defer l.l.Unlock()
+	return l.noLock.Acquire(addr)
+}
+
+func (l *ClientLimiterWithLock) GC(now time.Time) {
+	l.l.Lock()
+	defer l.l.Unlock()
+	l.noLock.GC(now)
+}
+
+// HPClientLimiter is a ClientLimiter for heavy work load.
+// It uses sharded locks.
+type HPClientLimiter struct {
+	shards [hpLimiterShardSize]*ClientLimiterWithLock
+}
+
+func NewHPClientLimiter(maxQPS int) *HPClientLimiter {
+	l := &HPClientLimiter{}
+	for i := range l.shards {
+		l.shards[i] = NewClientLimiterWithLock(maxQPS)
+	}
+	return l
+}
+
+func (l *HPClientLimiter) Acquire(addr netip.Addr) bool {
+	shard := l.getShard(addr)
+	return shard.Acquire(addr)
+}
+
+func (l *HPClientLimiter) getShard(addr netip.Addr) *ClientLimiterWithLock {
+	n := (addr.As16())[15] % hpLimiterShardSize
+	return l.shards[n]
+}
+
+func (l *HPClientLimiter) GC(now time.Time) {
+	for _, shard := range l.shards {
+		shard.GC(now)
+	}
 }

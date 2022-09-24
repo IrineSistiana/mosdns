@@ -20,66 +20,44 @@
 package concurrent_limiter
 
 import (
-	"strconv"
+	"net/netip"
 	"testing"
+	"time"
 )
 
-func TestNewClientQueryLimiter(t *testing.T) {
-	limiter := NewClientQueryLimiter(8)
+func Test_HPClientLimiter(t *testing.T) {
+	limiter := NewHPClientLimiter(8)
 
-	key := "key"
-	for i := 0; i < 16; i++ {
-		ok := limiter.Acquire(key)
+	for suffix := 0; suffix < 256; suffix++ {
+		addr := netip.AddrFrom4([4]byte{0, 0, 0, byte(suffix)})
+		for i := 0; i <= 16; i++ {
+			ok := limiter.Acquire(addr)
 
-		if i < 8 && !ok { // if it not reaches the limit but return a false
-			t.Fatal()
-		}
+			if i <= 8 && !ok { // if it not reaches the limit but return a false
+				t.Fatal()
+			}
 
-		if i >= 8 && ok { // if it reached the limit but return a true
-			t.Fatal()
+			if i > 8 && ok { // if it reached the limit but return a true
+				t.Fatal()
+			}
 		}
 	}
 
-	for i := 0; i < 8; i++ {
-		limiter.Done(key)
+	limiterLen := func() int {
+		s := 0
+		for _, shard := range limiter.shards {
+			s += len(shard.noLock.m)
+		}
+		return s
 	}
 
-	func() {
-		defer func() {
-			msg := recover()
-			if msg == nil {
-				t.Fatal("invalid Done call should panic")
-			}
-		}()
-		limiter.Done(key)
-	}()
-
-	func() {
-		defer func() {
-			msg := recover()
-			if msg == nil {
-				t.Fatal("Done should panic when key is not exist")
-			}
-		}()
-		limiter.Done(key + " ")
-	}()
-
-	if limiter.m.Len() != 0 {
+	if limiterLen() != 256 {
 		t.Fatal()
 	}
-}
 
-func TestNewClientQueryLimiter_race(t *testing.T) {
-	limiter := NewClientQueryLimiter(8)
-	for i := 0; i < 512; i++ {
-		key := strconv.Itoa(i)
-		for k := 0; k < 8; k++ {
-			go func() {
-				if !limiter.Acquire(key) {
-					t.Fail()
-				}
-				limiter.Done(key)
-			}()
-		}
+	limiter.GC(time.Now().Add(counterIdleTimeout).Add(time.Hour)) // all counter should be cleaned
+
+	if remain := limiterLen(); remain != 0 {
+		t.Fatal("gc test failed")
 	}
 }
