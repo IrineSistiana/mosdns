@@ -57,10 +57,15 @@ func reverse4(s string) (netip.Addr, error) {
 func reverse6(s string) (netip.Addr, error) {
 	b := new(strings.Builder)
 	b.Grow(63)
+	writen := 0
 	for i := 0; i < len(s); i++ {
 		r := len(s) - 1 - i
+		if s[r] == '.' {
+			continue
+		}
 		b.WriteByte(s[r])
-		if i != 0 && i != len(s) && i%4 == 0 {
+		writen++
+		if writen != 0 && writen != 32 && writen%4 == 0 {
 			b.WriteByte(':')
 		}
 	}
