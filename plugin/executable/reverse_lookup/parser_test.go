@@ -20,37 +20,33 @@
 package reverselookup
 
 import (
-	"github.com/IrineSistiana/mosdns/v4/pkg/cache"
-	"github.com/IrineSistiana/mosdns/v4/pkg/cache/mem_cache"
-	"time"
+	"net/netip"
+	"reflect"
+	"testing"
 )
 
-type store struct {
-	cache cache.Backend
-}
+func Test_reverse4(t *testing.T) {
 
-func newStore(size int) (*store, error) {
-	return &store{
-		cache: mem_cache.NewMemCache(size, 0),
-	}, nil
-}
-
-func (s *store) save(ip string, fqdn string, ttl time.Duration) {
-	if len(fqdn) == 0 || len(ip) == 0 || ttl <= 0 {
-		return
+	tests := []struct {
+		name    string
+		s       string
+		want    netip.Addr
+		wantErr bool
+	}{
+		{"v4", "4.4.8.8", netip.MustParseAddr("8.8.4.4"), false},
+		{"v6", "b.a.9.8.7.6.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2", netip.MustParseAddr("2001:db8::567:89ab"), false},
+		{"err", "123114123", netip.Addr{}, true},
 	}
-	now := time.Now()
-	s.cache.Store(ip, []byte(fqdn), now, now.Add(ttl))
-}
-
-func (s *store) lookup(ip string) string {
-	v, _, _ := s.cache.Get(ip)
-	if v == nil {
-		return ""
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := reverse4(tt.s)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("reverse4() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("reverse4() got = %v, want %v", got, tt.want)
+			}
+		})
 	}
-	return string(v)
-}
-
-func (s *store) close() {
-	s.cache.Close()
 }
