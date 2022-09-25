@@ -68,7 +68,7 @@ func NewCollector(bp *coremain.BP, args *Args) *Collector {
 			Buckets: []float64{1, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000},
 		}),
 	}
-	bp.GetMetricsReg().MustRegister(c.queryTotal, c.errTotal, c.responseLatency)
+	bp.GetMetricsReg().MustRegister(c.queryTotal, c.errTotal, c.thread, c.responseLatency)
 	return c
 }
 
@@ -83,7 +83,7 @@ func (c *Collector) Exec(ctx context.Context, qCtx *query_context.Context, next 
 		c.errTotal.Inc()
 	}
 	if qCtx.R() != nil {
-		c.responseLatency.Observe(float64(time.Since(start)))
+		c.responseLatency.Observe(float64(time.Since(start).Milliseconds()))
 	}
 	return err
 }
