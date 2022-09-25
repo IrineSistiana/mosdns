@@ -28,11 +28,11 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/pkg/cache/redis_cache"
 	"github.com/IrineSistiana/mosdns/v4/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
-	"github.com/IrineSistiana/mosdns/v4/pkg/metrics"
 	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
 	"github.com/go-redis/redis/v8"
 	"github.com/miekg/dns"
+	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 	"golang.org/x/sync/singleflight"
 	"time"
@@ -75,14 +75,10 @@ type cachePlugin struct {
 	backend      cache.Backend
 	lazyUpdateSF singleflight.Group
 
-	m *cacheMetrics
-}
-
-type cacheMetrics struct {
-	query   *metrics.Counter
-	hit     *metrics.Counter
-	lazyHit *metrics.Counter
-	size    *metrics.GaugeFunc
+	queryTotal   prometheus.Counter
+	hitTotal     prometheus.Counter
+	lazyHitTotal prometheus.Counter
+	size         prometheus.GaugeFunc
 }
 
 func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
@@ -124,20 +120,27 @@ func newCachePlugin(bp *coremain.BP, args *Args) (*cachePlugin, error) {
 		args:    args,
 		whenHit: whenHit,
 		backend: c,
-	}
-	m := &cacheMetrics{
-		query:   metrics.NewCounter(),
-		hit:     metrics.NewCounter(),
-		lazyHit: metrics.NewCounter(),
-		size: metrics.NewGaugeFunc(func() int64 {
-			return int64(c.Len())
+
+		queryTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "query_total",
+			Help: "The total number of processed queries",
+		}),
+		hitTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "hit_total",
+			Help: "The total number of queries that hit the cache",
+		}),
+		lazyHitTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "lazy_hit_total",
+			Help: "The total number of queries that hit the expired cache",
+		}),
+		size: prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+			Name: "cache_size",
+			Help: "Current cache size in records",
+		}, func() float64 {
+			return float64(c.Len())
 		}),
 	}
-	bp.GetMetricsReg().Set("query", m.query)
-	bp.GetMetricsReg().Set("hit", m.hit)
-	bp.GetMetricsReg().Set("lazy_hit", m.lazyHit)
-	bp.GetMetricsReg().Set("size", m.size)
-	p.m = m
+	bp.GetMetricsReg().MustRegister(p.queryTotal, p.hitTotal, p.lazyHitTotal, p.size)
 	return p, nil
 }
 
@@ -150,7 +153,7 @@ func (c *cachePlugin) skip(q *dns.Msg) bool {
 }
 
 func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
-	c.m.query.Inc(1)
+	c.queryTotal.Inc()
 	q := qCtx.Q()
 	if c.skip(q) {
 		c.L().Debug("skipped", qCtx.InfoField())
@@ -167,7 +170,7 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, nex
 
 	// cache hit
 	if v != nil {
-		c.m.hit.Inc(1)
+		c.hitTotal.Inc()
 		r := new(dns.Msg)
 		if err := r.Unpack(v); err != nil {
 			return fmt.Errorf("failed to unpack cached data, %w", err)
@@ -194,7 +197,7 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, nex
 
 		// expired but lazy update enabled
 		if c.args.LazyCacheTTL > 0 {
-			c.m.lazyHit.Inc(1)
+			c.lazyHitTotal.Inc()
 			c.L().Debug("expired cache hit", qCtx.InfoField())
 			// prepare a response with 1 ttl
 			dnsutils.SetTTL(r, uint32(c.args.LazyCacheReplyTTL))
