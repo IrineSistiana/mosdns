@@ -101,7 +101,7 @@ func NewPlugin(c *PluginConfig, lg *zap.Logger, m *Mosdns) (p Plugin, err error)
 			if err = utils.WeakDecode(m, args); err != nil {
 				return nil, fmt.Errorf("unable to decode plugin args: %w", err)
 			}
-		} else {
+		} else if c.Args != nil {
 			tc := reflect.TypeOf(c.Args) // args type from config
 			tp := reflect.TypeOf(args)   // args type from plugin init func
 			if tc == tp {
