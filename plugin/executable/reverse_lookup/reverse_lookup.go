@@ -25,6 +25,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/coremain"
 	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
 	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
 	"github.com/miekg/dns"
 	"net"
 	"net/http"
@@ -101,7 +102,7 @@ func (p *reverseLookup) Exec(ctx context.Context, qCtx *query_context.Context, n
 	q := qCtx.Q()
 	if p.args.HandlePTR && len(q.Question) > 0 && q.Question[0].Qtype == dns.TypePTR {
 		question := q.Question[0]
-		addr, err := parsePTRName(question.Name)
+		addr, err := utils.ParsePTRName(question.Name)
 		if err != nil {
 			return fmt.Errorf("failed to parse ptr name to ip, %w", err)
 		}

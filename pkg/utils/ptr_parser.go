@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package reverselookup
+package utils
 
 import (
 	"errors"
@@ -27,7 +27,12 @@ import (
 
 var errNotPTRDomain = errors.New("domain does not has a ptr suffix")
 
-func parsePTRName(fqdn string) (netip.Addr, error) {
+const (
+	IP4arpa = ".in-addr.arpa."
+	IP6arpa = ".ip6.arpa."
+)
+
+func ParsePTRName(fqdn string) (netip.Addr, error) {
 	switch {
 	case strings.HasSuffix(fqdn, IP4arpa):
 		s := strings.TrimSuffix(fqdn, IP4arpa)
@@ -71,10 +76,3 @@ func reverse6(s string) (netip.Addr, error) {
 	}
 	return netip.ParseAddr(b.String())
 }
-
-const (
-	// IP4arpa is the reverse tree suffix for v4 IP addresses.
-	IP4arpa = ".in-addr.arpa."
-	// IP6arpa is the reverse tree suffix for v6 IP addresses.
-	IP6arpa = ".ip6.arpa."
-)
