@@ -86,7 +86,11 @@ func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
 
 func newReverseLookup(bp *coremain.BP, args *Args) (coremain.Plugin, error) {
 	args.initDefault()
-	s, err := newStore(args.Size)
+	s, err := newStore(storeOpts{
+		size:   args.Size,
+		redis:  args.Redis,
+		logger: bp.L(),
+	})
 	if err != nil {
 		return nil, err
 	}
