@@ -278,7 +278,7 @@ func TestTransport_Exchange(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			transport := &Transport{
+			opts := Opts{
 				Logger:          zap.NewNop(),
 				DialFunc:        tt.fields.DialFunc,
 				WriteFunc:       tt.fields.WriteFunc,
@@ -288,7 +288,10 @@ func TestTransport_Exchange(t *testing.T) {
 				EnablePipeline:  tt.fields.EnablePipeline,
 				MaxQueryPerConn: 2,
 			}
-
+			transport, err := NewTransport(opts)
+			if err != nil {
+				t.Fatal(err)
+			}
 			ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*100)
 			defer cancel()
 
