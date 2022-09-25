@@ -31,17 +31,19 @@ import (
 )
 
 var (
-	ErrServerClosed = errors.New("server closed")
-
+	ErrServerClosed       = errors.New("server closed")
+	errMissingHTTPHandler = errors.New("missing http handler")
+	errMissingDNSHandler  = errors.New("missing dns handler")
+)
+var (
 	nopLogger = zap.NewNop()
 )
 
-// Server is a DNS server.
-// It's functions, Server.ServeUDP etc., will block and
-// close the net.Listener/net.PacketConn and always return
-// a non-nil error. If Server was closed, the returned err
-// will be ErrServerClosed.
-type Server struct {
+type ServerOpts struct {
+	// Logger optionally specifies a logger for the server logging.
+	// A nil Logger will disable the logging.
+	Logger *zap.Logger
+
 	// DNSHandler is the dns handler required by UDP, TCP, DoT server.
 	DNSHandler dns_handler.Handler
 
@@ -58,31 +60,38 @@ type Server struct {
 	Cert, Key string
 
 	// IdleTimeout limits the maximum time period that a connection
-	// can idle. Default is defaultIdleTimeout.
+	// can idle. Default is defaultTCPIdleTimeout.
 	IdleTimeout time.Duration
+}
 
-	// Logger optionally specifies logger for the server logging.
-	// A nil Logger will disables the logging.
-	Logger *zap.Logger
+func (opts *ServerOpts) init() {
+	if opts.Logger == nil {
+		opts.Logger = nopLogger
+	}
+
+	if opts.IdleTimeout <= 0 {
+		opts.IdleTimeout = defaultTCPIdleTimeout
+	}
+}
+
+// Server is a DNS server.
+// It's functions, Server.ServeUDP etc., will block and
+// close the net.Listener/net.PacketConn and always return
+// a non-nil error. If Server was closed, the returned err
+// will be ErrServerClosed.
+type Server struct {
+	opts ServerOpts
 
 	m             sync.Mutex
 	closed        bool
 	closerTracker map[*io.Closer]struct{}
 }
 
-// getLogger always returns a non-nil logger.
-func (s *Server) getLogger() *zap.Logger {
-	if l := s.Logger; l != nil {
-		return l
+func NewServer(opts ServerOpts) *Server {
+	opts.init()
+	return &Server{
+		opts: opts,
 	}
-	return nopLogger
-}
-
-func (s *Server) getIdleTimeout() time.Duration {
-	if t := s.IdleTimeout; t > 0 {
-		return t
-	}
-	return defaultTCPIdleTimeout
 }
 
 // Closed returns true if server was closed.

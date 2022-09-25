@@ -27,14 +27,14 @@ import (
 
 func (s *Server) ServeTLS(l net.Listener) error {
 	var tlsConf *tls.Config
-	if s.TLSConfig != nil {
-		tlsConf = s.TLSConfig.Clone()
+	if s.opts.TLSConfig != nil {
+		tlsConf = s.opts.TLSConfig.Clone()
 	} else {
 		tlsConf = new(tls.Config)
 	}
 
-	if len(s.Key)+len(s.Cert) != 0 {
-		cert, err := tls.LoadX509KeyPair(s.Cert, s.Key)
+	if len(s.opts.Key)+len(s.opts.Cert) != 0 {
+		cert, err := tls.LoadX509KeyPair(s.opts.Cert, s.opts.Key)
 		if err != nil {
 			return err
 		}

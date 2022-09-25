@@ -51,6 +51,11 @@ func (w *udpResponseWriter) Write(m *dns.Msg) error {
 func (s *Server) ServeUDP(c net.PacketConn) error {
 	defer c.Close()
 
+	handler := s.opts.DNSHandler
+	if handler == nil {
+		return errMissingDNSHandler
+	}
+
 	closer := io.Closer(c)
 	if ok := s.trackCloser(&closer, true); !ok {
 		return ErrServerClosed
@@ -75,7 +80,7 @@ func (s *Server) ServeUDP(c net.PacketConn) error {
 
 		req := new(dns.Msg)
 		if err := req.Unpack(rb[:n]); err != nil {
-			s.getLogger().Warn("invalid msg", zap.Error(err), zap.Binary("msg", rb[:n]))
+			s.opts.Logger.Warn("invalid msg", zap.Error(err), zap.Binary("msg", rb[:n]))
 			continue
 		}
 
@@ -85,13 +90,13 @@ func (s *Server) ServeUDP(c net.PacketConn) error {
 			if clientIP := utils.GetIPFromAddr(from); clientIP != nil {
 				meta.ClientIP = clientIP
 			} else {
-				s.getLogger().Warn("failed to acquire client ip addr")
+				s.opts.Logger.Warn("failed to acquire client ip addr")
 			}
 
 			w := &udpResponseWriter{c: c, to: from, udpSize: getUDPSize(req)}
 
-			if err := s.DNSHandler.ServeDNS(listenerCtx, req, w, meta); err != nil {
-				s.getLogger().Warn("handler err", zap.Error(err))
+			if err := handler.ServeDNS(listenerCtx, req, w, meta); err != nil {
+				s.opts.Logger.Warn("handler err", zap.Error(err))
 			}
 		}()
 	}

@@ -79,7 +79,7 @@ func (m *Mosdns) startServerListener(cfg *ServerListenerConfig, dnsHandler dns_h
 	if cfg.IdleTimeout > 0 {
 		idleTimeout = time.Duration(cfg.IdleTimeout) * time.Second
 	}
-	s := &server.Server{
+	opts := server.ServerOpts{
 		DNSHandler: dnsHandler,
 		HttpHandler: &http_handler.Handler{
 			DNSHandler:  dnsHandler,
@@ -92,6 +92,7 @@ func (m *Mosdns) startServerListener(cfg *ServerListenerConfig, dnsHandler dns_h
 		IdleTimeout: idleTimeout,
 		Logger:      m.logger,
 	}
+	s := server.NewServer(opts)
 
 	var run func() error
 	switch cfg.Protocol {

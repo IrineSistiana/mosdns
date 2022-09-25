@@ -101,24 +101,25 @@ var (
 func TestUDPServer(t *testing.T) {
 	dnsHandler := &dns_handler.DummyServerHandler{T: t}
 	tests := []struct {
-		name   string
-		server *Server
+		name string
+		opts ServerOpts
 	}{
 		{
-			name:   "",
-			server: &Server{DNSHandler: dnsHandler},
+			name: "",
+			opts: ServerOpts{DNSHandler: dnsHandler},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			l := getUDPListener(t)
+			s := NewServer(tt.opts)
 			go func() {
-				if err := tt.server.ServeUDP(l); err != ErrServerClosed {
+				if err := s.ServeUDP(l); err != ErrServerClosed {
 					t.Error(err)
 				}
 			}()
-			defer tt.server.Close()
+			defer s.Close()
 
 			time.Sleep(time.Millisecond * 50)
 			addr := l.LocalAddr().String()
@@ -143,40 +144,41 @@ func TestTCPDoTServer(t *testing.T) {
 	tests := []struct {
 		name   string
 		scheme string
-		server *Server
+		opts   ServerOpts
 	}{
 		{
 			name:   "tcp",
 			scheme: "tcp",
-			server: &Server{DNSHandler: dnsHandler},
+			opts:   ServerOpts{DNSHandler: dnsHandler},
 		},
 		{
 			name:   "dot with tls config",
 			scheme: "tls",
-			server: &Server{DNSHandler: dnsHandler, TLSConfig: getTLSConfig(t)},
+			opts:   ServerOpts{DNSHandler: dnsHandler, TLSConfig: getTLSConfig(t)},
 		},
 		{
 			name:   "dot with cert and key",
 			scheme: "tls",
-			server: &Server{DNSHandler: dnsHandler, Cert: "./testdata/test.test.cert", Key: "./testdata/test.test.key"},
+			opts:   ServerOpts{DNSHandler: dnsHandler, Cert: "./testdata/test.test.cert", Key: "./testdata/test.test.key"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			l := getListener(t)
+			s := NewServer(tt.opts)
 			go func() {
 				var err error
 				if tt.scheme == "tcp" {
-					err = tt.server.ServeTCP(l)
+					err = s.ServeTCP(l)
 				} else {
-					err = tt.server.ServeTLS(l)
+					err = s.ServeTLS(l)
 				}
 				if err != ErrServerClosed {
 					t.Error(err)
 				}
 			}()
-			defer tt.server.Close()
+			defer s.Close()
 
 			time.Sleep(time.Millisecond * 50)
 			addr := l.Addr().String()
@@ -203,19 +205,19 @@ func TestDoHServer(t *testing.T) {
 		Path:       "/dns-query",
 	}
 	tests := []struct {
-		name   string
-		server *Server
+		name string
+		opts ServerOpts
 	}{
 		{
 			name: "doh with tls config",
-			server: &Server{
+			opts: ServerOpts{
 				HttpHandler: httpHandler,
 				TLSConfig:   getTLSConfig(t),
 			},
 		},
 		{
 			name: "doh with cert and key",
-			server: &Server{
+			opts: ServerOpts{
 				HttpHandler: httpHandler,
 				Cert:        "./testdata/test.test.cert", Key: "./testdata/test.test.key",
 			},
@@ -226,12 +228,13 @@ func TestDoHServer(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			l := getListener(t)
+			s := NewServer(tt.opts)
 			go func() {
-				if err := tt.server.ServeHTTPS(l); err != ErrServerClosed {
+				if err := s.ServeHTTPS(l); err != ErrServerClosed {
 					t.Error(err)
 				}
 			}()
-			defer tt.server.Close()
+			defer s.Close()
 
 			time.Sleep(time.Millisecond * 50)
 			u, err := upstream.AddressToUpstream("https://"+l.Addr().String()+"/dns-query", opt)

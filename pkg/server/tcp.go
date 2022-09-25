@@ -51,6 +51,11 @@ func (t *tcpResponseWriter) Write(m *dns.Msg) error {
 func (s *Server) ServeTCP(l net.Listener) error {
 	defer l.Close()
 
+	handler := s.opts.DNSHandler
+	if handler == nil {
+		return errMissingDNSHandler
+	}
+
 	closer := l.(io.Closer)
 	if ok := s.trackCloser(&closer, true); !ok {
 		return ErrServerClosed
@@ -80,7 +85,7 @@ func (s *Server) ServeTCP(l net.Listener) error {
 			defer s.trackCloser(&closer, false)
 
 			firstReadTimeout := tcpFirstReadTimeout
-			idleTimeout := s.getIdleTimeout()
+			idleTimeout := s.opts.IdleTimeout
 			if idleTimeout < firstReadTimeout {
 				firstReadTimeout = idleTimeout
 			}
@@ -103,15 +108,15 @@ func (s *Server) ServeTCP(l net.Listener) error {
 					if clientIP := utils.GetIPFromAddr(c.RemoteAddr()); clientIP != nil {
 						meta.ClientIP = clientIP
 					} else {
-						s.getLogger().Warn("failed to acquire client ip addr")
+						s.opts.Logger.Warn("failed to acquire client ip addr")
 					}
-					if err := s.DNSHandler.ServeDNS(
+					if err := handler.ServeDNS(
 						tcpConnCtx,
 						req,
 						&tcpResponseWriter{c: c},
 						meta,
 					); err != nil {
-						s.getLogger().Warn("handler err", zap.Error(err))
+						s.opts.Logger.Warn("handler err", zap.Error(err))
 						c.Close()
 					}
 				}()
