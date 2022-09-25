@@ -146,10 +146,15 @@ func (p *reverseLookup) Exec(ctx context.Context, qCtx *query_context.Context, n
 		default:
 			continue
 		}
-		if int(rr.Header().Ttl) > p.args.TTL {
-			rr.Header().Ttl = uint32(p.args.TTL)
+		h := rr.Header()
+		if int(h.Ttl) > p.args.TTL {
+			h.Ttl = uint32(p.args.TTL)
 		}
-		p.store.save(ip.String(), rr.Header().Name, time.Duration(p.args.TTL)*time.Second)
+		name := h.Name
+		if len(q.Question) == 1 {
+			name = q.Question[0].Name
+		}
+		p.store.save(ip.String(), name, time.Duration(p.args.TTL)*time.Second)
 	}
 	return nil
 }
