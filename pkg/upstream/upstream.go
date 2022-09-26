@@ -23,15 +23,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v4/pkg/dnsutils"
-	"github.com/IrineSistiana/mosdns/v4/pkg/upstream/bootstrap"
-	"github.com/IrineSistiana/mosdns/v4/pkg/upstream/doh"
-	"github.com/IrineSistiana/mosdns/v4/pkg/upstream/h3roundtripper"
-	"github.com/IrineSistiana/mosdns/v4/pkg/upstream/transport"
-	"github.com/lucas-clemente/quic-go"
-	"github.com/miekg/dns"
-	"go.uber.org/zap"
-	"golang.org/x/net/http2"
 	"io"
 	"net"
 	"net/http"
@@ -39,6 +30,18 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/IrineSistiana/mosdns/v4/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v4/pkg/upstream/bootstrap"
+	"github.com/IrineSistiana/mosdns/v4/pkg/upstream/dnscrypt"
+	"github.com/IrineSistiana/mosdns/v4/pkg/upstream/doh"
+	"github.com/IrineSistiana/mosdns/v4/pkg/upstream/h3roundtripper"
+	"github.com/IrineSistiana/mosdns/v4/pkg/upstream/transport"
+	"github.com/ameshkov/dnsstamps"
+	"github.com/lucas-clemente/quic-go"
+	"github.com/miekg/dns"
+	"go.uber.org/zap"
+	"golang.org/x/net/http2"
 )
 
 const (
@@ -294,9 +297,76 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 			Client:      &http.Client{Transport: t},
 			AddOnCloser: addonCloser,
 		}, nil
+	case "sdns":
+		return stampToUpstream(addrURL, opt)
 	default:
 		return nil, fmt.Errorf("unsupported protocol [%s]", addrURL.Scheme)
 	}
+}
+
+// stampToUpstream converts a DNS stamp to an Upstream
+// options -- Upstream customization options
+func stampToUpstream(upsURL *url.URL, opt *Opt) (Upstream, error) {
+	stamp, err := dnsstamps.NewServerStampFromString(upsURL.String())
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse %s: %w", upsURL, err)
+	}
+
+	if stamp.ServerAddrStr != "" {
+		host, _, err := net.SplitHostPort(stamp.ServerAddrStr)
+		if err != nil {
+			host = stamp.ServerAddrStr
+		}
+
+		// Parse and add to options
+		ip := net.ParseIP(host)
+		if ip == nil {
+			return nil, fmt.Errorf("invalid server address in the stamp: %s", stamp.ServerAddrStr)
+		}
+		// opts.ServerIPAddrs = []net.IP{ip}
+
+		if opt.DialAddr == "" {
+			opt.DialAddr = stamp.ServerAddrStr
+		}
+	}
+
+	switch stamp.Proto {
+	case dnsstamps.StampProtoTypePlain:
+		return NewUpstream(stamp.ServerAddrStr, opt)
+	case dnsstamps.StampProtoTypeDNSCrypt:
+		opts := dnscrypt.Options{
+			Logger: opt.Logger,
+			UdpDialFunc: func(ctx context.Context) (net.Conn, error) {
+				d := net.Dialer{
+					Resolver: bootstrap.NewPlainBootstrap(opt.Bootstrap),
+					Control:  getSetMarkFunc(opt.SoMark),
+				}
+				return d.DialContext(ctx, "udp", opt.DialAddr)
+			},
+			TcpDialFunc: func(ctx context.Context) (net.Conn, error) {
+				d := &net.Dialer{
+					Resolver: bootstrap.NewPlainBootstrap(opt.Bootstrap),
+					Control:  getSetMarkFunc(opt.SoMark),
+				}
+				return dialTCP(ctx, opt.DialAddr, opt.Socks5, d)
+			},
+			IdleTimeout:    opt.IdleTimeout,
+			EnablePipeline: opt.EnablePipeline,
+			MaxConns:       opt.MaxConns,
+		}
+		return dnscrypt.NewDnscrypt(upsURL, opts)
+	case dnsstamps.StampProtoTypeDoH:
+		addr := fmt.Sprintf("https://%s%s", stamp.ProviderName, stamp.Path)
+		return NewUpstream(addr, opt)
+	case dnsstamps.StampProtoTypeDoQ:
+		addr := fmt.Sprintf("quic://%s%s", stamp.ProviderName, stamp.Path)
+		return NewUpstream(addr, opt)
+	case dnsstamps.StampProtoTypeTLS:
+		addr := fmt.Sprintf("tls://%s", stamp.ProviderName)
+		return NewUpstream(addr, opt)
+	}
+
+	return nil, fmt.Errorf("unsupported protocol %v in %s", stamp.Proto, upsURL)
 }
 
 func getDialAddrWithPort(host, dialAddr string, defaultPort int) string {
