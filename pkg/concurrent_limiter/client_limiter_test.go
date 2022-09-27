@@ -26,12 +26,19 @@ import (
 )
 
 func Test_HPClientLimiter(t *testing.T) {
-	limiter := NewHPClientLimiter(8)
+	limiter, err := NewHPClientLimiter(HPLimiterOpts{
+		Threshold: 8,
+		IPv4Mask:  24,
+	})
+
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	for suffix := 0; suffix < 256; suffix++ {
-		addr := netip.AddrFrom4([4]byte{0, 0, 0, byte(suffix)})
+		addr := netip.AddrFrom4([4]byte{0, 0, byte(suffix), 0})
 		for i := 0; i <= 16; i++ {
-			ok := limiter.Acquire(addr)
+			ok := limiter.AcquireToken(addr)
 
 			if i <= 8 && !ok { // if it not reaches the limit but return a false
 				t.Fatal()
@@ -46,7 +53,7 @@ func Test_HPClientLimiter(t *testing.T) {
 	limiterLen := func() int {
 		s := 0
 		for _, shard := range limiter.shards {
-			s += len(shard.noLock.m)
+			s += len(shard.m)
 		}
 		return s
 	}
