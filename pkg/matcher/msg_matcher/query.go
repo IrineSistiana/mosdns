@@ -27,6 +27,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/pkg/matcher/netlist"
 	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
 	"github.com/miekg/dns"
+	"net/netip"
 )
 
 type ClientIPMatcher struct {
@@ -38,12 +39,11 @@ func NewClientIPMatcher(ipMatcher netlist.Matcher) *ClientIPMatcher {
 }
 
 func (m *ClientIPMatcher) Match(_ context.Context, qCtx *query_context.Context) (matched bool, err error) {
-	clientIP := qCtx.ReqMeta().ClientIP
-	if clientIP == nil {
+	clientAddr := qCtx.ReqMeta().ClientAddr
+	if !clientAddr.IsValid() {
 		return false, nil
 	}
-
-	return m.ipMatcher.Match(clientIP)
+	return m.ipMatcher.Match(clientAddr)
 }
 
 type ClientECSMatcher struct {
@@ -56,7 +56,8 @@ func NewClientECSMatcher(ipMatcher netlist.Matcher) *ClientECSMatcher {
 
 func (m *ClientECSMatcher) Match(_ context.Context, qCtx *query_context.Context) (matched bool, err error) {
 	if ecs := dnsutils.GetMsgECS(qCtx.Q()); ecs != nil {
-		return m.ipMatcher.Match(ecs.Address)
+		addr, _ := netip.AddrFromSlice(ecs.Address)
+		return m.ipMatcher.Match(addr)
 	}
 	return false, nil
 }

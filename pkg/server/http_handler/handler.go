@@ -29,8 +29,8 @@ import (
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"io"
-	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 )
 
@@ -97,28 +97,26 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// read remote addr
-	var clientIP net.IP
+	var clientAddr netip.Addr
 	if header := h.opts.SrcIPHeader; len(header) != 0 {
 		if xff := req.Header.Get(header); len(xff) != 0 {
-			clientIP = readClientIPFromXFF(xff)
-			if clientIP == nil {
-				h.warnErr(req, "failed to get client ip", fmt.Errorf("failed to prase header %s: %s", header, xff))
+			clientAddr, err = readClientAddrFromXFF(xff)
+			if err != nil {
+				h.warnErr(req, "failed to get client ip from header", fmt.Errorf("failed to prase header %s: %s, %s", header, xff, err))
 			}
 		}
 	}
 
 	// If no ip read from the ip header, use the remote address from net/http.
-	if clientIP == nil {
-		ip, _, _ := net.SplitHostPort(req.RemoteAddr)
-		if len(ip) > 0 {
-			clientIP = net.ParseIP(ip)
-		}
-		if clientIP == nil {
+	if !clientAddr.IsValid() {
+		addrPort, err := netip.ParseAddrPort(req.RemoteAddr)
+		if err != nil {
 			h.warnErr(req, "failed to get client ip", fmt.Errorf("failed to prase request remote addr %s", req.RemoteAddr))
 		}
+		clientAddr = addrPort.Addr()
 	}
 
-	r, err := h.opts.DNSHandler.ServeDNS(req.Context(), q, &query_context.RequestMeta{ClientIP: clientIP})
+	r, err := h.opts.DNSHandler.ServeDNS(req.Context(), q, &query_context.RequestMeta{ClientAddr: clientAddr})
 	if err != nil {
 		panic(err.Error()) // Force http server to close connection.
 	}
@@ -138,11 +136,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func readClientIPFromXFF(s string) net.IP {
+func readClientAddrFromXFF(s string) (netip.Addr, error) {
 	if i := strings.IndexRune(s, ','); i > 0 {
-		return net.ParseIP(s[:i])
+		return netip.ParseAddr(s[:i])
 	}
-	return net.ParseIP(s)
+	return netip.ParseAddr(s)
 }
 
 var errInvalidMediaType = errors.New("missing or invalid media type header")

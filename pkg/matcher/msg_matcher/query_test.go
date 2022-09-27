@@ -28,6 +28,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
 	"github.com/miekg/dns"
 	"net"
+	"net/netip"
 	"testing"
 )
 
@@ -46,8 +47,8 @@ func TestClientIPMatcher_Match(t *testing.T) {
 	nl.Sort()
 
 	msg := new(dns.Msg)
-	meta1271 := &query_context.RequestMeta{ClientIP: net.ParseIP("127.0.0.1")}
-	meta1281 := &query_context.RequestMeta{ClientIP: net.ParseIP("128.0.0.1")}
+	meta1271 := &query_context.RequestMeta{ClientAddr: netip.MustParseAddr("127.0.0.1")}
+	meta1281 := &query_context.RequestMeta{ClientAddr: netip.MustParseAddr("128.0.0.1")}
 	metaNilAddr := &query_context.RequestMeta{}
 
 	tests := []struct {

@@ -22,7 +22,6 @@ package netlist
 import (
 	"errors"
 	"fmt"
-	"net"
 	"net/netip"
 	"sort"
 )
@@ -117,11 +116,7 @@ func (list *List) Swap(i, j int) {
 	list.e[i], list.e[j] = list.e[j], list.e[i]
 }
 
-func (list *List) Match(ip net.IP) (bool, error) {
-	addr, ok := netip.AddrFromSlice(ip)
-	if !ok {
-		return false, fmt.Errorf("invalid ip %s", ip)
-	}
+func (list *List) Match(addr netip.Addr) (bool, error) {
 	return list.Contains(addr)
 }
 

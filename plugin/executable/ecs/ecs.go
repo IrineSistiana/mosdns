@@ -21,14 +21,12 @@ package ecs
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v4/coremain"
 	"github.com/IrineSistiana/mosdns/v4/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
 	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
 	"github.com/miekg/dns"
-	"go.uber.org/zap"
 	"net"
 )
 
@@ -110,15 +108,9 @@ func newPlugin(bp *coremain.BP, args *Args) (p *ecsPlugin, err error) {
 }
 
 // Exec tries to append ECS to qCtx.Q().
-// If an error occurred, Exec will just log it to internal logger.
-// It will never raise its own error.
 func (e *ecsPlugin) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
-	upgraded, newECS, err := e.addECS(qCtx)
-	if err != nil {
-		e.L().Warn("internal err", zap.Error(err))
-	}
-
-	err = executable_seq.ExecChainNode(ctx, qCtx, next)
+	upgraded, newECS := e.addECS(qCtx)
+	err := executable_seq.ExecChainNode(ctx, qCtx, next)
 	if err != nil {
 		return err
 	}
@@ -135,40 +127,33 @@ func (e *ecsPlugin) Exec(ctx context.Context, qCtx *query_context.Context, next 
 	return nil
 }
 
-var (
-	errNoClientAddr = errors.New("context doesn't have a client ip")
-)
-
-// addECS adds *dns.EDNS0_SUBNET record to q.
-// The clientAddr can be nil.
-// First returned bool: Whether the addECS upgraded the q to a EDNS0 enabled query.
-// Second returned bool: Whether the addECS added a *dns.EDNS0_SUBNET to q that didn't
+// addECS adds a *dns.EDNS0_SUBNET record to q.
+// upgraded: Whether the addECS upgraded the q to a EDNS0 enabled query.
+// newECS: Whether the addECS added a *dns.EDNS0_SUBNET to q that didn't
 // have a *dns.EDNS0_SUBNET before.
-func (e *ecsPlugin) addECS(qCtx *query_context.Context) (upgraded bool, newECS bool, err error) {
+func (e *ecsPlugin) addECS(qCtx *query_context.Context) (upgraded bool, newECS bool) {
+	clientAddr := qCtx.ReqMeta().ClientAddr
+	if !clientAddr.IsValid() {
+		return false, false
+	}
+
 	q := qCtx.Q()
-
-	clientIP := qCtx.ReqMeta().ClientIP // Maybe nil.
-
 	opt := q.IsEdns0()
 	hasECS := opt != nil && dnsutils.GetECS(opt) != nil
 	if hasECS && !e.args.ForceOverwrite {
 		// Argument args.ForceOverwrite is disabled. q already has an edns0 subnet. Skip it.
-		return false, false, nil
+		return false, false
 	}
 
 	var ecs *dns.EDNS0_SUBNET
 	if e.args.Auto { // use client ip
-		if clientIP == nil {
-			return false, false, errNoClientAddr
-		}
-		if ip4 := clientIP.To4(); ip4 != nil { // is ipv4
-			ecs = dnsutils.NewEDNS0Subnet(ip4, e.args.Mask4, false)
-		} else {
-			if ip6 := clientIP.To16(); ip6 != nil { // is ipv6
-				ecs = dnsutils.NewEDNS0Subnet(ip6, e.args.Mask6, true)
-			} else { // non
-				return false, false, fmt.Errorf("invalid client ip address [%s]", clientIP)
-			}
+		switch {
+		case clientAddr.Is4():
+			ecs = dnsutils.NewEDNS0Subnet(clientAddr.AsSlice(), e.args.Mask4, false)
+		case clientAddr.Is4In6():
+			ecs = dnsutils.NewEDNS0Subnet(clientAddr.Unmap().AsSlice(), e.args.Mask4, false)
+		case clientAddr.Is6():
+			ecs = dnsutils.NewEDNS0Subnet(clientAddr.AsSlice(), e.args.Mask6, true)
 		}
 	} else { // use preset ip
 		switch {
@@ -194,9 +179,9 @@ func (e *ecsPlugin) addECS(qCtx *query_context.Context) (upgraded bool, newECS b
 			opt = dnsutils.UpgradeEDNS0(q)
 		}
 		newECS = dnsutils.AddECS(opt, ecs, true)
-		return upgraded, newECS, nil
+		return upgraded, newECS
 	}
-	return false, false, nil
+	return false, false
 }
 
 func checkQueryType(m *dns.Msg, typ uint16) bool {

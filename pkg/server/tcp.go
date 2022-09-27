@@ -96,13 +96,9 @@ func (s *Server) ServeTCP(l net.Listener) error {
 
 				// handle query
 				go func() {
-					meta := new(query_context.RequestMeta)
-					if clientIP := utils.GetIPFromAddr(c.RemoteAddr()); clientIP != nil {
-						meta.ClientIP = clientIP
-					} else {
-						s.opts.Logger.Warn("failed to acquire client ip addr")
+					meta := &query_context.RequestMeta{
+						ClientAddr: utils.GetAddrFromAddr(c.RemoteAddr()),
 					}
-
 					r, err := handler.ServeDNS(tcpConnCtx, req, meta)
 					if err != nil {
 						s.opts.Logger.Warn("handler err", zap.Error(err))

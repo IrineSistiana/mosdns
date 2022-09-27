@@ -43,7 +43,8 @@ type RequestMeta struct {
 
 // Context is a query context that pass through plugins
 // A Context will always have a non-nil Q.
-// Context MUST be created by NewContext.
+// Context MUST be created using NewContext.
+// All Context funcs are not safe for concurrent use.
 type Context struct {
 	// init at beginning
 	startTime     time.Time // when this Context was created
@@ -56,7 +57,7 @@ type Context struct {
 	marks map[uint]struct{}
 }
 
-var id uint32
+var contextUid uint32
 var zeroRequestMeta = &RequestMeta{}
 
 // NewContext creates a new query Context.
@@ -75,7 +76,7 @@ func NewContext(q *dns.Msg, meta *RequestMeta) *Context {
 		q:             q,
 		originalQuery: q.Copy(),
 		reqMeta:       meta,
-		id:            atomic.AddUint32(&id, 1),
+		id:            atomic.AddUint32(&contextUid, 1),
 		startTime:     time.Now(),
 	}
 
@@ -114,7 +115,7 @@ func (ctx *Context) OriginalQuery() *dns.Msg {
 	return ctx.originalQuery
 }
 
-// ReqMeta returns the request metadata.
+// ReqMeta returns the request metadata. It always returns a non-nil RequestMeta.
 // The returned *RequestMeta is a reference shared by all ReqMeta.
 // Caller must not modify it.
 func (ctx *Context) ReqMeta() *RequestMeta {

@@ -28,7 +28,6 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
 	"google.golang.org/protobuf/proto"
 	"io"
-	"net"
 	"net/netip"
 	"strings"
 	"sync/atomic"
@@ -46,9 +45,9 @@ func (m *MatcherGroup) Len() int {
 	return s
 }
 
-func (m *MatcherGroup) Match(ip net.IP) (bool, error) {
+func (m *MatcherGroup) Match(addr netip.Addr) (bool, error) {
 	for _, list := range m.g {
-		ok, err := list.Match(ip)
+		ok, err := list.Match(addr)
 		if err != nil {
 			return false, err
 		}
@@ -77,8 +76,8 @@ func (d *DynamicMatcher) Update(newData []byte) error {
 	return nil
 }
 
-func (d *DynamicMatcher) Match(ip net.IP) (bool, error) {
-	return d.v.Load().(*List).Match(ip)
+func (d *DynamicMatcher) Match(addr netip.Addr) (bool, error) {
+	return d.v.Load().(*List).Match(addr)
 }
 
 func (d *DynamicMatcher) Len() int {

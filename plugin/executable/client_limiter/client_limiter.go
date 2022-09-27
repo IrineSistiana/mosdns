@@ -26,8 +26,6 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
 	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
 	"github.com/miekg/dns"
-	"go.uber.org/zap"
-	"net/netip"
 	"sync"
 	"time"
 )
@@ -72,8 +70,8 @@ func NewLimiter(bp *coremain.BP, args *Args) (*Limiter, error) {
 }
 
 func (l *Limiter) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
-	addr, ok := l.parseClientAddr(qCtx)
-	if !ok {
+	addr := qCtx.ReqMeta().ClientAddr
+	if !addr.IsValid() {
 		return executable_seq.ExecChainNode(ctx, qCtx, next)
 	}
 	if ok := l.hpLimiter.AcquireToken(addr); !ok {
@@ -83,23 +81,6 @@ func (l *Limiter) Exec(ctx context.Context, qCtx *query_context.Context, next ex
 		return nil
 	}
 	return executable_seq.ExecChainNode(ctx, qCtx, next)
-}
-
-func (l *Limiter) parseClientAddr(qCtx *query_context.Context) (netip.Addr, bool) {
-	meta := qCtx.ReqMeta()
-	if meta == nil {
-		return netip.Addr{}, false
-	}
-	ip := meta.ClientIP
-	if ip == nil {
-		return netip.Addr{}, false
-	}
-	addr, ok := netip.AddrFromSlice(ip)
-	if !ok {
-		l.BP.L().Error("query context has a invalid client ip", zap.Binary("ip", ip))
-		return netip.Addr{}, false
-	}
-	return addr, true
 }
 
 func (l *Limiter) Close() error {

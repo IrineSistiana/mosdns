@@ -27,6 +27,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
 	"github.com/miekg/dns"
 	"net"
+	"net/netip"
 	"testing"
 )
 
@@ -75,23 +76,23 @@ func Test_ecsPlugin(t *testing.T) {
 				optR := dnsutils.UpgradeEDNS0(r)
 
 				if len(tt.qHasECS) > 0 {
-					ip := net.ParseIP(tt.qHasECS)
-					if ip == nil {
-						t.Fatal("invalid ip")
+					ip, err := netip.ParseAddr(tt.qHasECS)
+					if err != nil {
+						t.Fatal(err)
 					}
 					dnsutils.AddECS(optR, dnsutils.NewEDNS0Subnet(net.IPv6loopback, 24, false), true)
-					dnsutils.AddECS(optQ, dnsutils.NewEDNS0Subnet(ip, 24, false), true)
+					dnsutils.AddECS(optQ, dnsutils.NewEDNS0Subnet(ip.AsSlice(), 24, false), true)
 				}
 			}
 
-			var ip net.IP
+			var ip netip.Addr
 			if len(tt.clientAddr) > 0 {
-				ip = net.ParseIP(tt.clientAddr)
-				if ip == nil {
-					t.Fatal("invalid ip")
+				ip, err = netip.ParseAddr(tt.clientAddr)
+				if err != nil {
+					t.Fatal(err)
 				}
 			}
-			qCtx := query_context.NewContext(q, &query_context.RequestMeta{ClientIP: ip})
+			qCtx := query_context.NewContext(q, &query_context.RequestMeta{ClientAddr: ip})
 
 			next := executable_seq.WrapExecutable(&executable_seq.DummyExecutable{
 				WantR: r,

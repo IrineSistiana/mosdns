@@ -27,6 +27,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
 	"github.com/miekg/dns"
 	"net"
+	"net/netip"
 )
 
 type AAAAAIPMatcher struct {
@@ -57,7 +58,8 @@ func (m *AAAAAIPMatcher) MatchMsg(msg *dns.Msg) (bool, error) {
 		default:
 			continue
 		}
-		matched, err := m.ipMatcher.Match(ip)
+		addr, _ := netip.AddrFromSlice(ip)
+		matched, err := m.ipMatcher.Match(addr)
 		if err != nil {
 			return false, err
 		}

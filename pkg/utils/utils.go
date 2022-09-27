@@ -35,6 +35,7 @@ import (
 	"golang.org/x/exp/constraints"
 	"math/big"
 	"net"
+	"net/netip"
 	"os"
 	"regexp"
 	"strings"
@@ -42,8 +43,9 @@ import (
 	"unsafe"
 )
 
-// GetIPFromAddr returns net.IP from net.Addr.
-// Will return nil if no ip address can be parsed.
+// GetIPFromAddr returns a net.IP from the given net.Addr.
+// addr can be *net.TCPAddr, *net.UDPAddr, *net.IPNet, *net.IPAddr
+// Will return nil otherwise.
 func GetIPFromAddr(addr net.Addr) (ip net.IP) {
 	switch v := addr.(type) {
 	case *net.TCPAddr:
@@ -54,9 +56,15 @@ func GetIPFromAddr(addr net.Addr) (ip net.IP) {
 		return v.IP
 	case *net.IPAddr:
 		return v.IP
-	default:
-		return parseIPFromAddr(addr.String())
 	}
+	return nil
+}
+
+// GetAddrFromAddr returns netip.Addr from net.Addr.
+// See also: GetIPFromAddr.
+func GetAddrFromAddr(addr net.Addr) netip.Addr {
+	a, _ := netip.AddrFromSlice(GetIPFromAddr(addr))
+	return a
 }
 
 // SplitSchemeAndHost splits addr to protocol and host.
@@ -66,14 +74,6 @@ func SplitSchemeAndHost(addr string) (protocol, host string) {
 	} else {
 		return "", addr
 	}
-}
-
-func parseIPFromAddr(s string) net.IP {
-	ipStr, _, err := net.SplitHostPort(s)
-	if err != nil {
-		return nil
-	}
-	return net.ParseIP(ipStr)
 }
 
 // GetMsgKey unpacks m and set its id to salt.

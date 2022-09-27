@@ -69,12 +69,8 @@ func (s *Server) ServeUDP(c net.PacketConn) error {
 
 		// handle query
 		go func() {
-			meta := new(query_context.RequestMeta)
-			meta.FromUDP = true
-			if clientIP := utils.GetIPFromAddr(clientAddr); clientIP != nil {
-				meta.ClientIP = clientIP
-			} else {
-				s.opts.Logger.Warn("failed to acquire client ip addr")
+			meta := &query_context.RequestMeta{
+				ClientAddr: utils.GetAddrFromAddr(clientAddr),
 			}
 
 			r, err := handler.ServeDNS(listenerCtx, q, meta)
