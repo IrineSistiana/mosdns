@@ -22,6 +22,7 @@ package coremain
 import (
 	"github.com/IrineSistiana/mosdns/v4/mlog"
 	"github.com/IrineSistiana/mosdns/v4/pkg/data_provider"
+	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
 )
 
 type Config struct {
@@ -31,6 +32,9 @@ type Config struct {
 	Plugins       []PluginConfig                     `yaml:"plugins"`
 	Servers       []ServerConfig                     `yaml:"servers"`
 	API           APIConfig                          `yaml:"api"`
+
+	// Experimental
+	Security SecurityConfig `yaml:"security"`
 }
 
 // PluginConfig represents a plugin config
@@ -76,4 +80,28 @@ type ServerListenerConfig struct {
 
 type APIConfig struct {
 	HTTP string `yaml:"http"`
+}
+
+type SecurityConfig struct {
+	BadIPObserver BadIPObserverConfig `yaml:"bad_ip_observer"`
+}
+
+// BadIPObserverConfig is a copy of ip_observer.BadIPObserverOpts.
+type BadIPObserverConfig struct {
+	OnUpdateCallBack string `yaml:"on_update_callback"`
+
+	Threshold int `yaml:"threshold"` // Default is 500.
+	Interval  int `yaml:"interval"`  // (sec) Default is 10.
+	TTL       int `yaml:"ttl"`       // (sec) Default is 600 (10min).
+	// IP masks to aggregate an IP range.
+	IPv4Mask int `yaml:"ipv4_mask"` // Default is 32.
+	IPv6Mask int `yaml:"ipv6_mask"` // Default is 48.
+}
+
+func (c *BadIPObserverConfig) Init() {
+	utils.SetDefaultNum(&c.Threshold, 500)
+	utils.SetDefaultNum(&c.Interval, 10)
+	utils.SetDefaultNum(&c.TTL, 600)
+	utils.SetDefaultNum(&c.IPv4Mask, 32)
+	utils.SetDefaultNum(&c.IPv6Mask, 48)
 }

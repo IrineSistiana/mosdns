@@ -23,6 +23,7 @@ import (
 	"context"
 	"errors"
 	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
+	"github.com/IrineSistiana/mosdns/v4/pkg/ip_observer"
 	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
 	"github.com/miekg/dns"
@@ -57,6 +58,9 @@ type EntryHandlerOpts struct {
 	// Logger is used for logging. Default is a noop logger.
 	Logger *zap.Logger
 
+	// Optional.
+	BadIPObserver ip_observer.IPObserver
+
 	Entry executable_seq.Executable
 
 	// QueryTimeout limits the timeout value of each query.
@@ -70,6 +74,9 @@ type EntryHandlerOpts struct {
 func (opts *EntryHandlerOpts) Init() error {
 	if opts.Logger == nil {
 		opts.Logger = nopLogger
+	}
+	if opts.BadIPObserver == nil {
+		opts.BadIPObserver = ip_observer.NewNopObserver()
 	}
 	if opts.Entry == nil {
 		return errors.New("nil entry")
@@ -105,33 +112,26 @@ func (h *EntryHandler) ServeDNS(ctx context.Context, req *dns.Msg, meta *query_c
 	// exec entry
 	qCtx := query_context.NewContext(req, meta)
 	err := h.opts.Entry.Exec(ctx, qCtx, nil)
+	respMsg := qCtx.R()
 	if err != nil {
 		h.opts.Logger.Warn("entry returned an err", qCtx.InfoField(), zap.Error(err))
 	} else {
 		h.opts.Logger.Debug("entry returned", qCtx.InfoField())
 	}
+	if respMsg == nil {
+		h.opts.Logger.Error("entry returned an nil response", qCtx.InfoField())
+	}
 
-	var respMsg *dns.Msg
-	if err != nil {
+	if respMsg == nil || err != nil {
 		respMsg = new(dns.Msg)
 		respMsg.SetReply(req)
 		respMsg.Rcode = dns.RcodeServerFailure
-	} else {
-		respMsg = qCtx.R()
 	}
 
-	if respMsg != nil {
-		if h.opts.RecursionAvailable {
-			respMsg.RecursionAvailable = true
-		}
-		return respMsg, nil
+	if h.opts.RecursionAvailable {
+		respMsg.RecursionAvailable = true
 	}
-
-	// If no response from the entry, return a REFUSED msg.
-	refused := new(dns.Msg)
-	refused.SetReply(req)
-	refused.Rcode = dns.RcodeRefused
-	return refused, nil
+	return respMsg, nil
 }
 
 type DummyServerHandler struct {

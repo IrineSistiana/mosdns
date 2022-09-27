@@ -17,13 +17,20 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package server
+package ip_observer
 
-import "net/netip"
+import (
+	"net/netip"
+)
 
-// If addr is invalid, badAddr is a noop.
-func (s *Server) possibleBadAddr(addr netip.Addr) {
-	if addr.IsValid() {
-		s.opts.BadIPObserver.Observe(addr)
-	}
+type IPObserver interface {
+	// Observe notifies the IPObserver. addr must be valid.
+	Observe(addr netip.Addr)
 }
+
+type NopObserver struct{}
+
+func NewNopObserver() NopObserver {
+	return NopObserver{}
+}
+func (n NopObserver) Observe(_ netip.Addr) {}

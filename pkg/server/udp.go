@@ -53,24 +53,26 @@ func (s *Server) ServeUDP(c net.PacketConn) error {
 	rb := readBuf.Bytes()
 
 	for {
-		n, clientAddr, err := c.ReadFrom(rb)
+		n, clientNetAddr, err := c.ReadFrom(rb)
 		if err != nil {
 			if s.Closed() {
 				return ErrServerClosed
 			}
 			return fmt.Errorf("unexpected read err: %w", err)
 		}
+		clientAddr := utils.GetAddrFromAddr(clientNetAddr)
 
 		q := new(dns.Msg)
 		if err := q.Unpack(rb[:n]); err != nil {
-			s.opts.Logger.Warn("invalid msg", zap.Error(err), zap.Binary("msg", rb[:n]))
+			s.possibleBadAddr(clientAddr)
+			s.opts.Logger.Warn("invalid msg", zap.Error(err), zap.Binary("msg", rb[:n]), zap.Stringer("from", clientNetAddr))
 			continue
 		}
 
 		// handle query
 		go func() {
 			meta := &query_context.RequestMeta{
-				ClientAddr: utils.GetAddrFromAddr(clientAddr),
+				ClientAddr: clientAddr,
 			}
 
 			r, err := handler.ServeDNS(listenerCtx, q, meta)
@@ -86,11 +88,10 @@ func (s *Server) ServeUDP(c net.PacketConn) error {
 					return
 				}
 				defer buf.Release()
-				if _, err := c.WriteTo(b, clientAddr); err != nil {
-					s.opts.Logger.Warn("failed to write response", zap.Stringer("client", clientAddr), zap.Error(err))
+				if _, err := c.WriteTo(b, clientNetAddr); err != nil {
+					s.opts.Logger.Warn("failed to write response", zap.Stringer("client", clientNetAddr), zap.Error(err))
 				}
 			}
-
 		}()
 	}
 }

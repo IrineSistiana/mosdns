@@ -22,6 +22,7 @@ package server
 import (
 	"crypto/tls"
 	"errors"
+	"github.com/IrineSistiana/mosdns/v4/pkg/ip_observer"
 	"github.com/IrineSistiana/mosdns/v4/pkg/server/dns_handler"
 	"go.uber.org/zap"
 	"io"
@@ -62,6 +63,10 @@ type ServerOpts struct {
 	// IdleTimeout limits the maximum time period that a connection
 	// can idle. Default is defaultTCPIdleTimeout.
 	IdleTimeout time.Duration
+
+	// BadIPObserver specifies an ip_observer.IPObserver to record bad client addresses.
+	// Optional.
+	BadIPObserver ip_observer.IPObserver
 }
 
 func (opts *ServerOpts) init() {
@@ -71,6 +76,10 @@ func (opts *ServerOpts) init() {
 
 	if opts.IdleTimeout <= 0 {
 		opts.IdleTimeout = defaultTCPIdleTimeout
+	}
+
+	if opts.BadIPObserver == nil {
+		opts.BadIPObserver = ip_observer.NewNopObserver()
 	}
 }
 

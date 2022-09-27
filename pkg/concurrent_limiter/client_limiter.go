@@ -120,24 +120,21 @@ func (l *HPClientLimiter) getShard(addr netip.Addr) *clientLimiter {
 }
 
 func (l *HPClientLimiter) AcquireToken(addr netip.Addr) bool {
-	if !addr.IsValid() {
-		panic("concurrent_limiter: invalid addr")
-	}
-	addr = l.ApplyMask(addr)
+	addr = l.ApplyMask(addr).Addr()
 	return l.getShard(addr).acquireToken(addr)
 }
 
 // ApplyMask masks the addr by the mask values in HPLimiterOpts.
-func (l *HPClientLimiter) ApplyMask(addr netip.Addr) netip.Addr {
+func (l *HPClientLimiter) ApplyMask(addr netip.Addr) netip.Prefix {
 	switch {
 	case addr.Is4():
-		addr = netip.PrefixFrom(addr, l.opts.IPv4Mask).Masked().Addr()
+		return netip.PrefixFrom(addr, l.opts.IPv4Mask).Masked()
 	case addr.Is4In6():
-		addr = netip.PrefixFrom(netip.AddrFrom4(addr.As4()), l.opts.IPv4Mask).Masked().Addr()
+		return netip.PrefixFrom(netip.AddrFrom4(addr.As4()), l.opts.IPv4Mask).Masked()
 	case addr.Is6():
-		addr = netip.PrefixFrom(addr, l.opts.IPv6Mask).Masked().Addr()
+		return netip.PrefixFrom(addr, l.opts.IPv6Mask).Masked()
 	}
-	return addr
+	return netip.Prefix{}
 }
 
 // GC removes expired client ip entries from this HPClientLimiter.

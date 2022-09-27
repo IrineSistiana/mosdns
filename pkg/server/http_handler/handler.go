@@ -23,6 +23,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/IrineSistiana/mosdns/v4/pkg/ip_observer"
 	"github.com/IrineSistiana/mosdns/v4/pkg/pool"
 	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v4/pkg/server/dns_handler"
@@ -53,6 +54,9 @@ type HandlerOpts struct {
 	// Logger specifies the logger which Handler writes its log to.
 	// Default is a nop logger.
 	Logger *zap.Logger
+
+	// Optional.
+	BadIPObserver ip_observer.IPObserver
 }
 
 func (opts *HandlerOpts) Init() error {
@@ -61,6 +65,9 @@ func (opts *HandlerOpts) Init() error {
 	}
 	if opts.Logger == nil {
 		opts.Logger = nopLogger
+	}
+	if opts.BadIPObserver == nil {
+		opts.BadIPObserver = ip_observer.NewNopObserver()
 	}
 	return nil
 }
@@ -80,9 +87,38 @@ func (h *Handler) warnErr(req *http.Request, msg string, err error) {
 	h.opts.Logger.Warn(msg, zap.String("from", req.RemoteAddr), zap.String("method", req.Method), zap.String("url", req.RequestURI), zap.Error(err))
 }
 
+// If addr is invalid, badAddr is a noop.
+func (h *Handler) possibleBadAddr(addr netip.Addr) {
+	if addr.IsValid() {
+		h.opts.BadIPObserver.Observe(addr)
+	}
+}
+
 func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	addrPort, err := netip.ParseAddrPort(req.RemoteAddr)
+	if err != nil {
+		h.opts.Logger.Error("failed to parse request remote addr", zap.String("addr", req.RemoteAddr), zap.Error(err))
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	clientAddr := addrPort.Addr()
+
+	// read remote addr from header
+	if header := h.opts.SrcIPHeader; len(header) != 0 {
+		if xff := req.Header.Get(header); len(xff) != 0 {
+			addr, err := readClientAddrFromXFF(xff)
+			if err != nil {
+				h.warnErr(req, "failed to get client ip from header", fmt.Errorf("failed to prase header %s: %s, %s", header, xff, err))
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			clientAddr = addr
+		}
+	}
+
 	// check url path
 	if len(h.opts.Path) != 0 && req.URL.Path != h.opts.Path {
+		h.possibleBadAddr(clientAddr)
 		w.WriteHeader(http.StatusNotFound)
 		h.warnErr(req, "invalid request", fmt.Errorf("invalid request path %s", req.URL.Path))
 		return
@@ -91,33 +127,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// read msg
 	q, err := ReadMsgFromReq(req)
 	if err != nil {
+		h.possibleBadAddr(clientAddr)
 		h.warnErr(req, "invalid request", err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	// read remote addr
-	var clientAddr netip.Addr
-	if header := h.opts.SrcIPHeader; len(header) != 0 {
-		if xff := req.Header.Get(header); len(xff) != 0 {
-			clientAddr, err = readClientAddrFromXFF(xff)
-			if err != nil {
-				h.warnErr(req, "failed to get client ip from header", fmt.Errorf("failed to prase header %s: %s, %s", header, xff, err))
-			}
-		}
-	}
-
-	// If no ip read from the ip header, use the remote address from net/http.
-	if !clientAddr.IsValid() {
-		addrPort, err := netip.ParseAddrPort(req.RemoteAddr)
-		if err != nil {
-			h.warnErr(req, "failed to get client ip", fmt.Errorf("failed to prase request remote addr %s", req.RemoteAddr))
-		}
-		clientAddr = addrPort.Addr()
-	}
-
 	r, err := h.opts.DNSHandler.ServeDNS(req.Context(), q, &query_context.RequestMeta{ClientAddr: clientAddr})
 	if err != nil {
+		h.possibleBadAddr(clientAddr)
 		panic(err.Error()) // Force http server to close connection.
 	}
 
@@ -131,6 +149,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	w.Header().Set("Content-Type", "application/dns-message")
 	if _, err := w.Write(b); err != nil {
+		h.possibleBadAddr(clientAddr)
 		h.warnErr(req, "failed to write response", err)
 		return
 	}

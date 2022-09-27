@@ -23,8 +23,10 @@ import (
 	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v4/mlog"
+	"github.com/IrineSistiana/mosdns/v4/pkg/concurrent_limiter"
 	"github.com/IrineSistiana/mosdns/v4/pkg/data_provider"
 	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
+	"github.com/IrineSistiana/mosdns/v4/pkg/ip_observer"
 	"github.com/IrineSistiana/mosdns/v4/pkg/safe_close"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
@@ -52,6 +54,8 @@ type Mosdns struct {
 
 	metricsReg *prometheus.Registry
 
+	badIPObserver ip_observer.IPObserver
+
 	sc *safe_close.SafeClose
 }
 
@@ -77,6 +81,27 @@ func RunMosdns(cfg *Config) error {
 	m.httpAPIMux.HandleFunc("/debug/pprof/profile", pprof.Profile)
 	m.httpAPIMux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 	m.httpAPIMux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+
+	// Init ip observer
+	obCfg := cfg.Security.BadIPObserver
+	obCfg.Init()
+	ob, err := ip_observer.NewBadIPObserver(ip_observer.BadIPObserverOpts{
+		HPLimiterOpts: concurrent_limiter.HPLimiterOpts{
+			Threshold: obCfg.Threshold,
+			Interval:  time.Duration(obCfg.Interval) * time.Second,
+			IPv4Mask:  obCfg.IPv4Mask,
+			IPv6Mask:  obCfg.IPv6Mask,
+		},
+		TTL:              time.Duration(obCfg.TTL) * time.Second,
+		OnUpdateCallBack: obCfg.OnUpdateCallBack,
+		Logger:           lg,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to init bad ip observer, %w", err)
+	}
+	m.badIPObserver = ob
+	defer ob.Close()
+	m.httpAPIMux.Handle("/security/bad_ip_observer", ob)
 
 	// Init data manager
 	dupTag := make(map[string]struct{})
@@ -208,6 +233,11 @@ func (m *Mosdns) GetMetricsReg() prometheus.Registerer {
 // prefix only.
 func (m *Mosdns) GetHTTPAPIMux() *http.ServeMux {
 	return m.httpAPIMux
+}
+
+// GetBadIPObserver returns the ip_observer.BadIPObserver. It returns nil if is not enabled.
+func (m *Mosdns) GetBadIPObserver() ip_observer.IPObserver {
+	return m.badIPObserver
 }
 
 func newMetricsReg() *prometheus.Registry {
