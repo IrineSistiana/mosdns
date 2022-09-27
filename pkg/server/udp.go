@@ -31,23 +31,6 @@ import (
 	"net"
 )
 
-type udpResponseWriter struct {
-	c       net.PacketConn
-	to      net.Addr
-	udpSize int
-}
-
-func (w *udpResponseWriter) Write(m *dns.Msg) error {
-	m.Truncate(w.udpSize)
-	b, buf, err := pool.PackBuffer(m)
-	if err != nil {
-		return err
-	}
-	defer buf.Release()
-	_, err = w.c.WriteTo(b, w.to)
-	return err
-}
-
 func (s *Server) ServeUDP(c net.PacketConn) error {
 	defer c.Close()
 
@@ -70,7 +53,7 @@ func (s *Server) ServeUDP(c net.PacketConn) error {
 	rb := readBuf.Bytes()
 
 	for {
-		n, from, err := c.ReadFrom(rb)
+		n, clientAddr, err := c.ReadFrom(rb)
 		if err != nil {
 			if s.Closed() {
 				return ErrServerClosed
@@ -78,26 +61,40 @@ func (s *Server) ServeUDP(c net.PacketConn) error {
 			return fmt.Errorf("unexpected read err: %w", err)
 		}
 
-		req := new(dns.Msg)
-		if err := req.Unpack(rb[:n]); err != nil {
+		q := new(dns.Msg)
+		if err := q.Unpack(rb[:n]); err != nil {
 			s.opts.Logger.Warn("invalid msg", zap.Error(err), zap.Binary("msg", rb[:n]))
 			continue
 		}
 
+		// handle query
 		go func() {
 			meta := new(query_context.RequestMeta)
 			meta.FromUDP = true
-			if clientIP := utils.GetIPFromAddr(from); clientIP != nil {
+			if clientIP := utils.GetIPFromAddr(clientAddr); clientIP != nil {
 				meta.ClientIP = clientIP
 			} else {
 				s.opts.Logger.Warn("failed to acquire client ip addr")
 			}
 
-			w := &udpResponseWriter{c: c, to: from, udpSize: getUDPSize(req)}
-
-			if err := handler.ServeDNS(listenerCtx, req, w, meta); err != nil {
+			r, err := handler.ServeDNS(listenerCtx, q, meta)
+			if err != nil {
 				s.opts.Logger.Warn("handler err", zap.Error(err))
+				return
 			}
+			if r != nil {
+				r.Truncate(getUDPSize(q))
+				b, buf, err := pool.PackBuffer(r)
+				if err != nil {
+					s.opts.Logger.Error("failed to unpack handler's response", zap.Error(err), zap.Stringer("msg", r))
+					return
+				}
+				defer buf.Release()
+				if _, err := c.WriteTo(b, clientAddr); err != nil {
+					s.opts.Logger.Warn("failed to write response", zap.Stringer("client", clientAddr), zap.Error(err))
+				}
+			}
+
 		}()
 	}
 }

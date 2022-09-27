@@ -21,8 +21,10 @@ package dns_handler
 
 import (
 	"context"
+	"errors"
 	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
 	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"testing"
@@ -33,27 +35,29 @@ const (
 	defaultQueryTimeout = time.Second * 5
 )
 
+var (
+	nopLogger = zap.NewNop()
+)
+
 // Handler handles dns query.
 type Handler interface {
-	// ServeDNS handles r and writes response to w.
+	// ServeDNS handles incoming request req and returns a response.
 	// Implements must not keep and use req after the ServeDNS returned.
-	// ServeDNS should handle errors by itself and sends properly error responses
-	// to clients.
+	// ServeDNS should handle dns errors by itself and return a proper error responses
+	// for clients.
+	// ServeDNS should always return a responses.
 	// If ServeDNS returns an error, caller considers that the error is associated
 	// with the downstream connection and will close the downstream connection
 	// immediately.
-	ServeDNS(ctx context.Context, req *dns.Msg, w ResponseWriter, meta *query_context.RequestMeta) error
+	// All input parameters won't be nil.
+	ServeDNS(ctx context.Context, req *dns.Msg, meta *query_context.RequestMeta) (*dns.Msg, error)
 }
 
-// ResponseWriter can write msg to the client.
-type ResponseWriter interface {
-	Write(m *dns.Msg) error
-}
-
-type DefaultHandler struct {
-	// Logger is used for logging. A nil value will disable logging.
+type EntryHandlerOpts struct {
+	// Logger is used for logging. Default is a noop logger.
 	Logger *zap.Logger
-	Entry  executable_seq.Executable
+
+	Entry executable_seq.Executable
 
 	// QueryTimeout limits the timeout value of each query.
 	// Default is defaultQueryTimeout.
@@ -63,16 +67,34 @@ type DefaultHandler struct {
 	RecursionAvailable bool
 }
 
-var (
-	nopLogger = zap.NewNop()
-)
+func (opts *EntryHandlerOpts) Init() error {
+	if opts.Logger == nil {
+		opts.Logger = nopLogger
+	}
+	if opts.Entry == nil {
+		return errors.New("nil entry")
+	}
+	utils.SetDefaultNum(&opts.QueryTimeout, defaultQueryTimeout)
+	return nil
+}
+
+type EntryHandler struct {
+	opts EntryHandlerOpts
+}
+
+func NewEntryHandler(opts EntryHandlerOpts) (*EntryHandler, error) {
+	if err := opts.Init(); err != nil {
+		return nil, err
+	}
+	return &EntryHandler{opts: opts}, nil
+}
 
 // ServeDNS implements Handler.
-// If entry returns an error, a SERVFAIL response will be sent back to client.
-// If concurrentLimit is reached, the query will block and wait available token until ctx is done.
-func (h *DefaultHandler) ServeDNS(ctx context.Context, req *dns.Msg, w ResponseWriter, meta *query_context.RequestMeta) error {
+// If entry returns an error, a SERVFAIL response will be returned.
+// If entry returns without a response, a REFUSED response will be returned.
+func (h *EntryHandler) ServeDNS(ctx context.Context, req *dns.Msg, meta *query_context.RequestMeta) (*dns.Msg, error) {
 	// apply timeout to ctx
-	ddl := time.Now().Add(h.queryTimeout())
+	ddl := time.Now().Add(h.opts.QueryTimeout)
 	ctxDdl, ok := ctx.Deadline()
 	if !(ok && ctxDdl.Before(ddl)) {
 		newCtx, cancel := context.WithDeadline(ctx, ddl)
@@ -80,12 +102,13 @@ func (h *DefaultHandler) ServeDNS(ctx context.Context, req *dns.Msg, w ResponseW
 		ctx = newCtx
 	}
 
+	// exec entry
 	qCtx := query_context.NewContext(req, meta)
-	err := h.Entry.Exec(ctx, qCtx, nil)
+	err := h.opts.Entry.Exec(ctx, qCtx, nil)
 	if err != nil {
-		h.logger().Warn("entry returned an err", qCtx.InfoField(), zap.Error(err))
+		h.opts.Logger.Warn("entry returned an err", qCtx.InfoField(), zap.Error(err))
 	} else {
-		h.logger().Debug("entry returned", qCtx.InfoField(), zap.Stringer("status", qCtx.Status()))
+		h.opts.Logger.Debug("entry returned", qCtx.InfoField(), zap.Stringer("status", qCtx.Status()))
 	}
 
 	var respMsg *dns.Msg
@@ -98,29 +121,17 @@ func (h *DefaultHandler) ServeDNS(ctx context.Context, req *dns.Msg, w ResponseW
 	}
 
 	if respMsg != nil {
-		if h.RecursionAvailable {
+		if h.opts.RecursionAvailable {
 			respMsg.RecursionAvailable = true
 		}
-
-		if err := w.Write(respMsg); err != nil {
-			h.logger().Warn("failed to write response", qCtx.InfoField(), zap.Error(err))
-		}
+		return respMsg, nil
 	}
-	return nil
-}
 
-func (h *DefaultHandler) queryTimeout() time.Duration {
-	if t := h.QueryTimeout; t > 0 {
-		return t
-	}
-	return defaultQueryTimeout
-}
-
-func (h *DefaultHandler) logger() *zap.Logger {
-	if l := h.Logger; l != nil {
-		return l
-	}
-	return nopLogger
+	// If no response from the entry, return a REFUSED msg.
+	refused := new(dns.Msg)
+	refused.SetReply(req)
+	refused.Rcode = dns.RcodeRefused
+	return refused, nil
 }
 
 type DummyServerHandler struct {
@@ -129,7 +140,11 @@ type DummyServerHandler struct {
 	WantErr error
 }
 
-func (d *DummyServerHandler) ServeDNS(_ context.Context, req *dns.Msg, w ResponseWriter, meta *query_context.RequestMeta) error {
+func (d *DummyServerHandler) ServeDNS(_ context.Context, req *dns.Msg, meta *query_context.RequestMeta) (*dns.Msg, error) {
+	if d.WantErr != nil {
+		return nil, d.WantErr
+	}
+
 	var resp *dns.Msg
 	if d.WantMsg != nil {
 		resp = d.WantMsg.Copy()
@@ -138,10 +153,5 @@ func (d *DummyServerHandler) ServeDNS(_ context.Context, req *dns.Msg, w Respons
 		resp = new(dns.Msg)
 		resp.SetReply(req)
 	}
-
-	if err := w.Write(resp); err != nil {
-		d.T.Error(err)
-		return nil
-	}
-	return nil
+	return resp, nil
 }

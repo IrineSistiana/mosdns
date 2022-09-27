@@ -23,9 +23,9 @@ import (
 	"context"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v4/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v4/pkg/pool"
 	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
-	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"io"
 	"net"
@@ -33,20 +33,9 @@ import (
 )
 
 const (
-	serverTCPWriteTimeout = time.Second
 	defaultTCPIdleTimeout = time.Second * 10
 	tcpFirstReadTimeout   = time.Millisecond * 500
 )
-
-type tcpResponseWriter struct {
-	c net.Conn
-}
-
-func (t *tcpResponseWriter) Write(m *dns.Msg) error {
-	t.c.SetWriteDeadline(time.Now().Add(serverTCPWriteTimeout))
-	_, err := dnsutils.WriteMsgToTCP(t.c, m)
-	return err
-}
 
 func (s *Server) ServeTCP(l net.Listener) error {
 	defer l.Close()
@@ -62,6 +51,7 @@ func (s *Server) ServeTCP(l net.Listener) error {
 	}
 	defer s.trackCloser(&closer, false)
 
+	// handle listener
 	listenerCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	for {
@@ -73,6 +63,7 @@ func (s *Server) ServeTCP(l net.Listener) error {
 			return fmt.Errorf("unexpected listener err: %w", err)
 		}
 
+		// handle connection
 		tcpConnCtx, cancelConn := context.WithCancel(listenerCtx)
 		go func() {
 			defer c.Close()
@@ -103,6 +94,7 @@ func (s *Server) ServeTCP(l net.Listener) error {
 					return // read err, close the connection
 				}
 
+				// handle query
 				go func() {
 					meta := new(query_context.RequestMeta)
 					if clientIP := utils.GetIPFromAddr(c.RemoteAddr()); clientIP != nil {
@@ -110,14 +102,24 @@ func (s *Server) ServeTCP(l net.Listener) error {
 					} else {
 						s.opts.Logger.Warn("failed to acquire client ip addr")
 					}
-					if err := handler.ServeDNS(
-						tcpConnCtx,
-						req,
-						&tcpResponseWriter{c: c},
-						meta,
-					); err != nil {
+
+					r, err := handler.ServeDNS(tcpConnCtx, req, meta)
+					if err != nil {
 						s.opts.Logger.Warn("handler err", zap.Error(err))
 						c.Close()
+						return
+					}
+
+					b, buf, err := pool.PackBuffer(r)
+					if err != nil {
+						s.opts.Logger.Error("failed to unpack handler's response", zap.Error(err), zap.Stringer("msg", r))
+						return
+					}
+					defer buf.Release()
+
+					if _, err := dnsutils.WriteRawMsgToTCP(c, b); err != nil {
+						s.opts.Logger.Warn("failed to write response", zap.Stringer("client", c.RemoteAddr()), zap.Error(err))
+						return
 					}
 				}()
 			}

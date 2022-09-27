@@ -200,9 +200,13 @@ func TestTCPDoTServer(t *testing.T) {
 
 func TestDoHServer(t *testing.T) {
 	dnsHandler := &dns_handler.DummyServerHandler{T: t}
-	httpHandler := &http_handler.Handler{
+	opts := http_handler.HandlerOpts{
 		DNSHandler: dnsHandler,
 		Path:       "/dns-query",
+	}
+	httpHandler, err := http_handler.NewHandler(opts)
+	if err != nil {
+		t.Fatal(err)
 	}
 	tests := []struct {
 		name string

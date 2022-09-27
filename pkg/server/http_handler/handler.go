@@ -38,7 +38,7 @@ var (
 	nopLogger = zap.NewNop()
 )
 
-type Handler struct {
+type HandlerOpts struct {
 	// DNSHandler is required.
 	DNSHandler dns_handler.Handler
 
@@ -51,30 +51,45 @@ type Handler struct {
 	SrcIPHeader string
 
 	// Logger specifies the logger which Handler writes its log to.
+	// Default is a nop logger.
 	Logger *zap.Logger
 }
 
-func (h *Handler) logger() *zap.Logger {
-	if h.Logger != nil {
-		return h.Logger
+func (opts *HandlerOpts) Init() error {
+	if opts.DNSHandler == nil {
+		return errors.New("nil dns handler")
 	}
-	return nopLogger
+	if opts.Logger == nil {
+		opts.Logger = nopLogger
+	}
+	return nil
+}
+
+type Handler struct {
+	opts HandlerOpts
+}
+
+func NewHandler(opts HandlerOpts) (*Handler, error) {
+	if err := opts.Init(); err != nil {
+		return nil, err
+	}
+	return &Handler{opts: opts}, nil
 }
 
 func (h *Handler) warnErr(req *http.Request, msg string, err error) {
-	h.logger().Warn(msg, zap.String("from", req.RemoteAddr), zap.String("method", req.Method), zap.String("url", req.RequestURI), zap.Error(err))
+	h.opts.Logger.Warn(msg, zap.String("from", req.RemoteAddr), zap.String("method", req.Method), zap.String("url", req.RequestURI), zap.Error(err))
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// check url path
-	if len(h.Path) != 0 && req.URL.Path != h.Path {
+	if len(h.opts.Path) != 0 && req.URL.Path != h.opts.Path {
 		w.WriteHeader(http.StatusNotFound)
-		h.warnErr(req, "invalid request", fmt.Errorf("invalid request path %s", h.Path))
+		h.warnErr(req, "invalid request", fmt.Errorf("invalid request path %s", req.URL.Path))
 		return
 	}
 
 	// read msg
-	m, err := ReadMsgFromReq(req)
+	q, err := ReadMsgFromReq(req)
 	if err != nil {
 		h.warnErr(req, "invalid request", err)
 		w.WriteHeader(http.StatusBadRequest)
@@ -83,7 +98,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	// read remote addr
 	var clientIP net.IP
-	if header := h.SrcIPHeader; len(header) != 0 {
+	if header := h.opts.SrcIPHeader; len(header) != 0 {
 		if xff := req.Header.Get(header); len(xff) != 0 {
 			clientIP = readClientIPFromXFF(xff)
 			if clientIP == nil {
@@ -103,14 +118,23 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	if err := h.DNSHandler.ServeDNS(
-		req.Context(),
-		m,
-		&httpDnsRespWriter{httpRespWriter: w},
-		&query_context.RequestMeta{ClientIP: clientIP},
-	); err != nil {
-		h.warnErr(req, "handler err", err)
-		panic(err) // panic can force http server to close the downstream connection.
+	r, err := h.opts.DNSHandler.ServeDNS(req.Context(), q, &query_context.RequestMeta{ClientIP: clientIP})
+	if err != nil {
+		panic(err.Error()) // Force http server to close connection.
+	}
+
+	b, buf, err := pool.PackBuffer(r)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		h.warnErr(req, "failed to unpack handler's response", err)
+		return
+	}
+	defer buf.Release()
+
+	w.Header().Set("Content-Type", "application/dns-message")
+	if _, err := w.Write(b); err != nil {
+		h.warnErr(req, "failed to write response", err)
+		return
 	}
 }
 
@@ -172,21 +196,4 @@ func ReadMsgFromReq(req *http.Request) (*dns.Msg, error) {
 		return nil, fmt.Errorf("failed to unpack msg [%x], %w", b, err)
 	}
 	return m, nil
-}
-
-type httpDnsRespWriter struct {
-	httpRespWriter http.ResponseWriter
-}
-
-func (h *httpDnsRespWriter) Write(m *dns.Msg) error {
-	b, buf, err := pool.PackBuffer(m)
-	if err != nil {
-		h.httpRespWriter.WriteHeader(http.StatusInternalServerError)
-		return err
-	}
-	defer buf.Release()
-
-	h.httpRespWriter.Header().Set("Content-Type", "application/dns-message")
-	_, err = h.httpRespWriter.Write(b)
-	return err
 }

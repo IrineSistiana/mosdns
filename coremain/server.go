@@ -53,11 +53,15 @@ func (m *Mosdns) startServers(cfg *ServerConfig) error {
 		queryTimeout = time.Duration(cfg.Timeout) * time.Second
 	}
 
-	dnsHandler := &dns_handler.DefaultHandler{
+	dnsHandlerOpts := dns_handler.EntryHandlerOpts{
 		Logger:             m.logger,
 		Entry:              entry,
 		QueryTimeout:       queryTimeout,
 		RecursionAvailable: true,
+	}
+	dnsHandler, err := dns_handler.NewEntryHandler(dnsHandlerOpts)
+	if err != nil {
+		return fmt.Errorf("failed to init entry handler, %w", err)
 	}
 
 	for _, lc := range cfg.Listeners {
@@ -79,14 +83,22 @@ func (m *Mosdns) startServerListener(cfg *ServerListenerConfig, dnsHandler dns_h
 	if cfg.IdleTimeout > 0 {
 		idleTimeout = time.Duration(cfg.IdleTimeout) * time.Second
 	}
+
+	httpOpts := http_handler.HandlerOpts{
+		DNSHandler:  dnsHandler,
+		Path:        cfg.URLPath,
+		SrcIPHeader: cfg.GetUserIPFromHeader,
+		Logger:      m.logger,
+	}
+
+	httpHandler, err := http_handler.NewHandler(httpOpts)
+	if err != nil {
+		return fmt.Errorf("failed to init http handler, %w", err)
+	}
+
 	opts := server.ServerOpts{
-		DNSHandler: dnsHandler,
-		HttpHandler: &http_handler.Handler{
-			DNSHandler:  dnsHandler,
-			Path:        cfg.URLPath,
-			SrcIPHeader: cfg.GetUserIPFromHeader,
-			Logger:      m.logger,
-		},
+		DNSHandler:  dnsHandler,
+		HttpHandler: httpHandler,
 		Cert:        cfg.Cert,
 		Key:         cfg.Key,
 		IdleTimeout: idleTimeout,
