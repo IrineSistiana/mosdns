@@ -48,7 +48,7 @@ type arbitraryPlugin struct {
 
 func (p *arbitraryPlugin) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
 	if r := p.m.Reply(qCtx.Q()); r != nil {
-		qCtx.SetResponse(r, query_context.ContextStatusResponded)
+		qCtx.SetResponse(r)
 		return nil
 	}
 	return executable_seq.ExecChainNode(ctx, qCtx, next)

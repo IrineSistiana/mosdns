@@ -188,7 +188,7 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, nex
 		if storedTime.Add(msgTTL).After(time.Now()) {
 			c.L().Debug("cache hit", qCtx.InfoField())
 			dnsutils.SubtractTTL(r, uint32(time.Since(storedTime).Seconds()))
-			qCtx.SetResponse(r, query_context.ContextStatusResponded)
+			qCtx.SetResponse(r)
 			if c.whenHit != nil {
 				return c.whenHit.Exec(ctx, qCtx, nil)
 			}
@@ -201,7 +201,7 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, nex
 			c.L().Debug("expired cache hit", qCtx.InfoField())
 			// prepare a response with 1 ttl
 			dnsutils.SetTTL(r, uint32(c.args.LazyCacheReplyTTL))
-			qCtx.SetResponse(r, query_context.ContextStatusResponded)
+			qCtx.SetResponse(r)
 
 			// start a goroutine to update cache
 			lazyUpdateDdl, ok := ctx.Deadline()

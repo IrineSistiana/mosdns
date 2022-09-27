@@ -79,7 +79,7 @@ func (l *Limiter) Exec(ctx context.Context, qCtx *query_context.Context, next ex
 	if ok := l.hpLimiter.AcquireToken(addr); !ok {
 		r := new(dns.Msg)
 		r.SetRcode(qCtx.Q(), dns.RcodeRefused)
-		qCtx.SetResponse(r, query_context.ContextStatusRejected)
+		qCtx.SetResponse(r)
 		return nil
 	}
 	return executable_seq.ExecChainNode(ctx, qCtx, next)

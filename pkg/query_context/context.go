@@ -26,7 +26,6 @@ import (
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"net"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -52,39 +51,12 @@ type Context struct {
 	id            uint32 // additional uint to distinguish duplicated msg
 	reqMeta       *RequestMeta
 
-	status ContextStatus
-	r      *dns.Msg
-	marks  map[uint]struct{}
-}
-
-type ContextStatus uint8
-
-const (
-	ContextStatusWaitingResponse ContextStatus = iota
-	ContextStatusResponded
-	ContextStatusServerFailed
-	ContextStatusDropped
-	ContextStatusRejected
-)
-
-var statusToStr = map[ContextStatus]string{
-	ContextStatusWaitingResponse: "waiting response",
-	ContextStatusResponded:       "responded",
-	ContextStatusServerFailed:    "server failed",
-	ContextStatusDropped:         "dropped",
-	ContextStatusRejected:        "rejected",
-}
-
-func (status ContextStatus) String() string {
-	s, ok := statusToStr[status]
-	if ok {
-		return s
-	}
-	return strconv.Itoa(int(status))
+	r     *dns.Msg
+	marks map[uint]struct{}
 }
 
 var id uint32
-var zeroMeta = &RequestMeta{}
+var zeroRequestMeta = &RequestMeta{}
 
 // NewContext creates a new query Context.
 // q is the query dns msg. It cannot be nil, or NewContext will panic.
@@ -95,7 +67,7 @@ func NewContext(q *dns.Msg, meta *RequestMeta) *Context {
 	}
 
 	if meta == nil {
-		meta = zeroMeta
+		meta = zeroRequestMeta
 	}
 
 	ctx := &Context{
@@ -104,8 +76,6 @@ func NewContext(q *dns.Msg, meta *RequestMeta) *Context {
 		reqMeta:       meta,
 		id:            atomic.AddUint32(&id, 1),
 		startTime:     time.Now(),
-
-		status: ContextStatusWaitingResponse,
 	}
 
 	return ctx
@@ -155,17 +125,11 @@ func (ctx *Context) R() *dns.Msg {
 	return ctx.r
 }
 
-// Status returns the context status.
-func (ctx *Context) Status() ContextStatus {
-	return ctx.status
-}
-
 // SetResponse stores the response r to the context.
 // Note: It just stores the pointer of r. So the caller
 // shouldn't modify or read r after the call.
-func (ctx *Context) SetResponse(r *dns.Msg, status ContextStatus) {
+func (ctx *Context) SetResponse(r *dns.Msg) {
 	ctx.r = r
-	ctx.status = status
 }
 
 // Id returns the Context id.
@@ -201,7 +165,6 @@ func (ctx *Context) CopyTo(d *Context) *Context {
 	d.reqMeta = ctx.reqMeta
 	d.id = ctx.id
 
-	d.status = ctx.status
 	if r := ctx.r; r != nil {
 		d.r = r.Copy()
 	}

@@ -122,7 +122,7 @@ func (b *blackHole) exec(qCtx *query_context.Context) {
 			A: b.ipv4,
 		}
 		r.Answer = []dns.RR{rr}
-		qCtx.SetResponse(r, query_context.ContextStatusRejected)
+		qCtx.SetResponse(r)
 
 	case b.ipv6 != nil && qtype == dns.TypeAAAA:
 		r := new(dns.Msg)
@@ -138,13 +138,13 @@ func (b *blackHole) exec(qCtx *query_context.Context) {
 			AAAA: b.ipv6,
 		}
 		r.Answer = []dns.RR{rr}
-		qCtx.SetResponse(r, query_context.ContextStatusRejected)
+		qCtx.SetResponse(r)
 
 	case b.args.RCode >= 0:
 		r := dnsutils.GenEmptyReply(q, b.args.RCode)
-		qCtx.SetResponse(r, query_context.ContextStatusRejected)
+		qCtx.SetResponse(r)
 	default:
-		qCtx.SetResponse(nil, query_context.ContextStatusDropped)
+		qCtx.SetResponse(nil)
 	}
 
 	return

@@ -62,7 +62,7 @@ func (d *dummyNext) Exec(_ context.Context, qCtx *query_context.Context, _ execu
 		})
 		time.Sleep(d.latencyAAAA)
 	}
-	qCtx.SetResponse(r, query_context.ContextStatusResponded)
+	qCtx.SetResponse(r)
 	return nil
 }
 

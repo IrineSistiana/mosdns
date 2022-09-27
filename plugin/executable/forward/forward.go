@@ -169,9 +169,8 @@ func (f *forwardPlugin) Exec(ctx context.Context, qCtx *query_context.Context, n
 func (f *forwardPlugin) exec(ctx context.Context, qCtx *query_context.Context) error {
 	r, err := f.bu.ExchangeParallel(ctx, qCtx)
 	if err != nil {
-		qCtx.SetResponse(nil, query_context.ContextStatusServerFailed)
 		return err
 	}
-	qCtx.SetResponse(r, query_context.ContextStatusResponded)
+	qCtx.SetResponse(r)
 	return nil
 }

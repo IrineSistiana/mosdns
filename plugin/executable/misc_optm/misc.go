@@ -52,7 +52,7 @@ func (t *optm) Exec(ctx context.Context, qCtx *query_context.Context, next execu
 	if len(q.Question) != 1 || q.Question[0].Qclass != dns.ClassINET {
 		r := new(dns.Msg)
 		r.SetRcode(q, dns.RcodeRefused)
-		qCtx.SetResponse(r, query_context.ContextStatusRejected)
+		qCtx.SetResponse(r)
 		return nil
 	}
 	if err := executable_seq.ExecChainNode(ctx, qCtx, next); err != nil {

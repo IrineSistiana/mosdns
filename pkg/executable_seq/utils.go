@@ -38,9 +38,9 @@ func asyncWait(ctx context.Context, qCtx *query_context.Context, logger *zap.Log
 				continue
 			}
 
-			if res.qCtx != nil && res.qCtx.R() != nil {
+			if r := res.qCtx.R(); r != nil {
 				logger.Debug("sequence returned a response", qCtx.InfoField(), zap.Int("sequence", res.from))
-				*qCtx = *res.qCtx
+				qCtx.SetResponse(r)
 				return nil
 			}
 
@@ -53,7 +53,6 @@ func asyncWait(ctx context.Context, qCtx *query_context.Context, logger *zap.Log
 	}
 
 	// No response
-	qCtx.SetResponse(nil, query_context.ContextStatusServerFailed)
 	return errors.New("no response")
 }
 
@@ -110,7 +109,7 @@ func (d *DummyExecutable) Exec(ctx context.Context, qCtx *query_context.Context,
 		return err
 	}
 	if d.WantR != nil {
-		qCtx.SetResponse(d.WantR, query_context.ContextStatusResponded)
+		qCtx.SetResponse(d.WantR)
 	}
 	d.Unlock()
 	return ExecChainNode(ctx, qCtx, next)

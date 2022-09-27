@@ -79,7 +79,7 @@ func newHostsContainer(bp *coremain.BP, args *Args) (*hostsPlugin, error) {
 func (h *hostsPlugin) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
 	r := h.h.LookupMsg(qCtx.Q())
 	if r != nil {
-		qCtx.SetResponse(r, query_context.ContextStatusResponded)
+		qCtx.SetResponse(r)
 		return nil
 	}
 

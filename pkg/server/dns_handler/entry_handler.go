@@ -108,11 +108,11 @@ func (h *EntryHandler) ServeDNS(ctx context.Context, req *dns.Msg, meta *query_c
 	if err != nil {
 		h.opts.Logger.Warn("entry returned an err", qCtx.InfoField(), zap.Error(err))
 	} else {
-		h.opts.Logger.Debug("entry returned", qCtx.InfoField(), zap.Stringer("status", qCtx.Status()))
+		h.opts.Logger.Debug("entry returned", qCtx.InfoField())
 	}
 
 	var respMsg *dns.Msg
-	if err != nil || qCtx.Status() == query_context.ContextStatusServerFailed {
+	if err != nil {
 		respMsg = new(dns.Msg)
 		respMsg.SetReply(req)
 		respMsg.Rcode = dns.RcodeServerFailure

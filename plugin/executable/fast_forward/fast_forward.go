@@ -186,11 +186,9 @@ func (f *fastForward) Exec(ctx context.Context, qCtx *query_context.Context, nex
 func (f *fastForward) exec(ctx context.Context, qCtx *query_context.Context) (err error) {
 	r, err := f.upstreamBundle.ExchangeParallel(ctx, qCtx)
 	if err != nil {
-		qCtx.SetResponse(nil, query_context.ContextStatusServerFailed)
 		return err
 	}
-
-	qCtx.SetResponse(r, query_context.ContextStatusResponded)
+	qCtx.SetResponse(r)
 	return nil
 }
 

@@ -57,7 +57,7 @@ func Test_blackhole_Exec(t *testing.T) {
 			r := new(dns.Msg)
 			r.SetReply(q)
 			qCtx := query_context.NewContext(q, nil)
-			qCtx.SetResponse(r, query_context.ContextStatusResponded)
+			qCtx.SetResponse(r)
 
 			err = b.Exec(ctx, qCtx, nil)
 			if err != nil {

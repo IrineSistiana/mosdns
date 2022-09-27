@@ -123,7 +123,7 @@ func (p *reverseLookup) Exec(ctx context.Context, qCtx *query_context.Context, n
 				},
 				Ptr: fqdn,
 			})
-			qCtx.SetResponse(r, query_context.ContextStatusResponded)
+			qCtx.SetResponse(r)
 			return nil
 		}
 	}

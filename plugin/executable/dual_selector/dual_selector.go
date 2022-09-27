@@ -133,7 +133,7 @@ func (s *Selector) Exec(ctx context.Context, qCtx *query_context.Context, next e
 		return ctx.Err()
 	case <-shouldBlock: // Reference indicates we should block this query before the original query finished.
 		r := dnsutils.GenEmptyReply(q, dns.RcodeSuccess)
-		qCtx.SetResponse(r, query_context.ContextStatusResponded)
+		qCtx.SetResponse(r)
 		return nil
 	case err := <-doneChan: // The original query finished. Waiting for reference.
 		waitTimeoutTimer := pool.GetTimer(s.getWaitTimeout())
@@ -143,7 +143,7 @@ func (s *Selector) Exec(ctx context.Context, qCtx *query_context.Context, next e
 			return ctx.Err()
 		case <-shouldBlock:
 			r := dnsutils.GenEmptyReply(q, dns.RcodeSuccess)
-			qCtx.SetResponse(r, query_context.ContextStatusResponded)
+			qCtx.SetResponse(r)
 			return nil
 		case <-shouldPass:
 			*qCtx = *qCtxSub

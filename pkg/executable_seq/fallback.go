@@ -171,7 +171,7 @@ func (f *FallbackNode) exec(ctx context.Context, qCtx *query_context.Context) er
 func (f *FallbackNode) isolateDoPrimary(ctx context.Context, qCtx *query_context.Context) (err error) {
 	qCtxCopy := qCtx.Copy()
 	err = f.doPrimary(ctx, qCtxCopy)
-	qCtx.SetResponse(qCtxCopy.R(), qCtxCopy.Status())
+	qCtx.SetResponse(qCtxCopy.R())
 	return err
 }
 
