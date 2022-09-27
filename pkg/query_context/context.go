@@ -25,7 +25,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/pkg/dnsutils"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
-	"net"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -33,8 +33,9 @@ import (
 
 // RequestMeta represents some metadata about the request.
 type RequestMeta struct {
-	// ClientIP contains the client ip address.
-	ClientIP net.IP
+	// ClientAddr contains the client ip address.
+	// It might be zero/invalid.
+	ClientAddr netip.Addr
 
 	// FromUDP indicates the request is from an udp socket.
 	FromUDP bool
@@ -92,8 +93,8 @@ func (ctx *Context) String() string {
 	} else {
 		question = "empty question"
 	}
-	if ctx.reqMeta.ClientIP != nil {
-		clientAddr = ctx.reqMeta.ClientIP.String()
+	if ctx.reqMeta.ClientAddr.IsValid() {
+		clientAddr = ctx.reqMeta.ClientAddr.String()
 	} else {
 		clientAddr = "unknown client"
 	}
