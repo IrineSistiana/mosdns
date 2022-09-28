@@ -27,7 +27,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
 	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
 	"github.com/miekg/dns"
-	"net"
+	"net/netip"
 )
 
 const PluginType = "blackhole"
@@ -55,14 +55,14 @@ type blackHole struct {
 	*coremain.BP
 	args *Args
 
-	ipv4 net.IP
-	ipv6 net.IP
+	ipv4 []netip.Addr
+	ipv6 []netip.Addr
 }
 
 type Args struct {
-	IPv4  string `yaml:"ipv4"` // block by responding specific IP
-	IPv6  string `yaml:"ipv6"`
-	RCode int    `yaml:"rcode"` // block by responding specific RCode
+	IPv4  []string `yaml:"ipv4"` // block by responding specific IP
+	IPv6  []string `yaml:"ipv6"`
+	RCode int      `yaml:"rcode"` // block by responding specific RCode
 }
 
 func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
@@ -71,19 +71,25 @@ func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
 
 func newBlackHole(bp *coremain.BP, args *Args) (*blackHole, error) {
 	b := &blackHole{BP: bp, args: args}
-	if len(args.IPv4) != 0 {
-		ip := net.ParseIP(args.IPv4)
-		if ip == nil {
-			return nil, fmt.Errorf("%s is an invalid ipv4 addr", args.IPv4)
+	for _, s := range args.IPv4 {
+		addr, err := netip.ParseAddr(s)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ipv4 addr %s, %w", s, err)
 		}
-		b.ipv4 = ip
+		if !addr.Is4() {
+			return nil, fmt.Errorf("invalid ipv4 addr %s", s)
+		}
+		b.ipv4 = append(b.ipv4, addr)
 	}
-	if len(args.IPv6) != 0 {
-		ip := net.ParseIP(args.IPv6)
-		if ip == nil {
-			return nil, fmt.Errorf("%s is an invalid ipv6 addr", args.IPv6)
+	for _, s := range args.IPv6 {
+		addr, err := netip.ParseAddr(s)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ipv6 addr %s, %w", s, err)
 		}
-		b.ipv6 = ip
+		if !addr.Is6() {
+			return nil, fmt.Errorf("invalid ipv6 addr %s", s)
+		}
+		b.ipv6 = append(b.ipv6, addr)
 	}
 	return b, nil
 }
@@ -108,36 +114,40 @@ func (b *blackHole) exec(qCtx *query_context.Context) {
 	qtype := q.Question[0].Qtype
 
 	switch {
-	case b.ipv4 != nil && qtype == dns.TypeA:
+	case qtype == dns.TypeA && len(b.ipv4) > 0:
 		r := new(dns.Msg)
 		r.SetRcode(q, dns.RcodeSuccess)
 		r.RecursionAvailable = true
-		rr := &dns.A{
-			Hdr: dns.RR_Header{
-				Name:   qName,
-				Rrtype: dns.TypeA,
-				Class:  dns.ClassINET,
-				Ttl:    3600,
-			},
-			A: b.ipv4,
+		for _, addr := range b.ipv4 {
+			rr := &dns.A{
+				Hdr: dns.RR_Header{
+					Name:   qName,
+					Rrtype: dns.TypeA,
+					Class:  dns.ClassINET,
+					Ttl:    3600,
+				},
+				A: addr.AsSlice(),
+			}
+			r.Answer = append(r.Answer, rr)
 		}
-		r.Answer = []dns.RR{rr}
 		qCtx.SetResponse(r)
 
-	case b.ipv6 != nil && qtype == dns.TypeAAAA:
+	case qtype == dns.TypeAAAA && len(b.ipv6) > 0:
 		r := new(dns.Msg)
 		r.SetRcode(q, dns.RcodeSuccess)
 		r.RecursionAvailable = true
-		rr := &dns.AAAA{
-			Hdr: dns.RR_Header{
-				Name:   qName,
-				Rrtype: dns.TypeAAAA,
-				Class:  dns.ClassINET,
-				Ttl:    3600,
-			},
-			AAAA: b.ipv6,
+		for _, addr := range b.ipv6 {
+			rr := &dns.AAAA{
+				Hdr: dns.RR_Header{
+					Name:   qName,
+					Rrtype: dns.TypeAAAA,
+					Class:  dns.ClassINET,
+					Ttl:    3600,
+				},
+				AAAA: addr.AsSlice(),
+			}
+			r.Answer = append(r.Answer, rr)
 		}
-		r.Answer = []dns.RR{rr}
 		qCtx.SetResponse(r)
 
 	case b.args.RCode >= 0:
