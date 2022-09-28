@@ -21,7 +21,6 @@ package reverselookup
 
 import (
 	"context"
-	"fmt"
 	"github.com/IrineSistiana/mosdns/v4/coremain"
 	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
 	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
@@ -106,9 +105,11 @@ func (p *reverseLookup) Exec(ctx context.Context, qCtx *query_context.Context, n
 	q := qCtx.Q()
 	if p.args.HandlePTR && len(q.Question) > 0 && q.Question[0].Qtype == dns.TypePTR {
 		question := q.Question[0]
-		addr, err := utils.ParsePTRName(question.Name)
-		if err != nil {
-			return fmt.Errorf("failed to parse ptr name to ip, %w", err)
+		addr, _ := utils.ParsePTRName(question.Name)
+		// If we cannot parse this ptr name. Just ignore it and pass query to next node.
+		// PTR standards are a mess.
+		if !addr.IsValid() {
+			return executable_seq.ExecChainNode(ctx, qCtx, next)
 		}
 		fqdn := p.store.lookup(addr.String())
 		if len(fqdn) > 0 {
