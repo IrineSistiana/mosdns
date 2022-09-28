@@ -68,12 +68,11 @@ type Opt struct {
 	// Not implemented for udp upstreams and doh upstreams with http/3.
 	Socks5 string
 
-	// SoMark specifies the mark for each packet sent through this upstream.
+	// SoMark sets the socket SO_MARK option in unix system.
 	SoMark int
 
-	// Interface specifies the system network interface for this upstream to send
-	// data.
-	Interface string
+	// BindToDevice sets the socket SO_BINDTODEVICE option in unix system.
+	BindToDevice string
 
 	// IdleTimeout specifies the idle timeout for long-connections.
 	// Available for TCP, DoT, DoH.
@@ -91,7 +90,7 @@ type Opt struct {
 	// MaxConns limits the total number of connections, including connections
 	// in the dialing states.
 	// Implemented for TCP/DoT pipeline enabled upstreams and DoH upstreams.
-	// Default is 1.
+	// Default is 2.
 	MaxConns int
 
 	// Bootstrap specifies a plain dns server for the go runtime to solve the
@@ -124,17 +123,22 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 		return nil, fmt.Errorf("invalid server address, %w", err)
 	}
 
+	dialer := &net.Dialer{
+		Resolver: bootstrap.NewPlainBootstrap(opt.Bootstrap),
+		Control: getSocketControlFunc(socketOpts{
+			so_mark:        opt.SoMark,
+			bind_to_device: opt.BindToDevice,
+		}),
+	}
+
 	switch addrURL.Scheme {
 	case "", "udp":
 		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 53)
+
 		uto := transport.Opts{
 			Logger: opt.Logger,
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
-				d := net.Dialer{
-					Resolver: bootstrap.NewPlainBootstrap(opt.Bootstrap),
-					Control:  getSetMarkFunc(opt.SoMark),
-				}
-				return d.DialContext(ctx, "udp", dialAddr)
+				return dialer.DialContext(ctx, "udp", dialAddr)
 			},
 			WriteFunc: dnsutils.WriteMsgToUDP,
 			ReadFunc: func(c io.Reader) (*dns.Msg, int, error) {
@@ -151,11 +155,7 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 		tto := transport.Opts{
 			Logger: opt.Logger,
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
-				d := net.Dialer{
-					Resolver: bootstrap.NewPlainBootstrap(opt.Bootstrap),
-					Control:  getSetMarkFunc(opt.SoMark),
-				}
-				return d.DialContext(ctx, "tcp", dialAddr)
+				return dialer.DialContext(ctx, "tcp", dialAddr)
 			},
 			WriteFunc: dnsutils.WriteMsgToTCP,
 			ReadFunc:  dnsutils.ReadMsgFromTCP,
@@ -173,11 +173,7 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 		to := transport.Opts{
 			Logger: opt.Logger,
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
-				d := &net.Dialer{
-					Resolver: bootstrap.NewPlainBootstrap(opt.Bootstrap),
-					Control:  getSetMarkFunc(opt.SoMark),
-				}
-				return dialTCP(ctx, dialAddr, opt.Socks5, d)
+				return dialTCP(ctx, dialAddr, opt.Socks5, dialer)
 			},
 			WriteFunc:      dnsutils.WriteMsgToTCP,
 			ReadFunc:       dnsutils.ReadMsgFromTCP,
@@ -201,11 +197,7 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 		to := transport.Opts{
 			Logger: opt.Logger,
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
-				d := &net.Dialer{
-					Resolver: bootstrap.NewPlainBootstrap(opt.Bootstrap),
-					Control:  getSetMarkFunc(opt.SoMark),
-				}
-				conn, err := dialTCP(ctx, dialAddr, opt.Socks5, d)
+				conn, err := dialTCP(ctx, dialAddr, opt.Socks5, dialer)
 				if err != nil {
 					return nil, err
 				}
@@ -237,7 +229,7 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 		var t http.RoundTripper
 		var addonCloser io.Closer // udpConn
 		if opt.EnableHTTP3 {
-			lc := net.ListenConfig{Control: getSetMarkFunc(opt.SoMark)}
+			lc := net.ListenConfig{Control: getSocketControlFunc(socketOpts{so_mark: opt.SoMark, bind_to_device: opt.BindToDevice})}
 			conn, err := lc.ListenPacket(context.Background(), "udp", "")
 			if err != nil {
 				return nil, fmt.Errorf("failed to init udp socket for quic")
@@ -264,11 +256,7 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 		} else {
 			t1 := &http.Transport{
 				DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) { // overwrite server addr
-					d := &net.Dialer{
-						Resolver: bootstrap.NewPlainBootstrap(opt.Bootstrap),
-						Control:  getSetMarkFunc(opt.SoMark),
-					}
-					return dialTCP(ctx, dialAddr, opt.Socks5, d)
+					return dialTCP(ctx, dialAddr, opt.Socks5, dialer)
 				},
 				TLSClientConfig:     opt.TLSConfig,
 				TLSHandshakeTimeout: tlsHandshakeTimeout,

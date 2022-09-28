@@ -23,6 +23,6 @@ package upstream
 
 import "syscall"
 
-func getSetMarkFunc(_ int) func(string, string, syscall.RawConn) error {
+func getSocketControlFunc(_ socketOpts) func(string, string, syscall.RawConn) error {
 	return nil
 }

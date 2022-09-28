@@ -58,11 +58,12 @@ type Args struct {
 }
 
 type UpstreamConfig struct {
-	Addr     string `yaml:"addr"` // required
-	DialAddr string `yaml:"dial_addr"`
-	Trusted  bool   `yaml:"trusted"`
-	Socks5   string `yaml:"socks5"`
-	SoMark   int    `yaml:"so_mark"`
+	Addr         string `yaml:"addr"` // required
+	DialAddr     string `yaml:"dial_addr"`
+	Trusted      bool   `yaml:"trusted"`
+	Socks5       string `yaml:"socks5"`
+	SoMark       int    `yaml:"so_mark"`
+	BindToDevice string `yaml:"bind_to_device"`
 
 	IdleTimeout        int    `yaml:"idle_timeout"`
 	MaxConns           int    `yaml:"max_conns"`
@@ -116,6 +117,7 @@ func newFastForward(bp *coremain.BP, args *Args) (*fastForward, error) {
 			DialAddr:       c.DialAddr,
 			Socks5:         c.Socks5,
 			SoMark:         c.SoMark,
+			BindToDevice:   c.BindToDevice,
 			IdleTimeout:    time.Duration(c.IdleTimeout) * time.Second,
 			MaxConns:       c.MaxConns,
 			EnablePipeline: c.EnablePipeline,

@@ -27,17 +27,28 @@ import (
 	"syscall"
 )
 
-func getSetMarkFunc(mark int) func(string, string, syscall.RawConn) error {
-	if mark == 0 {
-		return nil
-	}
+func getSocketControlFunc(opts socketOpts) func(string, string, syscall.RawConn) error {
 	return func(_, _ string, c syscall.RawConn) error {
 		var sysCallErr error
 		if err := c.Control(func(fd uintptr) {
-			sysCallErr = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_MARK, mark)
-			if sysCallErr != nil {
-				sysCallErr = os.NewSyscallError("failed to set so_mark", sysCallErr)
+			// SO_MARK
+			if opts.so_mark > 0 {
+				sysCallErr = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_MARK, opts.so_mark)
+				if sysCallErr != nil {
+					sysCallErr = os.NewSyscallError("failed to set SO_MARK", sysCallErr)
+					return
+				}
 			}
+
+			// SO_BINDTODEVICE
+			if len(opts.bind_to_device) > 0 {
+				sysCallErr = unix.SetsockoptString(int(fd), unix.SOL_SOCKET, unix.SO_BINDTODEVICE, opts.bind_to_device)
+				if sysCallErr != nil {
+					sysCallErr = os.NewSyscallError("failed to set SO_BINDTODEVICE", sysCallErr)
+					return
+				}
+			}
+
 		}); err != nil {
 			return err
 		}

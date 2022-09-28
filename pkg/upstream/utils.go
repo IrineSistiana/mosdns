@@ -26,6 +26,11 @@ import (
 	"net"
 )
 
+type socketOpts struct {
+	so_mark        int
+	bind_to_device string
+}
+
 func dialTCP(ctx context.Context, addr, socks5 string, dialer *net.Dialer) (net.Conn, error) {
 	if len(socks5) > 0 {
 		socks5Dialer, err := proxy.SOCKS5("tcp", socks5, nil, dialer)
