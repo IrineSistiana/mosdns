@@ -85,23 +85,27 @@ func RunMosdns(cfg *Config) error {
 	// Init ip observer
 	obCfg := cfg.Security.BadIPObserver
 	obCfg.Init()
-	ob, err := ip_observer.NewBadIPObserver(ip_observer.BadIPObserverOpts{
-		HPLimiterOpts: concurrent_limiter.HPLimiterOpts{
-			Threshold: obCfg.Threshold,
-			Interval:  time.Duration(obCfg.Interval) * time.Second,
-			IPv4Mask:  obCfg.IPv4Mask,
-			IPv6Mask:  obCfg.IPv6Mask,
-		},
-		TTL:              time.Duration(obCfg.TTL) * time.Second,
-		OnUpdateCallBack: obCfg.OnUpdateCallBack,
-		Logger:           lg,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to init bad ip observer, %w", err)
+	if obCfg.Threshold > 0 {
+		ob, err := ip_observer.NewBadIPObserver(ip_observer.BadIPObserverOpts{
+			HPLimiterOpts: concurrent_limiter.HPLimiterOpts{
+				Threshold: obCfg.Threshold,
+				Interval:  time.Duration(obCfg.Interval) * time.Second,
+				IPv4Mask:  obCfg.IPv4Mask,
+				IPv6Mask:  obCfg.IPv6Mask,
+			},
+			TTL:              time.Duration(obCfg.TTL) * time.Second,
+			OnUpdateCallBack: obCfg.OnUpdateCallBack,
+			Logger:           lg,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to init bad ip observer, %w", err)
+		}
+		m.badIPObserver = ob
+		defer ob.Close()
+		m.httpAPIMux.Handle("/security/bad_ip_observer", ob)
+	} else {
+		m.badIPObserver = ip_observer.NewNopObserver()
 	}
-	m.badIPObserver = ob
-	defer ob.Close()
-	m.httpAPIMux.Handle("/security/bad_ip_observer", ob)
 
 	// Init data manager
 	dupTag := make(map[string]struct{})

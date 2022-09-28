@@ -88,18 +88,16 @@ type SecurityConfig struct {
 
 // BadIPObserverConfig is a copy of ip_observer.BadIPObserverOpts.
 type BadIPObserverConfig struct {
+	Threshold        int    `yaml:"threshold"` // Zero Threshold will disable the bad ip observer.
+	Interval         int    `yaml:"interval"`  // (sec) Default is 10.
+	TTL              int    `yaml:"ttl"`       // (sec) Default is 600 (10min).
 	OnUpdateCallBack string `yaml:"on_update_callback"`
-
-	Threshold int `yaml:"threshold"` // Default is 500.
-	Interval  int `yaml:"interval"`  // (sec) Default is 10.
-	TTL       int `yaml:"ttl"`       // (sec) Default is 600 (10min).
 	// IP masks to aggregate an IP range.
 	IPv4Mask int `yaml:"ipv4_mask"` // Default is 32.
 	IPv6Mask int `yaml:"ipv6_mask"` // Default is 48.
 }
 
 func (c *BadIPObserverConfig) Init() {
-	utils.SetDefaultNum(&c.Threshold, 500)
 	utils.SetDefaultNum(&c.Interval, 10)
 	utils.SetDefaultNum(&c.TTL, 600)
 	utils.SetDefaultNum(&c.IPv4Mask, 32)
