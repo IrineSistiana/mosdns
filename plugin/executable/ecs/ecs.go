@@ -132,11 +132,6 @@ func (e *ecsPlugin) Exec(ctx context.Context, qCtx *query_context.Context, next 
 // newECS: Whether the addECS added a *dns.EDNS0_SUBNET to q that didn't
 // have a *dns.EDNS0_SUBNET before.
 func (e *ecsPlugin) addECS(qCtx *query_context.Context) (upgraded bool, newECS bool) {
-	clientAddr := qCtx.ReqMeta().ClientAddr
-	if !clientAddr.IsValid() {
-		return false, false
-	}
-
 	q := qCtx.Q()
 	opt := q.IsEdns0()
 	hasECS := opt != nil && dnsutils.GetECS(opt) != nil
@@ -147,6 +142,11 @@ func (e *ecsPlugin) addECS(qCtx *query_context.Context) (upgraded bool, newECS b
 
 	var ecs *dns.EDNS0_SUBNET
 	if e.args.Auto { // use client ip
+		clientAddr := qCtx.ReqMeta().ClientAddr
+		if !clientAddr.IsValid() {
+			return false, false
+		}
+
 		switch {
 		case clientAddr.Is4():
 			ecs = dnsutils.NewEDNS0Subnet(clientAddr.AsSlice(), e.args.Mask4, false)
