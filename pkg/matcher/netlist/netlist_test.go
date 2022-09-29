@@ -57,7 +57,7 @@ func TestIPNetList_Sort_And_Merge(t *testing.T) {
 		{"3", netip.MustParseAddr("192.168.9.255"), true},
 		{"4", netip.MustParseAddr("192.168.255.255"), true},
 		{"5", netip.MustParseAddr("192.169.1.1"), true},
-		{"6", netip.MustParseAddr("192.168.1.1"), false},
+		{"6", netip.MustParseAddr("192.170.1.1"), false},
 		{"7", netip.MustParseAddr("1.1.1.1"), false},
 	}
 	for _, tt := range tests {
