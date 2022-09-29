@@ -20,136 +20,125 @@
 package concurrent_map
 
 import (
-	"hash/maphash"
 	"sync"
 )
 
-// ConcurrentMap is a map that is safe for concurrent use.
-// It usually has better performance than (sync.RWMutex + map) under high workload.
-type ConcurrentMap struct {
-	seed maphash.Seed
-	m    []*shardedMap
+const (
+	mapShardSize = 64
+)
+
+type MapHashable interface {
+	comparable
+	MapHash() int
 }
 
-type TestAndSetFunc func(v interface{}, ok bool) (newV interface{}, wantUpdate, testPassed bool)
+type TestAndSetFunc[K comparable, V any] func(key K, v V, ok bool) (newV V, setV, deleteV bool)
 
-func NewConcurrentMap(shard int) *ConcurrentMap {
-	cm := &ConcurrentMap{m: make([]*shardedMap, shard), seed: maphash.MakeSeed()}
-	for i := range cm.m {
-		cm.m[i] = &shardedMap{
-			m: make(map[string]interface{}),
+type Map[K MapHashable, V any] struct {
+	shards [mapShardSize]netipAddrMapShard[K, V]
+}
+
+func NewMap[K MapHashable, V any]() *Map[K, V] {
+	m := new(Map[K, V])
+	for i := range m.shards {
+		m.shards[i] = newNetipAddrMapShard[K, V]()
+	}
+	return m
+}
+
+func (m *Map[K, V]) getShard(key K) *netipAddrMapShard[K, V] {
+	return &m.shards[key.MapHash()%mapShardSize]
+}
+
+func (m *Map[K, V]) Get(key K) (V, bool) {
+	return m.getShard(key).get(key)
+}
+
+func (m *Map[K, V]) Set(key K, v V) {
+	m.getShard(key).set(key, v)
+}
+
+func (m *Map[K, V]) Del(key K) {
+	m.getShard(key).del(key)
+}
+
+func (m *Map[K, V]) TestAndSet(key K, f TestAndSetFunc[K, V]) {
+	m.getShard(key).testAndSet(key, f)
+}
+
+func (m *Map[K, V]) RangeDo(f TestAndSetFunc[K, V]) {
+	for i := range m.shards {
+		m.shards[i].rangeDo(f)
+	}
+}
+
+func (m *Map[K, V]) Len() int {
+	l := 0
+	for i := range m.shards {
+		l += m.shards[i].len()
+	}
+	return l
+}
+
+type netipAddrMapShard[K comparable, V any] struct {
+	l sync.RWMutex
+	m map[K]V
+}
+
+func newNetipAddrMapShard[K comparable, V any]() netipAddrMapShard[K, V] {
+	return netipAddrMapShard[K, V]{
+		m: make(map[K]V),
+	}
+}
+
+func (m *netipAddrMapShard[K, V]) get(key K) (V, bool) {
+	m.l.RLock()
+	defer m.l.RUnlock()
+	v, ok := m.m[key]
+	return v, ok
+}
+
+func (m *netipAddrMapShard[K, V]) set(key K, v V) {
+	m.l.Lock()
+	defer m.l.Unlock()
+	m.m[key] = v
+}
+
+func (m *netipAddrMapShard[K, V]) del(key K) {
+	m.l.Lock()
+	defer m.l.Unlock()
+	delete(m.m, key)
+}
+
+func (m *netipAddrMapShard[K, V]) testAndSet(key K, f TestAndSetFunc[K, V]) {
+	m.l.Lock()
+	defer m.l.Unlock()
+	v, ok := m.m[key]
+	newV, setV, deleteV := f(key, v, ok)
+	switch {
+	case setV:
+		m.m[key] = newV
+	case deleteV && ok:
+		delete(m.m, key)
+	}
+}
+
+func (m *netipAddrMapShard[K, V]) len() int {
+	m.l.RLock()
+	defer m.l.RUnlock()
+	return len(m.m)
+}
+
+func (m *netipAddrMapShard[K, V]) rangeDo(f TestAndSetFunc[K, V]) {
+	m.l.Lock()
+	defer m.l.Unlock()
+	for k, v := range m.m {
+		newV, setV, deleteV := f(k, v, true)
+		switch {
+		case setV:
+			m.m[k] = newV
+		case deleteV:
+			delete(m.m, k)
 		}
 	}
-	return cm
-}
-
-func (c *ConcurrentMap) Set(key string, v interface{}) {
-	sm := c.getShardedMap(key)
-	sm.set(key, v)
-}
-
-// TestAndSet is a concurrent safe test-and-set operation.
-// If f returns nil, the key will be deleted.
-func (c *ConcurrentMap) TestAndSet(key string, f TestAndSetFunc) (passed bool) {
-	sm := c.getShardedMap(key)
-	return sm.testAndSet(key, f)
-}
-
-func (c *ConcurrentMap) Get(key string) (v interface{}, ok bool) {
-	sm := c.getShardedMap(key)
-	v, ok = sm.get(key)
-	return
-}
-
-func (c *ConcurrentMap) Del(key string) {
-	sm := c.getShardedMap(key)
-	sm.del(key)
-}
-
-func (c *ConcurrentMap) Len() int {
-	sum := 0
-	for i := range c.m {
-		sum += c.m[i].len()
-	}
-	return sum
-}
-
-func (c *ConcurrentMap) RangeDo(f func(key string, v interface{})) {
-	for i := range c.m {
-		c.m[i].rangeDo(f)
-	}
-}
-
-func (c *ConcurrentMap) shardNum() int {
-	return len(c.m)
-}
-
-func (c *ConcurrentMap) getShardedMap(key string) *shardedMap {
-	h := maphash.Hash{}
-	h.SetSeed(c.seed)
-
-	h.WriteString(key)
-	n := h.Sum64() % uint64(c.shardNum())
-	return c.m[n]
-}
-
-type shardedMap struct {
-	sync.RWMutex
-	m map[string]interface{}
-}
-
-func (sm *shardedMap) set(key string, v interface{}) {
-	sm.Lock()
-	defer sm.Unlock()
-
-	sm.m[key] = v
-}
-
-func (sm *shardedMap) testAndSet(key string, f TestAndSetFunc) (testPassed bool) {
-	sm.Lock()
-	defer sm.Unlock()
-
-	v, ok := sm.m[key]
-	newV, wantUpdate, passed := f(v, ok)
-	if wantUpdate {
-		if newV != nil {
-			sm.m[key] = newV
-		} else {
-			if ok {
-				delete(sm.m, key)
-			}
-		}
-	}
-
-	return passed
-}
-
-func (sm *shardedMap) get(key string) (v interface{}, ok bool) {
-	sm.RLock()
-	defer sm.RUnlock()
-
-	v, ok = sm.m[key]
-	return
-}
-
-func (sm *shardedMap) rangeDo(f func(key string, v interface{})) {
-	sm.RLock()
-	defer sm.RUnlock()
-	for key, v := range sm.m {
-		f(key, v)
-	}
-}
-
-func (sm *shardedMap) del(key string) {
-	sm.Lock()
-	defer sm.Unlock()
-
-	delete(sm.m, key)
-}
-
-func (sm *shardedMap) len() int {
-	sm.RLock()
-	defer sm.RUnlock()
-
-	return len(sm.m)
 }

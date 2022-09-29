@@ -20,13 +20,18 @@
 package concurrent_map
 
 import (
-	"strconv"
 	"sync"
 	"testing"
 )
 
-func TestConcurrentMap(t *testing.T) {
-	cm := NewConcurrentMap(8)
+type testMapHashable int
+
+func (h testMapHashable) MapHash() int {
+	return int(h)
+}
+
+func Test_Map(t *testing.T) {
+	m := NewMap[testMapHashable, int]()
 	wg := sync.WaitGroup{}
 
 	// test add
@@ -35,21 +40,21 @@ func TestConcurrentMap(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			cm.Set(strconv.Itoa(i), i)
+			m.Set(testMapHashable(i), i)
 		}()
 	}
 	wg.Wait()
 
 	// test range
 	cc := make([]bool, 512)
-	f := func(key string, v interface{}) {
-		n := v.(int)
-		cc[n] = true
+	f := func(key testMapHashable, v int, ok bool) (newV int, setV bool, deleteV bool) {
+		cc[key] = true
+		return 0, false, false
 	}
-	cm.RangeDo(f)
+	m.RangeDo(f)
 	for _, ok := range cc {
 		if !ok {
-			t.Fatal("range failed")
+			t.Fatal("test or range failed")
 		}
 	}
 
@@ -59,12 +64,12 @@ func TestConcurrentMap(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			v, ok := cm.Get(strconv.Itoa(i))
+			v, ok := m.Get(testMapHashable(i))
 			if !ok {
 				t.Error()
 				return
 			}
-			if n, ok := v.(int); !ok || n != i {
+			if v != i {
 				t.Error()
 				return
 			}
@@ -73,7 +78,7 @@ func TestConcurrentMap(t *testing.T) {
 	wg.Wait()
 
 	// test len
-	if cm.Len() != 512 {
+	if m.Len() != 512 {
 		t.Fatal()
 	}
 
@@ -83,92 +88,81 @@ func TestConcurrentMap(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			cm.Del(strconv.Itoa(i))
+			m.Del(testMapHashable(i))
 		}()
 	}
 	wg.Wait()
-	if cm.Len() != 0 {
+	if m.Len() != 0 {
 		t.Fatal()
 	}
 }
 
 func TestConcurrentMap_TestAndSet(t *testing.T) {
-	cm := NewConcurrentMap(8)
+	cm := NewMap[testMapHashable, int]()
 	wg := sync.WaitGroup{}
 
-	f := func(v interface{}, ok bool) (newV interface{}, wantUpdate, passed bool) {
-		n := 0
-		if ok {
-			n = v.(int)
-		}
-		if n > 0 {
-			return nil, false, false
-		}
-		return 1, true, true
+	f := func(key testMapHashable, v int, ok bool) (newV int, setV bool, deleteV bool) {
+		return 1, true, false
 	}
 
 	for i := 0; i < 512; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			cm.TestAndSet("key", f)
+			cm.TestAndSet(1, f)
 		}()
 	}
 	wg.Wait()
 
-	v, _ := cm.Get("key")
-	if v.(int) != 1 {
+	v, _ := cm.Get(1)
+	if v != 1 {
 		t.Fatal()
 	}
 
 	// test delete
-	f = func(v interface{}, ok bool) (newV interface{}, wantUpdate, passed bool) {
-		return nil, true, true
+	f = func(key testMapHashable, v int, ok bool) (newV int, setV bool, deleteV bool) {
+		return 1, false, true
 	}
-	cm.TestAndSet("key", f)
-	_, ok := cm.Get("key")
+	cm.TestAndSet(1, f)
+	_, ok := cm.Get(1)
 	if ok {
 		t.Fatal()
 	}
 }
 
 func BenchmarkConcurrentMap_Get_And_Set(b *testing.B) {
-	keys := make([]string, 2048)
-	m := NewConcurrentMap(64)
+	keys := make([]testMapHashable, 2048)
+	m := NewMap[testMapHashable, int]()
 	for i := 0; i < 2048; i++ {
-		key := strconv.Itoa(i)
+		key := testMapHashable(i)
 		keys[i] = key
-		m.Set(key, nil)
+		m.Set(key, i)
 	}
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	b.SetParallelism(2)
 	b.RunParallel(func(pb *testing.PB) {
 		i := 0
 		for pb.Next() {
 			i++
 			key := keys[i%2048]
-
-			m.Set(key, nil)
+			m.Set(key, i)
 			m.Get(key)
 		}
 	})
 }
 
 func Benchmark_RWMutexMap_Get_And_Set(b *testing.B) {
-	keys := make([]string, 2048)
+	keys := make([]int, 2048)
 	rwm := new(sync.RWMutex)
-	m := make(map[string]interface{}, 2048)
+	m := make(map[int]int, 2048)
 	for i := 0; i < 2048; i++ {
-		key := strconv.Itoa(i)
-		keys[i] = key
-		m[key] = nil
+		keys[i] = i
+		m[i] = i
 	}
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	b.SetParallelism(2)
 	b.RunParallel(func(pb *testing.PB) {
 		i := 0
 		for pb.Next() {
@@ -176,7 +170,7 @@ func Benchmark_RWMutexMap_Get_And_Set(b *testing.B) {
 			key := keys[i%2048]
 
 			rwm.Lock()
-			m[key] = nil
+			m[key] = i
 			rwm.Unlock()
 
 			rwm.RLock()
