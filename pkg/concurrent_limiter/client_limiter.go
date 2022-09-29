@@ -21,6 +21,7 @@ package concurrent_limiter
 
 import (
 	"fmt"
+	"github.com/IrineSistiana/mosdns/v4/pkg/concurrent_map"
 	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
 	"net/netip"
 	"sync"
@@ -33,7 +34,6 @@ type ClientLimiter interface {
 
 const (
 	counterIdleTimeout = time.Second * 10
-	hpLimiterShardSize = 64
 )
 
 type HPLimiterOpts struct {
@@ -77,7 +77,17 @@ type HPClientLimiter struct {
 	opts        HPLimiterOpts
 	closeOnce   sync.Once
 	closeNotify chan struct{}
-	shards      [hpLimiterShardSize]*clientLimiter
+	m           *concurrent_map.Map[netAddrHash, *counter]
+}
+
+type netAddrHash netip.Addr
+
+func (h netAddrHash) MapHash() int {
+	s := 0
+	for _, b := range (netip.Addr)(h).As16() {
+		s += (int)(b)
+	}
+	return s
 }
 
 func NewHPClientLimiter(opts HPLimiterOpts) (*HPClientLimiter, error) {
@@ -87,9 +97,7 @@ func NewHPClientLimiter(opts HPLimiterOpts) (*HPClientLimiter, error) {
 	l := &HPClientLimiter{
 		opts:        opts,
 		closeNotify: make(chan struct{}),
-	}
-	for i := range l.shards {
-		l.shards[i] = newClientLimiter(opts)
+		m:           concurrent_map.NewMap[netAddrHash, *counter](),
 	}
 
 	if opts.CleanerInterval > 0 {
@@ -105,23 +113,36 @@ func (l *HPClientLimiter) cleanerLoop() {
 	for {
 		select {
 		case now := <-ticker.C:
-			for _, shard := range l.shards {
-				shard.clean(now)
-			}
+			l.GC(now)
 		case <-l.closeNotify:
 			return
 		}
 	}
 }
 
-func (l *HPClientLimiter) getShard(addr netip.Addr) *clientLimiter {
-	n := (addr.As16())[15] % hpLimiterShardSize
-	return l.shards[n]
-}
-
 func (l *HPClientLimiter) AcquireToken(addr netip.Addr) bool {
 	addr = l.ApplyMask(addr).Addr()
-	return l.getShard(addr).acquireToken(addr)
+	now := time.Now()
+	res := false
+	f := func(key netAddrHash, v *counter, exist bool) (newV *counter, setV, deleteV bool) {
+		if !exist {
+			v = new(counter)
+		}
+		// Another interval is passed. Reset the counter.
+		if v.startTime.Add(l.opts.Interval).Before(now) {
+			v.startTime = now
+			v.c = 0
+		}
+		if v.c < l.opts.Threshold {
+			v.c++
+			res = true
+		} else {
+			res = false
+		}
+		return v, !exist, false
+	}
+	l.m.TestAndSet(netAddrHash(addr), f)
+	return res
 }
 
 // ApplyMask masks the addr by the mask values in HPLimiterOpts.
@@ -139,9 +160,13 @@ func (l *HPClientLimiter) ApplyMask(addr netip.Addr) netip.Prefix {
 
 // GC removes expired client ip entries from this HPClientLimiter.
 func (l *HPClientLimiter) GC(now time.Time) {
-	for _, shard := range l.shards {
-		shard.clean(now)
+	f := func(key netAddrHash, v *counter, ok bool) (newV *counter, setV, deleteV bool) {
+		if !ok {
+			return nil, false, false
+		}
+		return nil, false, v.startTime.Add(counterIdleTimeout).Before(now)
 	}
+	l.m.RangeDo(f)
 }
 
 // Close closes HPClientLimiter's cleaner (if it was started).
@@ -153,62 +178,7 @@ func (l *HPClientLimiter) Close() error {
 	return nil
 }
 
-// clientLimiter is a ClientLimiter for concurrent use.
-// It has an inner lock.
-type clientLimiter struct {
-	opts HPLimiterOpts
-
-	l sync.Mutex
-	m map[netip.Addr]*counter
-}
-
 type counter struct {
 	c         int
 	startTime time.Time
-}
-
-// newClientLimiter returns a new clientLimiter.
-// The opts must be initialized.
-func newClientLimiter(opts HPLimiterOpts) *clientLimiter {
-	l := &clientLimiter{
-		opts: opts,
-		m:    make(map[netip.Addr]*counter),
-	}
-	return l
-}
-
-func (l *clientLimiter) acquireToken(addr netip.Addr) bool {
-	now := time.Now()
-
-	l.l.Lock()
-	defer l.l.Unlock()
-
-	e, ok := l.m[addr]
-	if !ok {
-		e = new(counter)
-		l.m[addr] = e
-	}
-
-	// Another interval is passed. Reset the counter.
-	if e.startTime.Add(l.opts.Interval).Before(now) {
-		e.startTime = now
-		e.c = 0
-	}
-
-	if e.c < l.opts.Threshold {
-		e.c++
-		return true
-	}
-	return false
-}
-
-func (l *clientLimiter) clean(now time.Time) {
-	l.l.Lock()
-	defer l.l.Unlock()
-
-	for addr, counter := range l.m {
-		if counter.startTime.Add(counterIdleTimeout).Before(now) {
-			delete(l.m, addr)
-		}
-	}
 }

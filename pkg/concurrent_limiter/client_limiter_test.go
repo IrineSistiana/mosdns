@@ -37,7 +37,7 @@ func Test_HPClientLimiter(t *testing.T) {
 
 	for suffix := 0; suffix < 256; suffix++ {
 		addr := netip.AddrFrom4([4]byte{0, 0, byte(suffix), 0})
-		for i := 0; i <= 16; i++ {
+		for i := 1; i <= 16; i++ {
 			ok := limiter.AcquireToken(addr)
 
 			if i <= 8 && !ok { // if it not reaches the limit but return a false
@@ -50,21 +50,26 @@ func Test_HPClientLimiter(t *testing.T) {
 		}
 	}
 
-	limiterLen := func() int {
-		s := 0
-		for _, shard := range limiter.shards {
-			s += len(shard.m)
-		}
-		return s
-	}
-
-	if limiterLen() != 256 {
+	if limiter.m.Len() != 256 {
 		t.Fatal()
 	}
 
 	limiter.GC(time.Now().Add(counterIdleTimeout).Add(time.Hour)) // all counter should be cleaned
 
-	if remain := limiterLen(); remain != 0 {
+	if remain := limiter.m.Len(); remain != 0 {
 		t.Fatal("gc test failed")
+	}
+}
+
+func Benchmark_HPClientLimiter_AcquireToken(b *testing.B) {
+	l, err := NewHPClientLimiter(HPLimiterOpts{
+		Threshold: 4,
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+	for i := 0; i < b.N; i++ {
+		addr := netip.AddrFrom4([4]byte{(byte)(i)})
+		l.AcquireToken(addr)
 	}
 }
