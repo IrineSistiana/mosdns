@@ -23,6 +23,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/IrineSistiana/mosdns/v4/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v4/pkg/pool"
 	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v4/pkg/server/dns_handler"
@@ -131,6 +132,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	defer buf.Release()
 
 	w.Header().Set("Content-Type", "application/dns-message")
+	w.Header().Set("Cache-Control", fmt.Sprintf("max-age=%d", dnsutils.GetMinimalTTL(r)))
 	if _, err := w.Write(b); err != nil {
 		h.warnErr(req, "failed to write response", err)
 		return
