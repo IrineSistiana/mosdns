@@ -29,7 +29,6 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
 	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
-	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
 	"github.com/go-redis/redis/v8"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
@@ -160,7 +159,7 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, nex
 		return executable_seq.ExecChainNode(ctx, qCtx, next)
 	}
 
-	msgKey, err := utils.GetMsgKey(q, 0)
+	msgKey, err := dnsutils.GetMsgKey(q, 0)
 	if err != nil {
 		return fmt.Errorf("failed to get msg key, %w", err)
 	}
