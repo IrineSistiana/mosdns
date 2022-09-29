@@ -55,7 +55,6 @@ func (m *Mosdns) startServers(cfg *ServerConfig) error {
 
 	dnsHandlerOpts := dns_handler.EntryHandlerOpts{
 		Logger:             m.logger,
-		BadIPObserver:      m.badIPObserver,
 		Entry:              entry,
 		QueryTimeout:       queryTimeout,
 		RecursionAvailable: true,
@@ -86,11 +85,10 @@ func (m *Mosdns) startServerListener(cfg *ServerListenerConfig, dnsHandler dns_h
 	}
 
 	httpOpts := http_handler.HandlerOpts{
-		DNSHandler:    dnsHandler,
-		Path:          cfg.URLPath,
-		SrcIPHeader:   cfg.GetUserIPFromHeader,
-		Logger:        m.logger,
-		BadIPObserver: m.badIPObserver,
+		DNSHandler:  dnsHandler,
+		Path:        cfg.URLPath,
+		SrcIPHeader: cfg.GetUserIPFromHeader,
+		Logger:      m.logger,
 	}
 
 	httpHandler, err := http_handler.NewHandler(httpOpts)
@@ -99,13 +97,12 @@ func (m *Mosdns) startServerListener(cfg *ServerListenerConfig, dnsHandler dns_h
 	}
 
 	opts := server.ServerOpts{
-		DNSHandler:    dnsHandler,
-		HttpHandler:   httpHandler,
-		Cert:          cfg.Cert,
-		Key:           cfg.Key,
-		IdleTimeout:   idleTimeout,
-		Logger:        m.logger,
-		BadIPObserver: m.badIPObserver,
+		DNSHandler:  dnsHandler,
+		HttpHandler: httpHandler,
+		Cert:        cfg.Cert,
+		Key:         cfg.Key,
+		IdleTimeout: idleTimeout,
+		Logger:      m.logger,
 	}
 	s := server.NewServer(opts)
 

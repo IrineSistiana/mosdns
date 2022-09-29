@@ -64,7 +64,6 @@ func (s *Server) ServeUDP(c net.PacketConn) error {
 
 		q := new(dns.Msg)
 		if err := q.Unpack(rb[:n]); err != nil {
-			s.possibleBadAddr(clientAddr)
 			s.opts.Logger.Warn("invalid msg", zap.Error(err), zap.Binary("msg", rb[:n]), zap.Stringer("from", clientNetAddr))
 			continue
 		}

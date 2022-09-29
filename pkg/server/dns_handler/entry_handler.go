@@ -23,7 +23,6 @@ import (
 	"context"
 	"errors"
 	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
-	"github.com/IrineSistiana/mosdns/v4/pkg/ip_observer"
 	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
 	"github.com/miekg/dns"
@@ -58,9 +57,6 @@ type EntryHandlerOpts struct {
 	// Logger is used for logging. Default is a noop logger.
 	Logger *zap.Logger
 
-	// Optional.
-	BadIPObserver ip_observer.IPObserver
-
 	Entry executable_seq.Executable
 
 	// QueryTimeout limits the timeout value of each query.
@@ -74,9 +70,6 @@ type EntryHandlerOpts struct {
 func (opts *EntryHandlerOpts) Init() error {
 	if opts.Logger == nil {
 		opts.Logger = nopLogger
-	}
-	if opts.BadIPObserver == nil {
-		opts.BadIPObserver = ip_observer.NewNopObserver()
 	}
 	if opts.Entry == nil {
 		return errors.New("nil entry")

@@ -21,7 +21,6 @@ package server
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v4/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v4/pkg/pool"
@@ -97,10 +96,6 @@ func (s *Server) ServeTCP(l net.Listener) error {
 				}
 				req, _, err := dnsutils.ReadMsgFromTCP(c)
 				if err != nil {
-					// empty conn or broken data.
-					if firstRead || !errors.Is(err, io.EOF) {
-						s.possibleBadAddr(clientAddr)
-					}
 					return // read err, close the connection
 				}
 
@@ -121,7 +116,6 @@ func (s *Server) ServeTCP(l net.Listener) error {
 					defer buf.Release()
 
 					if _, err := dnsutils.WriteRawMsgToTCP(c, b); err != nil {
-						s.possibleBadAddr(clientAddr) // Write err, possible that the client close its connection too early.
 						s.opts.Logger.Warn("failed to write response", zap.Stringer("client", c.RemoteAddr()), zap.Error(err))
 						return
 					}
