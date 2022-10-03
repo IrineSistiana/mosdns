@@ -56,7 +56,7 @@ func (opts *RedisCacheOpts) Init() error {
 	if opts.Client == nil {
 		return errors.New("nil client")
 	}
-	utils.SetDefaultNum(&opts.ClientTimeout, time.Millisecond*50)
+	utils.SetDefaultNum(&opts.ClientTimeout, time.Second)
 	if opts.Logger == nil {
 		opts.Logger = nopLogger
 	}
