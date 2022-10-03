@@ -24,8 +24,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"github.com/IrineSistiana/mosdns/v4/pkg/pool"
+	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
 	"github.com/go-redis/redis/v8"
 	"go.uber.org/zap"
+	"io"
 	"math/rand"
 	"sync/atomic"
 	"time"
@@ -33,9 +35,13 @@ import (
 
 var nopLogger = zap.NewNop()
 
-type RedisCache struct {
-	// Client is the redis.Client. This must not be nil.
-	Client *redis.Client
+type RedisCacheOpts struct {
+	// Client cannot be nil.
+	Client redis.Cmdable
+
+	// ClientCloser closes Client when RedisCache.Close is called.
+	// Optional.
+	ClientCloser io.Closer
 
 	// ClientTimeout specifies the timeout for read and write operations.
 	// Default is 50ms.
@@ -44,22 +50,31 @@ type RedisCache struct {
 	// Logger is the *zap.Logger for this RedisCache.
 	// A nil Logger will disable logging.
 	Logger *zap.Logger
+}
 
+func (opts *RedisCacheOpts) Init() error {
+	if opts.Client == nil {
+		return errors.New("nil client")
+	}
+	utils.SetDefaultNum(&opts.ClientTimeout, time.Millisecond*50)
+	if opts.Logger == nil {
+		opts.Logger = nopLogger
+	}
+	return nil
+}
+
+type RedisCache struct {
+	opts           RedisCacheOpts
 	clientDisabled uint32
 }
 
-func (r *RedisCache) logger() *zap.Logger {
-	if l := r.Logger; l != nil {
-		return l
+func NewRedisCache(opts RedisCacheOpts) (*RedisCache, error) {
+	if err := opts.Init(); err != nil {
+		return nil, err
 	}
-	return nopLogger
-}
-
-func (r *RedisCache) clientTimeout() time.Duration {
-	if t := r.ClientTimeout; t > 0 {
-		return t
-	}
-	return time.Millisecond * 50
+	return &RedisCache{
+		opts: opts,
+	}, nil
 }
 
 func (r *RedisCache) disabled() bool {
@@ -68,14 +83,14 @@ func (r *RedisCache) disabled() bool {
 
 func (r *RedisCache) disableClient() {
 	if atomic.CompareAndSwapUint32(&r.clientDisabled, 0, 1) {
-		r.logger().Warn("redis temporarily disabled")
+		r.opts.Logger.Warn("redis temporarily disabled")
 		go func() {
 			const maxBackoff = time.Second * 30
 			backoff := time.Millisecond * 100
 			for {
 				time.Sleep(backoff)
 				ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*500)
-				err := r.Client.Ping(ctx).Err()
+				err := r.opts.Client.Ping(ctx).Err()
 				cancel()
 				if err != nil {
 					if backoff >= maxBackoff {
@@ -83,7 +98,7 @@ func (r *RedisCache) disableClient() {
 					} else {
 						backoff += time.Duration(rand.Intn(1000))*time.Millisecond + time.Second
 					}
-					r.logger().Warn("redis ping failed", zap.Error(err), zap.Duration("next_ping", backoff))
+					r.opts.Logger.Warn("redis ping failed", zap.Error(err), zap.Duration("next_ping", backoff))
 					continue
 				}
 				atomic.StoreUint32(&r.clientDisabled, 0)
@@ -98,12 +113,12 @@ func (r *RedisCache) Get(key string) (v []byte, storedTime, expirationTime time.
 		return nil, time.Time{}, time.Time{}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), r.clientTimeout())
+	ctx, cancel := context.WithTimeout(context.Background(), r.opts.ClientTimeout)
 	defer cancel()
-	b, err := r.Client.Get(ctx, key).Bytes()
+	b, err := r.opts.Client.Get(ctx, key).Bytes()
 	if err != nil {
 		if err != redis.Nil {
-			r.logger().Warn("redis get", zap.Error(err))
+			r.opts.Logger.Warn("redis get", zap.Error(err))
 			r.disableClient()
 		}
 		return nil, time.Time{}, time.Time{}
@@ -111,13 +126,13 @@ func (r *RedisCache) Get(key string) (v []byte, storedTime, expirationTime time.
 
 	storedTime, expirationTime, m, err := unpackRedisValue(b)
 	if err != nil {
-		r.logger().Warn("redis data unpack error", zap.Error(err))
+		r.opts.Logger.Warn("redis data unpack error", zap.Error(err))
 		return nil, time.Time{}, time.Time{}
 	}
 	return m, storedTime, expirationTime
 }
 
-// Store stores kv into redis asynchronously.
+// Store stores kv into redis.
 func (r *RedisCache) Store(key string, v []byte, storedTime, expirationTime time.Time) {
 	if r.disabled() {
 		return
@@ -130,29 +145,67 @@ func (r *RedisCache) Store(key string, v []byte, storedTime, expirationTime time
 	}
 
 	data := packRedisData(storedTime, expirationTime, v)
+	defer data.Release()
+	ctx, cancel := context.WithTimeout(context.Background(), r.opts.ClientTimeout)
+	defer cancel()
+	if err := r.opts.Client.Set(ctx, key, data.Bytes(), ttl).Err(); err != nil {
+		r.opts.Logger.Warn("redis set", zap.Error(err))
+		r.disableClient()
+	}
+}
 
-	go func() {
-		defer data.Release()
-		ctx, cancel := context.WithTimeout(context.Background(), r.clientTimeout())
-		defer cancel()
-		if err := r.Client.Set(ctx, key, data.Bytes(), ttl).Err(); err != nil {
-			r.logger().Warn("redis set", zap.Error(err))
-			r.disableClient()
+type KV struct {
+	Key            string
+	V              []byte
+	StoreTime      time.Time
+	ExpirationTime time.Time
+}
+
+// BatchStore stores a batch of kv into redis via redis pipeline.
+func (r *RedisCache) BatchStore(b []KV) {
+	if r.disabled() {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), r.opts.ClientTimeout)
+	defer cancel()
+	pipeline := r.opts.Client.Pipeline()
+	buffers := make([]*pool.Buffer, 0, len(b))
+	for _, kv := range b {
+		now := time.Now()
+		ttl := kv.ExpirationTime.Sub(now)
+		if ttl <= 0 {
+			continue
 		}
-	}()
+
+		data := packRedisData(kv.StoreTime, kv.ExpirationTime, kv.V)
+		buffers = append(buffers, data)
+		pipeline.Set(ctx, kv.Key, data.Bytes(), ttl)
+	}
+
+	if _, err := pipeline.Exec(ctx); err != nil {
+		r.opts.Logger.Warn("redis pipeline set", zap.Error(err))
+		r.disableClient()
+	}
+	for _, buffer := range buffers {
+		buffer.Release()
+	}
 }
 
 // Close closes the redis client.
 func (r *RedisCache) Close() error {
-	return r.Client.Close()
+	if f := r.opts.ClientCloser; f != nil {
+		return f.Close()
+	}
+	return nil
 }
 
 func (r *RedisCache) Len() int {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*50)
 	defer cancel()
-	i, err := r.Client.DBSize(ctx).Result()
+	i, err := r.opts.Client.DBSize(ctx).Result()
 	if err != nil {
-		r.logger().Error("dbsize", zap.Error(err))
+		r.opts.Logger.Error("dbsize", zap.Error(err))
 		return 0
 	}
 	return int(i)

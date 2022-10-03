@@ -92,11 +92,18 @@ func newCachePlugin(bp *coremain.BP, args *Args) (*cachePlugin, error) {
 			return nil, fmt.Errorf("invalid redis url, %w", err)
 		}
 		opt.MaxRetries = -1
-		c = &redis_cache.RedisCache{
-			Client:        redis.NewClient(opt),
+		r := redis.NewClient(opt)
+		rcOpts := redis_cache.RedisCacheOpts{
+			Client:        r,
+			ClientCloser:  r,
 			ClientTimeout: time.Duration(args.RedisTimeout) * time.Millisecond,
 			Logger:        bp.L(),
 		}
+		rc, err := redis_cache.NewRedisCache(rcOpts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to init redis cache, %w", err)
+		}
+		c = rc
 	} else {
 		c = mem_cache.NewMemCache(args.Size, 0)
 	}
