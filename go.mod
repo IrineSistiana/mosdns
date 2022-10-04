@@ -7,6 +7,7 @@ require (
 	github.com/Knetic/govaluate v3.0.0+incompatible
 	github.com/fsnotify/fsnotify v1.5.4
 	github.com/go-redis/redis/v8 v8.11.5
+	github.com/golang/snappy v0.0.4
 	github.com/google/nftables v0.0.0-20220906152720-cbeb0fb1eccf
 	github.com/kardianos/service v1.2.1
 	github.com/lucas-clemente/quic-go v0.29.1

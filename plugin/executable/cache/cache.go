@@ -28,8 +28,10 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/pkg/cache/redis_cache"
 	"github.com/IrineSistiana/mosdns/v4/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
+	"github.com/IrineSistiana/mosdns/v4/pkg/pool"
 	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
 	"github.com/go-redis/redis/v8"
+	"github.com/golang/snappy"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
@@ -63,6 +65,7 @@ type Args struct {
 	LazyCacheTTL      int    `yaml:"lazy_cache_ttl"`
 	LazyCacheReplyTTL int    `yaml:"lazy_cache_reply_ttl"`
 	CacheEverything   bool   `yaml:"cache_everything"`
+	CompressResp      bool   `yaml:"compress_resp"`
 	WhenHit           string `yaml:"when_hit"`
 }
 
@@ -207,7 +210,21 @@ func (c *cachePlugin) lookupCache(msgKey string) (r *dns.Msg, lazyHit bool, err 
 
 	// cache hit
 	if v != nil {
-
+		if c.args.CompressResp {
+			decodeLen, err := snappy.DecodedLen(v)
+			if err != nil {
+				return nil, false, fmt.Errorf("snappy decode err: %w", err)
+			}
+			if decodeLen > dns.MaxMsgSize {
+				return nil, false, fmt.Errorf("invalid snappy data, not a dns msg, data len: %d", decodeLen)
+			}
+			decompressBuf := pool.GetBuf(decodeLen)
+			defer decompressBuf.Release()
+			v, err = snappy.Decode(decompressBuf.Bytes(), v)
+			if err != nil {
+				return nil, false, fmt.Errorf("snappy decode err: %w", err)
+			}
+		}
 		r = new(dns.Msg)
 		if err := r.Unpack(v); err != nil {
 			return nil, false, fmt.Errorf("failed to unpack cached data, %w", err)
@@ -284,6 +301,11 @@ func (c *cachePlugin) tryStoreMsg(key string, r *dns.Msg) {
 			return
 		}
 		expirationTime = now.Add(time.Duration(minTTL) * time.Second)
+	}
+	if c.args.CompressResp {
+		compressBuf := pool.GetBuf(snappy.MaxEncodedLen(len(v)))
+		v = snappy.Encode(compressBuf.Bytes(), v)
+		defer compressBuf.Release()
 	}
 	c.backend.Store(key, v, now, expirationTime)
 }
