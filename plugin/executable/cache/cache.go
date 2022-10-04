@@ -171,73 +171,21 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, nex
 		return fmt.Errorf("failed to get msg key, %w", err)
 	}
 
-	// lookup in cache
-	v, storedTime, _ := c.backend.Get(msgKey)
-
-	// cache hit
-	if v != nil {
+	cachedResp, lazyHit, err := c.lookupCache(msgKey)
+	if err != nil {
+		c.L().Error("cache lookup", zap.Error(err))
+	}
+	if lazyHit {
+		c.lazyHitTotal.Inc()
+		c.doLazyUpdate(msgKey, qCtx, next)
+	}
+	if cachedResp != nil { // cache hit
 		c.hitTotal.Inc()
-		r := new(dns.Msg)
-		if err := r.Unpack(v); err != nil {
-			return fmt.Errorf("failed to unpack cached data, %w", err)
-		}
-		// change msg id to query
-		r.Id = q.Id
-		var msgTTL time.Duration
-		if len(r.Answer) == 0 {
-			msgTTL = defaultEmptyAnswerTTL
-		} else {
-			msgTTL = time.Duration(dnsutils.GetMinimalTTL(r)) * time.Second
-		}
-
-		// not expired
-		if storedTime.Add(msgTTL).After(time.Now()) {
-			c.L().Debug("cache hit", qCtx.InfoField())
-			dnsutils.SubtractTTL(r, uint32(time.Since(storedTime).Seconds()))
-			qCtx.SetResponse(r)
-			if c.whenHit != nil {
-				return c.whenHit.Exec(ctx, qCtx, nil)
-			}
-			return nil
-		}
-
-		// expired but lazy update enabled
-		if c.args.LazyCacheTTL > 0 {
-			c.lazyHitTotal.Inc()
-			c.L().Debug("expired cache hit", qCtx.InfoField())
-			// prepare a response with 1 ttl
-			dnsutils.SetTTL(r, uint32(c.args.LazyCacheReplyTTL))
-			qCtx.SetResponse(r)
-
-			// start a goroutine to update cache
-			lazyUpdateDdl, ok := ctx.Deadline()
-			if !ok {
-				lazyUpdateDdl = time.Now().Add(defaultLazyUpdateTimeout)
-			}
-			lazyQCtx := qCtx.Copy()
-			lazyUpdateFunc := func() (interface{}, error) {
-				c.L().Debug("start lazy cache update", lazyQCtx.InfoField(), zap.Error(err))
-				defer c.lazyUpdateSF.Forget(msgKey)
-				lazyCtx, cancel := context.WithDeadline(context.Background(), lazyUpdateDdl)
-				defer cancel()
-
-				err := executable_seq.ExecChainNode(lazyCtx, lazyQCtx, next)
-				if err != nil {
-					c.L().Warn("failed to update lazy cache", lazyQCtx.InfoField(), zap.Error(err))
-				}
-
-				r := lazyQCtx.R()
-				if r != nil {
-					c.tryStoreMsg(msgKey, r)
-				}
-				c.L().Debug("lazy cache updated", lazyQCtx.InfoField())
-				return nil, nil
-			}
-			c.lazyUpdateSF.DoChan(msgKey, lazyUpdateFunc) // DoChan won't block this goroutine
-			if c.whenHit != nil {
-				return c.whenHit.Exec(ctx, qCtx, nil)
-			}
-			return nil
+		cachedResp.Id = q.Id // change msg id
+		c.L().Debug("cache hit", qCtx.InfoField())
+		qCtx.SetResponse(cachedResp)
+		if c.whenHit != nil {
+			return c.whenHit.Exec(ctx, qCtx, nil)
 		}
 	}
 
@@ -249,6 +197,69 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, nex
 		c.tryStoreMsg(msgKey, r)
 	}
 	return err
+}
+
+// lookupCache returns the cached response. The ttl of returned msg will be changed properly.
+// Remember, caller must change the msg id.
+func (c *cachePlugin) lookupCache(msgKey string) (r *dns.Msg, lazyHit bool, err error) {
+	// lookup in cache
+	v, storedTime, _ := c.backend.Get(msgKey)
+
+	// cache hit
+	if v != nil {
+
+		r = new(dns.Msg)
+		if err := r.Unpack(v); err != nil {
+			return nil, false, fmt.Errorf("failed to unpack cached data, %w", err)
+		}
+
+		var msgTTL time.Duration
+		if len(r.Answer) == 0 {
+			msgTTL = defaultEmptyAnswerTTL
+		} else {
+			msgTTL = time.Duration(dnsutils.GetMinimalTTL(r)) * time.Second
+		}
+
+		// not expired
+		if storedTime.Add(msgTTL).After(time.Now()) {
+			dnsutils.SubtractTTL(r, uint32(time.Since(storedTime).Seconds()))
+			return r, false, nil
+		}
+
+		// expired but lazy update enabled
+		if c.args.LazyCacheTTL > 0 {
+			// set the default ttl
+			dnsutils.SetTTL(r, uint32(c.args.LazyCacheReplyTTL))
+			return r, true, nil
+		}
+	}
+
+	// cache miss
+	return nil, false, nil
+}
+
+func (c *cachePlugin) doLazyUpdate(msgKey string, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) {
+	// start a goroutine to update cache in the background
+	lazyQCtx := qCtx.Copy()
+	lazyUpdateFunc := func() (interface{}, error) {
+		c.L().Debug("start lazy cache update", lazyQCtx.InfoField())
+		defer c.lazyUpdateSF.Forget(msgKey)
+		lazyCtx, cancel := context.WithTimeout(context.Background(), defaultLazyUpdateTimeout)
+		defer cancel()
+
+		err := executable_seq.ExecChainNode(lazyCtx, lazyQCtx, next)
+		if err != nil {
+			c.L().Warn("failed to update lazy cache", lazyQCtx.InfoField(), zap.Error(err))
+		}
+
+		r := lazyQCtx.R()
+		if r != nil {
+			c.tryStoreMsg(msgKey, r)
+		}
+		c.L().Debug("lazy cache updated", lazyQCtx.InfoField())
+		return nil, nil
+	}
+	c.lazyUpdateSF.DoChan(msgKey, lazyUpdateFunc) // DoChan won't block this goroutine
 }
 
 // tryStoreMsg tries to store r to cache. If r should be cached.
