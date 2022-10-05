@@ -137,36 +137,84 @@ func newConditionMatcher(lg *zap.Logger, s string, matchers map[string]Matcher) 
 	return cm, nil
 }
 
+type exprResult int
+
+const (
+	exprResultNull exprResult = iota
+	exprResultFalse
+	exprResultTrue
+)
+
+func (r exprResult) String() string {
+	switch r {
+	case exprResultNull:
+		return "nil"
+	case exprResultFalse:
+		return "false"
+	case exprResultTrue:
+		return "true"
+	default:
+		return "invalid"
+	}
+}
+
 type exprParamsPlaceHolder struct {
-	m map[string]func() (bool, error)
+	f   map[string]func() (bool, error)
+	res map[string]exprResult
+}
+
+func newExprParamsPlaceHolder() *exprParamsPlaceHolder {
+	return &exprParamsPlaceHolder{
+		f:   make(map[string]func() (bool, error)),
+		res: make(map[string]exprResult),
+	}
 }
 
 func (e *exprParamsPlaceHolder) Get(name string) (interface{}, error) {
-	f, ok := e.m[name]
+	f, ok := e.f[name]
 	if !ok {
 		return nil, fmt.Errorf("cannot find var %s", name)
 	}
-	return f()
+	res, err := f()
+	if err != nil {
+		return nil, err
+	}
+	if res == true {
+		e.res[name] = exprResultTrue
+	} else {
+		e.res[name] = exprResultFalse
+	}
+	return res, nil
+}
+
+func (e *exprParamsPlaceHolder) setCall(name string, f func() (bool, error)) {
+	e.f[name] = f
+}
+
+// A helper func for better log.
+func (e *exprParamsPlaceHolder) makeResultZapFields(queryInfoField zap.Field, res bool) []zap.Field {
+	o := make([]zap.Field, 2, len(e.res)+2)
+	o[0] = queryInfoField
+	o[1] = zap.Bool("result", res)
+	for s, result := range e.res {
+		o = append(o, zap.Stringer(s, result))
+	}
+	return o
 }
 
 func (m *conditionMatcher) Match(ctx context.Context, qCtx *query_context.Context) (bool, error) {
 	paramsPH, ok := m.paramsPHPool.Get().(*exprParamsPlaceHolder)
 	if !ok {
-		paramsPH = &exprParamsPlaceHolder{m: make(map[string]func() (bool, error))}
+		paramsPH = newExprParamsPlaceHolder()
 	}
 	defer m.paramsPHPool.Put(paramsPH)
 
 	for tag, matcher := range m.matchers {
-		tag := tag
 		matcher := matcher
-		paramsPH.m[tag] = func() (bool, error) {
-			res, err := matcher.Match(ctx, qCtx)
-			if err != nil {
-				return false, err
-			}
-			m.lg.Debug("matcher result", qCtx.InfoField(), zap.String("tag", tag), zap.Bool("result", res))
-			return res, nil
+		f := func() (bool, error) {
+			return matcher.Match(ctx, qCtx)
 		}
+		paramsPH.setCall(tag, f)
 	}
 	out, err := m.expr.Eval(paramsPH)
 	if err != nil {
@@ -175,9 +223,7 @@ func (m *conditionMatcher) Match(ctx context.Context, qCtx *query_context.Contex
 	res := out.(bool)
 	m.lg.Debug(
 		"condition matcher result",
-		qCtx.InfoField(),
-		zap.String("expr", m.expr.String()),
-		zap.Bool("result", res),
+		paramsPH.makeResultZapFields(qCtx.InfoField(), res)...,
 	)
 	return res, nil
 }
