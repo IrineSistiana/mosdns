@@ -153,25 +153,13 @@ func newCachePlugin(bp *coremain.BP, args *Args) (*cachePlugin, error) {
 	return p, nil
 }
 
-func (c *cachePlugin) skip(q *dns.Msg) bool {
-	if c.args.CacheEverything {
-		return false
-	}
-	// We only cache simple queries.
-	return !(len(q.Question) == 1 && len(q.Answer)+len(q.Ns)+len(q.Extra) == 0)
-}
-
 func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
 	c.queryTotal.Inc()
 	q := qCtx.Q()
-	if c.skip(q) {
-		c.L().Debug("skipped", qCtx.InfoField())
-		return executable_seq.ExecChainNode(ctx, qCtx, next)
-	}
 
-	msgKey, err := dnsutils.GetMsgKey(q, 0)
-	if err != nil {
-		return fmt.Errorf("failed to get msg key, %w", err)
+	msgKey := c.getMsgKey(q)
+	if len(msgKey) == 0 { // skip cache
+		return executable_seq.ExecChainNode(ctx, qCtx, next)
 	}
 
 	cachedResp, lazyHit, err := c.lookupCache(msgKey)
@@ -200,6 +188,21 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, nex
 		c.tryStoreMsg(msgKey, r)
 	}
 	return err
+}
+
+// getMsgKey returns a string key for the query msg, or an empty
+// string if query should not be cached.
+func (c *cachePlugin) getMsgKey(q *dns.Msg) string {
+	isSimpleQuery := len(q.Question) == 1 && len(q.Answer) == 0 && len(q.Ns) == 0 && len(q.Extra) == 0
+	if isSimpleQuery || c.args.CacheEverything {
+		msgKey, err := dnsutils.GetMsgKey(q, 0)
+		if err != nil {
+			c.L().Error("failed to unpack query msg", zap.Error(err))
+			return ""
+		}
+		return msgKey
+	}
+	return ""
 }
 
 // lookupCache returns the cached response. The ttl of returned msg will be changed properly.
@@ -255,8 +258,9 @@ func (c *cachePlugin) lookupCache(msgKey string) (r *dns.Msg, lazyHit bool, err 
 	return nil, false, nil
 }
 
+// doLazyUpdate starts a new goroutine to execute next node and update the cache in the background.
+// It has an inner singleflight.Group to de-duplicate same msgKey.
 func (c *cachePlugin) doLazyUpdate(msgKey string, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) {
-	// start a goroutine to update cache in the background
 	lazyQCtx := qCtx.Copy()
 	lazyUpdateFunc := func() (interface{}, error) {
 		c.L().Debug("start lazy cache update", lazyQCtx.InfoField())
@@ -287,7 +291,7 @@ func (c *cachePlugin) tryStoreMsg(key string, r *dns.Msg) {
 
 	v, err := r.Pack()
 	if err != nil {
-		c.L().Warn("failed to pack msg", zap.Error(err))
+		c.L().Warn("failed to pack response msg", zap.Error(err))
 		return
 	}
 
