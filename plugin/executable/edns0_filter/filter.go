@@ -42,9 +42,11 @@ func init() {
 
 type Args struct {
 	// Args priority: NoEDNS > Keep > Discard.
+	// If both Keep and Discard is not specified. edns0_filter will
+	// keep no EDNS0 option (discard all EDNS0 options).
 	NoEDNS  bool     `yaml:"no_edns"` // Remove entire EDNS0 RR.
 	Keep    []uint16 `yaml:"accept"`  // Only keep those EDNS0 options and discard others.
-	Discard []uint16 `yaml:"remove"`  // Only remove those EDNS0 options and keep others.
+	Discard []uint16 `yaml:"discard"` // Only remove those EDNS0 options and keep others.
 }
 
 var _ coremain.ExecutablePlugin = (*Filter)(nil)
@@ -114,5 +116,11 @@ func (s *Filter) applyFilter(q *dns.Msg) {
 			}
 		}
 		opt.Option = opts
+	default: // remove all edns0 options
+		opt := q.IsEdns0()
+		if opt == nil || len(opt.Option) == 0 {
+			break
+		}
+		opt.Option = make([]dns.EDNS0, 0)
 	}
 }
