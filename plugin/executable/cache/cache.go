@@ -178,6 +178,7 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, nex
 		if c.whenHit != nil {
 			return c.whenHit.Exec(ctx, qCtx, nil)
 		}
+		return nil
 	}
 
 	// cache miss, run the entry and try to store its response.
