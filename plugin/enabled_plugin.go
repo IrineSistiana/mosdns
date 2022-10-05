@@ -28,6 +28,7 @@ import (
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/client_limiter"
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/dual_selector"
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/ecs"
+	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/edns0_filter"
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/fast_forward"
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/forward"
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/hosts"
