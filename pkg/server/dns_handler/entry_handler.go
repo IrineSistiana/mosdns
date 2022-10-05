@@ -111,7 +111,7 @@ func (h *EntryHandler) ServeDNS(ctx context.Context, req *dns.Msg, meta *query_c
 	} else {
 		h.opts.Logger.Debug("entry returned", qCtx.InfoField())
 	}
-	if respMsg == nil {
+	if err == nil && respMsg == nil {
 		h.opts.Logger.Error("entry returned an nil response", qCtx.InfoField())
 	}
 
