@@ -276,7 +276,7 @@ func (f *FallbackNode) doFallback(ctx context.Context, qCtx *query_context.Conte
 		c <- &parallelECSResult{
 			qCtx: qCtxP,
 			err:  err,
-			from: 1,
+			from: 0,
 		}
 	}()
 
@@ -288,7 +288,7 @@ func (f *FallbackNode) doFallback(ctx context.Context, qCtx *query_context.Conte
 		c <- &parallelECSResult{
 			qCtx: qCtxS,
 			err:  err,
-			from: 2,
+			from: 1,
 		}
 	}()
 
