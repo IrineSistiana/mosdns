@@ -49,7 +49,7 @@ func (t *optm) Exec(ctx context.Context, qCtx *query_context.Context, next execu
 	q := qCtx.Q()
 
 	// Block query that is unusual.
-	if len(q.Question) != 1 || q.Question[0].Qclass != dns.ClassINET {
+	if isUnusualQuery(q) {
 		r := new(dns.Msg)
 		r.SetRcode(q, dns.RcodeRefused)
 		qCtx.SetResponse(r)
@@ -92,4 +92,13 @@ func (t *optm) Exec(ctx context.Context, qCtx *query_context.Context, next execu
 		dnsutils.RemoveEDNS0(r)
 	}
 	return nil
+}
+
+func isUnusualQuery(q *dns.Msg) bool {
+	return !isValidQuery(q) || len(q.Question) != 1 || q.Question[0].Qclass != dns.ClassINET
+}
+
+func isValidQuery(q *dns.Msg) bool {
+	return !q.Response && q.Opcode == dns.OpcodeQuery && !q.Authoritative && !q.Zero && // check header
+		len(q.Answer) == 0 && len(q.Ns) == 0 // check body
 }
