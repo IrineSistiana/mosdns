@@ -25,6 +25,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
 	"go.uber.org/zap"
 	"reflect"
+	"strconv"
 )
 
 // BuildExecutableLogicTree parses in into a ExecutableChainNode.
@@ -49,7 +50,8 @@ func BuildExecutableLogicTree(
 		var rootNode ExecutableChainNode
 		var tailNode ExecutableChainNode
 		for i, elem := range v {
-			n, err := BuildExecutableLogicTree(elem, logger, execs, matchers)
+			nodeLogger := logger.Named("node_" + strconv.Itoa(i))
+			n, err := BuildExecutableLogicTree(elem, nodeLogger, execs, matchers)
 			if err != nil {
 				return nil, fmt.Errorf("invalid cmd at #%d: %w", i, err)
 			}

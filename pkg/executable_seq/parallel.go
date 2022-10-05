@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
 	"go.uber.org/zap"
+	"strconv"
 	"time"
 )
 
@@ -48,9 +49,12 @@ func ParseParallelNode(
 	execs map[string]Executable,
 	matchers map[string]Matcher,
 ) (*ParallelNode, error) {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	ps := make([]ExecutableChainNode, 0, len(c.Parallel))
 	for i, subSequence := range c.Parallel {
-		es, err := BuildExecutableLogicTree(subSequence, logger, execs, matchers)
+		es, err := BuildExecutableLogicTree(subSequence, logger.Named("parallel_seq_"+strconv.Itoa(i)), execs, matchers)
 		if err != nil {
 			return nil, fmt.Errorf("invalid parallel command at index %d: %w", i, err)
 		}

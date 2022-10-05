@@ -115,13 +115,16 @@ func ParseFallbackNode(
 	if c.Secondary == nil {
 		return nil, errors.New("secondary is empty")
 	}
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 
-	primaryECS, err := BuildExecutableLogicTree(c.Primary, logger, execs, matchers)
+	primaryECS, err := BuildExecutableLogicTree(c.Primary, logger.Named("primary"), execs, matchers)
 	if err != nil {
 		return nil, fmt.Errorf("invalid primary sequence: %w", err)
 	}
 
-	secondaryECS, err := BuildExecutableLogicTree(c.Secondary, logger, execs, matchers)
+	secondaryECS, err := BuildExecutableLogicTree(c.Secondary, logger.Named("secondary"), execs, matchers)
 	if err != nil {
 		return nil, fmt.Errorf("invalid secondary sequence: %w", err)
 	}

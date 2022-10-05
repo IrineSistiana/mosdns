@@ -68,22 +68,25 @@ func ParseConditionNode(
 	execs map[string]Executable,
 	matchers map[string]Matcher,
 ) (*ConditionNode, error) {
-	cn := new(ConditionNode)
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 
-	cm, err := newConditionMatcher(logger, cfg.If, matchers)
+	cn := new(ConditionNode)
+	cm, err := newConditionMatcher(logger.Named("if"), cfg.If, matchers)
 	if err != nil {
 		return nil, err
 	}
 	cn.ConditionMatcher = cm
 
 	if cfg.Exec != nil {
-		cn.ExecutableNode, err = BuildExecutableLogicTree(cfg.Exec, logger, execs, matchers)
+		cn.ExecutableNode, err = BuildExecutableLogicTree(cfg.Exec, logger.Named("exec"), execs, matchers)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse exec command: %w", err)
 		}
 	}
 	if cfg.ElseExec != nil {
-		cn.ElseExecutableNode, err = BuildExecutableLogicTree(cfg.ElseExec, logger, execs, matchers)
+		cn.ElseExecutableNode, err = BuildExecutableLogicTree(cfg.ElseExec, logger.Named("else_exec"), execs, matchers)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse else_exec command: %w", err)
 		}

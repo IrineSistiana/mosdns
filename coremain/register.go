@@ -174,6 +174,7 @@ func NewBP(tag string, typ string, lg *zap.Logger, m *Mosdns) *BP {
 	if lg == nil {
 		lg = zap.NewNop()
 	}
+	lg = lg.Named(tag)
 	return &BP{tag: tag, typ: typ, l: lg, s: lg.Sugar(), m: m}
 }
 
