@@ -33,6 +33,10 @@ const (
 	PluginType = "misc_optm"
 )
 
+const (
+	maxUDPSize = 1200 // 1280 (min ipv6 mtu) - 40 (ipv6 header) - 8 (udp header) - 8 (pppoe header) - (24) reserved
+)
+
 func init() {
 	coremain.RegNewPersetPluginFunc("_misc_optm", func(bp *coremain.BP) (coremain.Plugin, error) {
 		return &optm{BP: bp}, nil
@@ -55,6 +59,14 @@ func (t *optm) Exec(ctx context.Context, qCtx *query_context.Context, next execu
 		qCtx.SetResponse(r)
 		return nil
 	}
+
+	// limit edns0 udp size.
+	if opt := q.IsEdns0(); opt != nil {
+		if opt.UDPSize() > maxUDPSize {
+			opt.SetUDPSize(maxUDPSize)
+		}
+	}
+
 	if err := executable_seq.ExecChainNode(ctx, qCtx, next); err != nil {
 		return err
 	}
