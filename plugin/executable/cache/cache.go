@@ -157,14 +157,17 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, nex
 	c.queryTotal.Inc()
 	q := qCtx.Q()
 
-	msgKey := c.getMsgKey(q)
+	msgKey, err := c.getMsgKey(q)
+	if err != nil {
+		c.L().Error("get msg key", qCtx.InfoField(), zap.Error(err))
+	}
 	if len(msgKey) == 0 { // skip cache
 		return executable_seq.ExecChainNode(ctx, qCtx, next)
 	}
 
 	cachedResp, lazyHit, err := c.lookupCache(msgKey)
 	if err != nil {
-		c.L().Error("cache lookup", zap.Error(err))
+		c.L().Error("lookup cache", qCtx.InfoField(), zap.Error(err))
 	}
 	if lazyHit {
 		c.lazyHitTotal.Inc()
@@ -186,24 +189,25 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, nex
 	err = executable_seq.ExecChainNode(ctx, qCtx, next)
 	r := qCtx.R()
 	if r != nil {
-		c.tryStoreMsg(msgKey, r)
+		if err := c.tryStoreMsg(msgKey, r); err != nil {
+			c.L().Error("cache store", qCtx.InfoField(), zap.Error(err))
+		}
 	}
 	return err
 }
 
 // getMsgKey returns a string key for the query msg, or an empty
 // string if query should not be cached.
-func (c *cachePlugin) getMsgKey(q *dns.Msg) string {
+func (c *cachePlugin) getMsgKey(q *dns.Msg) (string, error) {
 	isSimpleQuery := len(q.Question) == 1 && len(q.Answer) == 0 && len(q.Ns) == 0 && len(q.Extra) == 0
 	if isSimpleQuery || c.args.CacheEverything {
 		msgKey, err := dnsutils.GetMsgKey(q, 0)
 		if err != nil {
-			c.L().Error("failed to unpack query msg", zap.Error(err))
-			return ""
+			return "", fmt.Errorf("failed to unpack query msg, %w", err)
 		}
-		return msgKey
+		return msgKey, nil
 	}
-	return ""
+	return "", nil
 }
 
 // lookupCache returns the cached response. The ttl of returned msg will be changed properly.
@@ -276,7 +280,9 @@ func (c *cachePlugin) doLazyUpdate(msgKey string, qCtx *query_context.Context, n
 
 		r := lazyQCtx.R()
 		if r != nil {
-			c.tryStoreMsg(msgKey, r)
+			if err := c.tryStoreMsg(msgKey, r); err != nil {
+				c.L().Error("cache store", qCtx.InfoField(), zap.Error(err))
+			}
 		}
 		c.L().Debug("lazy cache updated", lazyQCtx.InfoField())
 		return nil, nil
@@ -285,15 +291,14 @@ func (c *cachePlugin) doLazyUpdate(msgKey string, qCtx *query_context.Context, n
 }
 
 // tryStoreMsg tries to store r to cache. If r should be cached.
-func (c *cachePlugin) tryStoreMsg(key string, r *dns.Msg) {
+func (c *cachePlugin) tryStoreMsg(key string, r *dns.Msg) error {
 	if r.Rcode != dns.RcodeSuccess || r.Truncated != false {
-		return
+		return nil
 	}
 
 	v, err := r.Pack()
 	if err != nil {
-		c.L().Warn("failed to pack response msg", zap.Error(err))
-		return
+		return fmt.Errorf("failed to pack response msg, %w", err)
 	}
 
 	now := time.Now()
@@ -303,7 +308,7 @@ func (c *cachePlugin) tryStoreMsg(key string, r *dns.Msg) {
 	} else {
 		minTTL := dnsutils.GetMinimalTTL(r)
 		if minTTL == 0 {
-			return
+			return nil
 		}
 		expirationTime = now.Add(time.Duration(minTTL) * time.Second)
 	}
@@ -313,6 +318,7 @@ func (c *cachePlugin) tryStoreMsg(key string, r *dns.Msg) {
 		defer compressBuf.Release()
 	}
 	c.backend.Store(key, v, now, expirationTime)
+	return nil
 }
 
 func (c *cachePlugin) Shutdown() error {
