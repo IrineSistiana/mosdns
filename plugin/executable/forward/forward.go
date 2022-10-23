@@ -27,6 +27,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/coremain"
 	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
 	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
+	"github.com/miekg/dns"
 	"net"
 	"time"
 )
@@ -122,15 +123,32 @@ func (f *forwardPlugin) Exec(ctx context.Context, qCtx *query_context.Context, n
 }
 
 func (f *forwardPlugin) exec(ctx context.Context, qCtx *query_context.Context) error {
+	type res struct {
+		r   *dns.Msg
+		err error
+	}
 	// Remainder: Always makes a copy of q. dnsproxy/upstream may keep or even modify the q in their
 	// Exchange() calls.
 	q := qCtx.Q().Copy()
-	r, _, err := upstream.ExchangeParallel(f.upstreams, q)
-	if err != nil {
-		return err
+	c := make(chan res, 1)
+	go func() {
+		r, _, err := upstream.ExchangeParallel(f.upstreams, q)
+		c <- res{
+			r:   r,
+			err: err,
+		}
+	}()
+
+	select {
+	case res := <-c:
+		if res.err != nil {
+			return res.err
+		}
+		qCtx.SetResponse(res.r)
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-	qCtx.SetResponse(r)
-	return nil
 }
 
 func (f *forwardPlugin) Close() error {
