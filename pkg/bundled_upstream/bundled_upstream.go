@@ -87,12 +87,10 @@ func ExchangeParallel(ctx context.Context, qCtx *query_context.Context, upstream
 				continue
 			}
 
-			if res.r.Rcode != dns.RcodeSuccess {
-				if res.from.Trusted() {
-					return res.r, nil
-				}
-				continue
+			if res.from.Trusted() || res.r.Rcode == dns.RcodeSuccess {
+				return res.r, nil
 			}
+			continue
 
 		case <-ctx.Done():
 			return nil, ctx.Err()
