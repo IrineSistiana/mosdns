@@ -32,6 +32,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/pkg/upstream"
 	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
 	"github.com/miekg/dns"
+	"io"
 	"strings"
 	"time"
 )
@@ -48,8 +49,8 @@ type fastForward struct {
 	*coremain.BP
 	args *Args
 
-	upstreamBundle  *bundled_upstream.BundledUpstream
-	trackedUpstream []upstream.Upstream
+	upstreamWrappers []bundled_upstream.Upstream
+	upstreamsCloser  []io.Closer
 }
 
 type Args struct {
@@ -87,8 +88,6 @@ func newFastForward(bp *coremain.BP, args *Args) (*fastForward, error) {
 		args: args,
 	}
 
-	us := make([]bundled_upstream.Upstream, 0)
-
 	// rootCAs
 	var rootCAs *x509.CertPool
 	if len(args.CA) != 0 {
@@ -106,7 +105,7 @@ func newFastForward(bp *coremain.BP, args *Args) (*fastForward, error) {
 
 		if strings.HasPrefix(c.Addr, "udpme://") {
 			u := newUDPME(c.Addr[8:], c.Trusted)
-			us = append(us, u)
+			f.upstreamWrappers = append(f.upstreamWrappers, u)
 			if i == 0 {
 				u.trusted = true
 			}
@@ -137,21 +136,20 @@ func newFastForward(bp *coremain.BP, args *Args) (*fastForward, error) {
 			return nil, fmt.Errorf("failed to init upstream: %w", err)
 		}
 
-		wu := &upstreamWrapper{
+		w := &upstreamWrapper{
 			address: c.Addr,
 			trusted: c.Trusted,
 			u:       u,
 		}
 
 		if i == 0 { // Set first upstream as trusted upstream.
-			wu.trusted = true
+			w.trusted = true
 		}
 
-		us = append(us, wu)
-		f.trackedUpstream = append(f.trackedUpstream, u)
+		f.upstreamWrappers = append(f.upstreamWrappers, w)
+		f.upstreamsCloser = append(f.upstreamsCloser, u)
 	}
 
-	f.upstreamBundle = bundled_upstream.NewBundledUpstream(us, bp.L())
 	return f, nil
 }
 
@@ -186,7 +184,7 @@ func (f *fastForward) Exec(ctx context.Context, qCtx *query_context.Context, nex
 }
 
 func (f *fastForward) exec(ctx context.Context, qCtx *query_context.Context) (err error) {
-	r, err := f.upstreamBundle.ExchangeParallel(ctx, qCtx)
+	r, err := bundled_upstream.ExchangeParallel(ctx, qCtx, f.upstreamWrappers, f.L())
 	if err != nil {
 		return err
 	}
@@ -195,7 +193,7 @@ func (f *fastForward) exec(ctx context.Context, qCtx *query_context.Context) (er
 }
 
 func (f *fastForward) Shutdown() error {
-	for _, u := range f.trackedUpstream {
+	for _, u := range f.upstreamsCloser {
 		u.Close()
 	}
 	return nil

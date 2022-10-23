@@ -28,28 +28,16 @@ import (
 )
 
 type Upstream interface {
+	// Exchange sends q to the upstream and waits for response.
+	// If any error occurs. Implements must return a nil msg with a non nil error.
+	// Otherwise, Implements must a msg with nil error.
 	Exchange(ctx context.Context, q *dns.Msg) (*dns.Msg, error)
-	Address() string
+
+	// Trusted indicates whether this Upstream is trusted/reliable.
+	// If true, responses from this Upstream will be accepted without checking its rcode.
 	Trusted() bool
-}
 
-type BundledUpstream struct {
-	us     []Upstream
-	logger *zap.Logger
-}
-
-// NewBundledUpstream creates a BundledUpstream.
-// us must contain at least one Upstream.
-// To disable logger, set it to nil.
-func NewBundledUpstream(us []Upstream, logger *zap.Logger) *BundledUpstream {
-	if len(us) < 1 {
-		panic("us must contain at least one Upstream")
-	}
-
-	if logger == nil {
-		logger = zap.NewNop()
-	}
-	return &BundledUpstream{us: us, logger: logger}
+	Address() string
 }
 
 type parallelResult struct {
@@ -58,22 +46,24 @@ type parallelResult struct {
 	from Upstream
 }
 
-func (bu *BundledUpstream) ExchangeParallel(ctx context.Context, qCtx *query_context.Context) (*dns.Msg, error) {
+var nopLogger = zap.NewNop()
+
+var ErrAllFailed = errors.New("all upstreams failed")
+
+func ExchangeParallel(ctx context.Context, qCtx *query_context.Context, upstreams []Upstream, logger *zap.Logger) (*dns.Msg, error) {
+	if logger == nil {
+		logger = nopLogger
+	}
+
 	q := qCtx.Q()
-	t := len(bu.us)
+	t := len(upstreams)
 	if t == 1 {
-		u := bu.us[0]
-		r, err := u.Exchange(ctx, q)
-		if err != nil {
-			return nil, err
-		}
-		bu.logger.Debug("response received", qCtx.InfoField(), zap.String("from", u.Address()))
-		return r, nil
+		return upstreams[0].Exchange(ctx, q)
 	}
 
 	c := make(chan *parallelResult, t) // use buf chan to avoid blocking.
 	qCopy := q.Copy()                  // qCtx is not safe for concurrent use.
-	for _, u := range bu.us {
+	for _, u := range upstreams {
 		u := u
 		go func() {
 			r, err := u.Exchange(ctx, qCopy)
@@ -85,34 +75,28 @@ func (bu *BundledUpstream) ExchangeParallel(ctx context.Context, qCtx *query_con
 		}()
 	}
 
-	var candidateErrReply *parallelResult
 	for i := 0; i < t; i++ {
 		select {
 		case res := <-c:
 			if res.err != nil {
-				bu.logger.Warn("upstream failed", qCtx.InfoField(), zap.String("from", res.from.Address()), zap.Error(res.err))
+				logger.Warn("upstream err", qCtx.InfoField(), zap.String("addr", res.from.Address()))
 				continue
 			}
 
-			if res.r.Rcode == dns.RcodeSuccess || res.from.Trusted() {
-				bu.logger.Debug("response accepted", qCtx.InfoField(), zap.String("from", res.from.Address()))
-				return res.r, nil
+			if res.r == nil {
+				continue
 			}
 
-			if candidateErrReply == nil {
-				candidateErrReply = res
+			if res.r.Rcode != dns.RcodeSuccess {
+				if res.from.Trusted() {
+					return res.r, nil
+				}
+				continue
 			}
-			bu.logger.Debug("untrusted upstream returned an err rcode", qCtx.InfoField(), zap.String("from", res.from.Address()), zap.Int("rcode", res.r.Rcode))
+
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
 	}
-
-	// all upstreams failed or returned an error rcode.
-	if candidateErrReply != nil {
-		bu.logger.Debug("candidate error response accepted", qCtx.InfoField(), zap.String("from", candidateErrReply.from.Address()))
-		return candidateErrReply.r, nil
-	}
-
-	return nil, errors.New("no response")
+	return nil, ErrAllFailed
 }
