@@ -31,6 +31,12 @@ import (
 	"net"
 )
 
+// cmcUDPConn can read and write cmsg.
+type cmcUDPConn interface {
+	readFrom(b []byte) (n int, cm any, src net.Addr, err error)
+	writeTo(b []byte, cm any, dst net.Addr) (n int, err error)
+}
+
 func (s *Server) ServeUDP(c net.PacketConn) error {
 	defer c.Close()
 
@@ -52,8 +58,20 @@ func (s *Server) ServeUDP(c net.PacketConn) error {
 	defer readBuf.Release()
 	rb := readBuf.Bytes()
 
+	var cmc cmcUDPConn
+	var err error
+	uc, ok := c.(*net.UDPConn)
+	if ok {
+		cmc, err = newUDPConn(uc)
+		if err != nil {
+			return fmt.Errorf("failed to control socket cmsg, %w", err)
+		}
+	} else {
+		cmc = newDummyUDPConn(c)
+	}
+
 	for {
-		n, clientNetAddr, err := c.ReadFrom(rb)
+		n, cm, clientNetAddr, err := cmc.readFrom(rb)
 		if err != nil {
 			if s.Closed() {
 				return ErrServerClosed
@@ -87,7 +105,7 @@ func (s *Server) ServeUDP(c net.PacketConn) error {
 					return
 				}
 				defer buf.Release()
-				if _, err := c.WriteTo(b, clientNetAddr); err != nil {
+				if _, err := cmc.writeTo(b, cm, clientNetAddr); err != nil {
 					s.opts.Logger.Warn("failed to write response", zap.Stringer("client", clientNetAddr), zap.Error(err))
 				}
 			}
@@ -104,4 +122,24 @@ func getUDPSize(m *dns.Msg) int {
 		s = dns.MinMsgSize
 	}
 	return int(s)
+}
+
+// newDummyUDPConn returns a dummyWrapper.
+func newDummyUDPConn(c net.PacketConn) cmcUDPConn {
+	return dummyWrapper{c: c}
+}
+
+// dummyWrapper is just a wrapper that implements cmcUDPConn but does not
+// write or read any control msg.
+type dummyWrapper struct {
+	c net.PacketConn
+}
+
+func (w dummyWrapper) readFrom(b []byte) (n int, cm any, src net.Addr, err error) {
+	n, src, err = w.c.ReadFrom(b)
+	return
+}
+
+func (w dummyWrapper) writeTo(b []byte, cm any, dst net.Addr) (n int, err error) {
+	return w.c.WriteTo(b, dst)
 }
