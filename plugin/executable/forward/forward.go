@@ -25,10 +25,8 @@ import (
 	"fmt"
 	"github.com/AdguardTeam/dnsproxy/upstream"
 	"github.com/IrineSistiana/mosdns/v4/coremain"
-	"github.com/IrineSistiana/mosdns/v4/pkg/bundled_upstream"
 	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
 	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
-	"github.com/miekg/dns"
 	"net"
 	"time"
 )
@@ -43,7 +41,8 @@ var _ coremain.ExecutablePlugin = (*forwardPlugin)(nil)
 
 type forwardPlugin struct {
 	*coremain.BP
-	bu *bundled_upstream.BundledUpstream
+
+	upstreams []upstream.Upstream
 }
 
 type Args struct {
@@ -55,9 +54,12 @@ type Args struct {
 }
 
 type UpstreamConfig struct {
-	Addr    string   `yaml:"addr"`
-	IPAddr  []string `yaml:"ip_addr"`
-	Trusted bool     `yaml:"trusted"`
+	Addr   string   `yaml:"addr"`
+	IPAddr []string `yaml:"ip_addr"`
+
+	// Deprecated: This field is preserved. It has no effect.
+	// TODO: Remove it in v5.
+	Trusted bool `yaml:"trusted"`
 }
 
 func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
@@ -72,14 +74,9 @@ func newForwarder(bp *coremain.BP, args *Args) (*forwardPlugin, error) {
 	f := new(forwardPlugin)
 	f.BP = bp
 
-	bu := make([]bundled_upstream.Upstream, 0)
 	for i, conf := range args.UpstreamConfig {
 		if len(conf.Addr) == 0 {
-			return nil, errors.New("missing upstream address")
-		}
-
-		if i == 0 { // Set first upstream as trusted upstream.
-			conf.Trusted = true
+			return nil, fmt.Errorf("upstream #%d, missing upstream address", i)
 		}
 
 		serverIPAddrs := make([]net.IP, 0, len(conf.IPAddr))
@@ -104,53 +101,11 @@ func newForwarder(bp *coremain.BP, args *Args) (*forwardPlugin, error) {
 
 		u, err := upstream.AddressToUpstream(conf.Addr, opt)
 		if err != nil {
-			return nil, fmt.Errorf("failed to init upsteam: %w", err)
+			return nil, fmt.Errorf("failed to init upsteam #%d: %w", i, err)
 		}
-		bu = append(bu, &upstreamWrapper{
-			dnsproxyUpstream: u,
-			trusted:          conf.Trusted,
-		})
+		f.upstreams = append(f.upstreams, u)
 	}
-
-	f.bu = bundled_upstream.NewBundledUpstream(bu, bp.L())
 	return f, nil
-}
-
-type upstreamWrapper struct {
-	dnsproxyUpstream upstream.Upstream
-	trusted          bool
-}
-
-func (u *upstreamWrapper) Address() string {
-	return u.dnsproxyUpstream.Address()
-}
-
-func (u *upstreamWrapper) Exchange(ctx context.Context, q *dns.Msg) (*dns.Msg, error) {
-	type res struct {
-		r   *dns.Msg
-		err error
-	}
-	resChan := make(chan *res, 1)
-
-	// Remainder: Always makes a copy of q. dnsproxy/upstream may keep or even modify the q in their
-	// Exchange() calls.
-	qCopy := q.Copy()
-	go func() {
-		r := new(res)
-		r.r, r.err = u.dnsproxyUpstream.Exchange(qCopy)
-		resChan <- r
-	}()
-
-	select {
-	case r := <-resChan:
-		return r.r, r.err
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-}
-
-func (u *upstreamWrapper) Trusted() bool {
-	return u.trusted
 }
 
 // Exec forwards qCtx.Q() to upstreams, and sets qCtx.R().
@@ -167,10 +122,20 @@ func (f *forwardPlugin) Exec(ctx context.Context, qCtx *query_context.Context, n
 }
 
 func (f *forwardPlugin) exec(ctx context.Context, qCtx *query_context.Context) error {
-	r, err := f.bu.ExchangeParallel(ctx, qCtx)
+	// Remainder: Always makes a copy of q. dnsproxy/upstream may keep or even modify the q in their
+	// Exchange() calls.
+	q := qCtx.Q().Copy()
+	r, _, err := upstream.ExchangeParallel(f.upstreams, q)
 	if err != nil {
 		return err
 	}
 	qCtx.SetResponse(r)
+	return nil
+}
+
+func (f *forwardPlugin) Close() error {
+	for _, u := range f.upstreams {
+		u.Close()
+	}
 	return nil
 }
