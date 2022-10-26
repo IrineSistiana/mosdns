@@ -38,6 +38,7 @@ import (
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/misc_optm"
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/nftset"
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/padding"
+	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/query_summary"
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/redirect"
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/reverse_lookup"
 	_ "github.com/IrineSistiana/mosdns/v4/plugin/executable/sequence"
