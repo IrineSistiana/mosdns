@@ -19,39 +19,98 @@
 
 package domain
 
-import "strings"
+import (
+	"strings"
+)
 
-type DomainScanner struct {
-	d string
-	n int
+type ReverseDomainScanner struct {
+	s string // not fqdn
+	p int
+	t int
 }
 
-func NewUnifiedDomainScanner(s string) *DomainScanner {
-	domain := UnifyDomain(s)
-	return &DomainScanner{
-		d: domain,
-		n: len(domain),
+func NewReverseDomainScanner(s string) *ReverseDomainScanner {
+	s = TrimDot(s)
+	return &ReverseDomainScanner{
+		s: s,
+		p: len(s),
+		t: len(s),
 	}
 }
 
-func (s *DomainScanner) Scan() bool {
-	return s.n > 0
+func (s *ReverseDomainScanner) Scan() bool {
+	if s.p <= 0 {
+		return false
+	}
+	s.t = s.p
+	s.p = strings.LastIndexByte(s.s[:s.p], '.')
+	return true
 }
 
-func (s *DomainScanner) PrevLabelOffset() int {
-	s.n = strings.LastIndexByte(s.d[:s.n], '.')
-	return s.n + 1
+func (s *ReverseDomainScanner) NextLabelOffset() int {
+	return s.p + 1
 }
 
-func (s *DomainScanner) PrevLabel() (label string, end bool) {
-	n := strings.LastIndexByte(s.d[:s.n], '.')
-	l := s.d[n+1 : s.n]
-	s.n = n
-	return l, n == -1
+func (s *ReverseDomainScanner) NextLabel() (label string) {
+	return s.s[s.p+1 : s.t]
 }
 
-func (s *DomainScanner) PrevSubDomain() (sub string, end bool) {
-	n := strings.LastIndexByte(s.d[:s.n], '.')
-	s.n = n
-	return s.d[n+1:], n == -1
+// NormalizeDomain normalize domain string s.
+// It removes the suffix "." and make sure the domain is in lower case.
+// e.g. a fqdn "GOOGLE.com." will become "google.com"
+func NormalizeDomain(s string) string {
+	return strings.ToLower(TrimDot(s))
+}
+
+// TrimDot trims suffix '.'
+func TrimDot(s string) string {
+	if len(s) >= 1 && s[len(s)-1] == '.' {
+		s = s[:len(s)-1]
+	}
+	return s
+}
+
+// labelNode can store dns labels.
+type labelNode[T any] struct {
+	children map[string]*labelNode[T] // lazy init
+
+	v    T
+	hasV bool
+}
+
+func (n *labelNode[T]) storeValue(v T) {
+	n.v = v
+	n.hasV = true
+}
+
+func (n *labelNode[T]) getValue() (T, bool) {
+	return n.v, n.hasV
+}
+
+func (n *labelNode[T]) hasValue() bool {
+	return n.hasV
+}
+
+func (n *labelNode[T]) newChild(key string) *labelNode[T] {
+	if n.children == nil {
+		n.children = make(map[string]*labelNode[T])
+	}
+	node := new(labelNode[T])
+	n.children[key] = node
+	return node
+}
+
+func (n *labelNode[T]) getChild(key string) *labelNode[T] {
+	return n.children[key]
+}
+
+func (n *labelNode[T]) len() int {
+	l := 0
+	for _, node := range n.children {
+		l += node.len()
+		if node.hasValue() {
+			l++
+		}
+	}
+	return l
 }

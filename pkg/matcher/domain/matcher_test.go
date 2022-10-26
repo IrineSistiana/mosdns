@@ -21,7 +21,6 @@ package domain
 
 import (
 	"reflect"
-	"strconv"
 	"testing"
 )
 
@@ -87,6 +86,10 @@ func TestDomainMatcher(t *testing.T) {
 	assert("b.sub", true, 1)
 	assert("a.sub", true, 2)
 	assert("a.a.sub", true, 2)
+
+	// test case-insensitive
+	add("UPpER", 1)
+	assert("LowER.Upper", true, 1)
 }
 
 func assertInt(t testing.TB, want, got int) {
@@ -119,6 +122,10 @@ func Test_FullMatcher(t *testing.T) {
 	assert("append", true, nil)
 
 	assertInt(t, m.Len(), 3)
+
+	// test case-insensitive
+	add("UPpER", 1)
+	assert("Upper", true, 1)
 }
 
 func Test_KeywordMatcher(t *testing.T) {
@@ -146,6 +153,10 @@ func Test_KeywordMatcher(t *testing.T) {
 	assert("append", true, nil)
 
 	assertInt(t, m.Len(), 3)
+
+	// test case-insensitive
+	add("UPpER", 1)
+	assert("L.Upper.U", true, 1)
 }
 
 func Test_RegexMatcher(t *testing.T) {
@@ -182,23 +193,4 @@ func Test_RegexMatcher(t *testing.T) {
 
 	expr = "*"
 	add(expr, nil, true)
-}
-
-func Test_regCache(t *testing.T) {
-	c := newRegCache[any](128)
-	for i := 0; i < 1024; i++ {
-		s := strconv.Itoa(i)
-		res := new(regElem[any])
-		c.cache(s, res)
-		if len(c.m) > 128 {
-			t.Fatal("cache overflowed")
-		}
-		got, ok := c.lookup(s)
-		if !ok {
-			t.Fatal("cache lookup failed")
-		}
-		if got != res {
-			t.Fatal("cache item mismatched")
-		}
-	}
 }

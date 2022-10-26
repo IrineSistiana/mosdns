@@ -24,7 +24,6 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
 	"regexp"
 	"strings"
-	"sync"
 )
 
 var _ WriteableMatcher[any] = (*MixMatcher[any])(nil)
@@ -34,23 +33,24 @@ var _ WriteableMatcher[any] = (*KeywordMatcher[any])(nil)
 var _ WriteableMatcher[any] = (*RegexMatcher[any])(nil)
 
 type SubDomainMatcher[T any] struct {
-	root *LabelNode[T]
+	root *labelNode[T]
 }
 
 func NewSubDomainMatcher[T any]() *SubDomainMatcher[T] {
-	return &SubDomainMatcher[T]{root: new(LabelNode[T])}
+	return &SubDomainMatcher[T]{root: new(labelNode[T])}
 }
 
 func (m *SubDomainMatcher[T]) Match(s string) (T, bool) {
+	s = NormalizeDomain(s)
+	ds := NewReverseDomainScanner(s)
 	currentNode := m.root
-	ds := NewUnifiedDomainScanner(s)
 	var v T
 	var ok bool
 	for ds.Scan() {
-		label, _ := ds.PrevLabel()
-		if nextNode := currentNode.GetChild(label); nextNode != nil {
-			if nextNode.HasValue() {
-				v, ok = nextNode.GetValue()
+		label := ds.NextLabel()
+		if nextNode := currentNode.getChild(label); nextNode != nil {
+			if nextNode.hasValue() {
+				v, ok = nextNode.getValue()
 			}
 			currentNode = nextNode
 		} else {
@@ -61,71 +61,27 @@ func (m *SubDomainMatcher[T]) Match(s string) (T, bool) {
 }
 
 func (m *SubDomainMatcher[T]) Len() int {
-	return m.root.Len()
+	return m.root.len()
 }
 
 func (m *SubDomainMatcher[T]) Add(s string, v T) error {
+	s = NormalizeDomain(s)
+	ds := NewReverseDomainScanner(s)
 	currentNode := m.root
-	ds := NewUnifiedDomainScanner(s)
 	for ds.Scan() {
-		label, _ := ds.PrevLabel()
-		if child := currentNode.GetChild(label); child != nil {
+		label := ds.NextLabel()
+		if child := currentNode.getChild(label); child != nil {
 			currentNode = child
 		} else {
-			currentNode = currentNode.NewChild(label)
+			currentNode = currentNode.newChild(label)
 		}
 	}
-	currentNode.StoreValue(v)
+	currentNode.storeValue(v)
 	return nil
 }
 
-// LabelNode can store dns labels.
-type LabelNode[T any] struct {
-	children map[string]*LabelNode[T] // lazy init
-
-	v    T
-	hasV bool
-}
-
-func (n *LabelNode[T]) StoreValue(v T) {
-	n.v = v
-	n.hasV = true
-}
-
-func (n *LabelNode[T]) GetValue() (T, bool) {
-	return n.v, n.hasV
-}
-
-func (n *LabelNode[T]) HasValue() bool {
-	return n.hasV
-}
-
-func (n *LabelNode[T]) NewChild(key string) *LabelNode[T] {
-	if n.children == nil {
-		n.children = make(map[string]*LabelNode[T])
-	}
-	node := new(LabelNode[T])
-	n.children[key] = node
-	return node
-}
-
-func (n *LabelNode[T]) GetChild(key string) *LabelNode[T] {
-	return n.children[key]
-}
-
-func (n *LabelNode[T]) Len() int {
-	l := 0
-	for _, node := range n.children {
-		l += node.Len()
-		if node.HasValue() {
-			l++
-		}
-	}
-	return l
-}
-
 type FullMatcher[T any] struct {
-	m map[string]T // string must be a fqdn.
+	m map[string]T // string in is map must be a normalized domain (See NormalizeDomain).
 }
 
 func NewFullMatcher[T any]() *FullMatcher[T] {
@@ -134,13 +90,16 @@ func NewFullMatcher[T any]() *FullMatcher[T] {
 	}
 }
 
+// Add adds domain s to this matcher, s can be a fqdn or not.
 func (m *FullMatcher[T]) Add(s string, v T) error {
-	m.m[UnifyDomain(s)] = v
+	s = NormalizeDomain(s)
+	m.m[s] = v
 	return nil
 }
 
 func (m *FullMatcher[T]) Match(s string) (v T, ok bool) {
-	v, ok = m.m[UnifyDomain(s)]
+	s = NormalizeDomain(s)
+	v, ok = m.m[s]
 	return
 }
 
@@ -159,14 +118,15 @@ func NewKeywordMatcher[T any]() *KeywordMatcher[T] {
 }
 
 func (m *KeywordMatcher[T]) Add(keyword string, v T) error {
+	keyword = NormalizeDomain(keyword) // fqdn-insensitive and case-insensitive
 	m.kws[keyword] = v
 	return nil
 }
 
 func (m *KeywordMatcher[T]) Match(s string) (v T, ok bool) {
-	domain := UnifyDomain(s)
+	s = NormalizeDomain(s)
 	for k, v := range m.kws {
-		if strings.Contains(domain, k) {
+		if strings.Contains(s, k) {
 			return v, true
 		}
 	}
@@ -177,9 +137,10 @@ func (m *KeywordMatcher[T]) Len() int {
 	return len(m.kws)
 }
 
+// RegexMatcher contains regexp rules.
+// Note: the regexp rule is expect to match a lower-case non fqdn.
 type RegexMatcher[T any] struct {
-	regs  map[string]*regElem[T]
-	cache *regCache[T]
+	regs map[string]*regElem[T]
 }
 
 type regElem[T any] struct {
@@ -189,10 +150,6 @@ type regElem[T any] struct {
 
 func NewRegexMatcher[T any]() *RegexMatcher[T] {
 	return &RegexMatcher[T]{regs: make(map[string]*regElem[T])}
-}
-
-func NewRegexMatcherWithCache[T any](cap int) *RegexMatcher[T] {
-	return &RegexMatcher[T]{regs: make(map[string]*regElem[T]), cache: newRegCache[T](cap)}
 }
 
 func (m *RegexMatcher[T]) Add(expr string, v T) error {
@@ -209,36 +166,15 @@ func (m *RegexMatcher[T]) Add(expr string, v T) error {
 	} else {
 		e.v = v
 	}
-
 	return nil
 }
 
 func (m *RegexMatcher[T]) Match(s string) (v T, ok bool) {
-	return m.match(TrimDot(s))
-}
-
-func (m *RegexMatcher[T]) match(domain string) (v T, ok bool) {
-	if m.cache != nil {
-		if e, ok := m.cache.lookup(domain); ok { // cache hit
-			if e != nil {
-				return e.v, true // matched
-			}
-			var zeroT T
-			return zeroT, false // not matched
-		}
-	}
-
+	s = NormalizeDomain(s)
 	for _, e := range m.regs {
-		if e.reg.MatchString(domain) {
-			if m.cache != nil {
-				m.cache.cache(domain, e)
-			}
+		if e.reg.MatchString(s) {
 			return e.v, true
 		}
-	}
-
-	if m.cache != nil { // cache the string
-		m.cache.cache(domain, nil)
 	}
 	var zeroT T
 	return zeroT, false
@@ -246,59 +182,6 @@ func (m *RegexMatcher[T]) match(domain string) (v T, ok bool) {
 
 func (m *RegexMatcher[T]) Len() int {
 	return len(m.regs)
-}
-
-func (m *RegexMatcher[T]) ResetCache() {
-	if m.cache != nil {
-		m.cache.reset()
-	}
-}
-
-type regCache[T any] struct {
-	cap int
-	sync.RWMutex
-	m map[string]*regElem[T]
-}
-
-func newRegCache[T any](cap int) *regCache[T] {
-	return &regCache[T]{
-		cap: cap,
-		m:   make(map[string]*regElem[T], cap),
-	}
-}
-
-func (c *regCache[T]) cache(s string, res *regElem[T]) {
-	c.Lock()
-	defer c.Unlock()
-
-	c.tryEvictUnderLock()
-	c.m[s] = res
-}
-
-func (c *regCache[T]) lookup(s string) (res *regElem[T], ok bool) {
-	c.RLock()
-	defer c.RUnlock()
-	res, ok = c.m[s]
-	return
-}
-
-func (c *regCache[T]) reset() {
-	c.Lock()
-	defer c.Unlock()
-	c.m = make(map[string]*regElem[T], c.cap)
-}
-
-func (c *regCache[T]) tryEvictUnderLock() {
-	if len(c.m) >= c.cap {
-		i := c.cap / 8
-		for key := range c.m { // evict 1/8 cache
-			delete(c.m, key)
-			i--
-			if i < 0 {
-				return
-			}
-		}
-	}
 }
 
 const (
@@ -311,10 +194,10 @@ const (
 type MixMatcher[T any] struct {
 	defaultMatcher string
 
-	full    WriteableMatcher[T]
-	domain  WriteableMatcher[T]
-	regex   WriteableMatcher[T]
-	keyword WriteableMatcher[T]
+	full    *FullMatcher[T]
+	domain  *SubDomainMatcher[T]
+	regex   *RegexMatcher[T]
+	keyword *KeywordMatcher[T]
 }
 
 func NewMixMatcher[T any]() *MixMatcher[T] {
@@ -387,15 +270,4 @@ func (m *MixMatcher[T]) splitTypeAndPattern(s string) (string, string) {
 		pattern = s
 	}
 	return typ, pattern
-}
-
-// TrimDot trims the suffix '.'.
-func TrimDot(s string) string {
-	return strings.TrimSuffix(s, ".")
-}
-
-// UnifyDomain unifies domain strings.
-// It removes the suffix "." and make sure the domain is in lower case.
-func UnifyDomain(s string) string {
-	return strings.ToLower(TrimDot(s))
 }
