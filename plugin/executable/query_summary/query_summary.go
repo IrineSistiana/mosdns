@@ -47,9 +47,7 @@ type logger struct {
 func newLogger(bp *coremain.BP) coremain.Plugin { return &logger{BP: bp} }
 
 func (t *logger) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
-	if err := executable_seq.ExecChainNode(ctx, qCtx, next); err != nil {
-		return err
-	}
+	err := executable_seq.ExecChainNode(ctx, qCtx, next)
 
 	q := qCtx.Q()
 	if len(q.Question) != 1 {
@@ -70,6 +68,7 @@ func (t *logger) Exec(ctx context.Context, qCtx *query_context.Context, next exe
 		zap.Stringer("client", qCtx.ReqMeta().ClientAddr),
 		zap.Int("resp_rcode", respRcode),
 		zap.Duration("elapsed", time.Now().Sub(qCtx.StartTime())),
+		zap.Error(err),
 	)
-	return nil
+	return err
 }
