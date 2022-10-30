@@ -23,6 +23,6 @@ package server
 
 import "net"
 
-func newUDPConn(c *net.UDPConn) (cmcUDPConn, error) {
-	return newDummyUDPConn(c), nil
+func newCmc(c *net.UDPConn) (cmcUDPConn, error) {
+	return newDummyCmc(c), nil
 }

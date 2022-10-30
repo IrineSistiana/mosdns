@@ -33,8 +33,8 @@ import (
 
 // cmcUDPConn can read and write cmsg.
 type cmcUDPConn interface {
-	readFrom(b []byte) (n int, cm any, src net.Addr, err error)
-	writeTo(b []byte, cm any, dst net.Addr) (n int, err error)
+	readFrom(b []byte) (n int, dst net.IP, IfIndex int, src net.Addr, err error)
+	writeTo(b []byte, src net.IP, IfIndex int, dst net.Addr) (n int, err error)
 }
 
 func (s *Server) ServeUDP(c net.PacketConn) error {
@@ -61,28 +61,28 @@ func (s *Server) ServeUDP(c net.PacketConn) error {
 	var cmc cmcUDPConn
 	var err error
 	uc, ok := c.(*net.UDPConn)
-	if ok {
-		cmc, err = newUDPConn(uc)
+	if ok && uc.LocalAddr().(*net.UDPAddr).IP.IsUnspecified() {
+		cmc, err = newCmc(uc)
 		if err != nil {
 			return fmt.Errorf("failed to control socket cmsg, %w", err)
 		}
 	} else {
-		cmc = newDummyUDPConn(c)
+		cmc = newDummyCmc(c)
 	}
 
 	for {
-		n, cm, clientNetAddr, err := cmc.readFrom(rb)
+		n, localAddr, ifIndex, remoteAddr, err := cmc.readFrom(rb)
 		if err != nil {
 			if s.Closed() {
 				return ErrServerClosed
 			}
 			return fmt.Errorf("unexpected read err: %w", err)
 		}
-		clientAddr := utils.GetAddrFromAddr(clientNetAddr)
+		clientAddr := utils.GetAddrFromAddr(remoteAddr)
 
 		q := new(dns.Msg)
 		if err := q.Unpack(rb[:n]); err != nil {
-			s.opts.Logger.Warn("invalid msg", zap.Error(err), zap.Binary("msg", rb[:n]), zap.Stringer("from", clientNetAddr))
+			s.opts.Logger.Warn("invalid msg", zap.Error(err), zap.Binary("msg", rb[:n]), zap.Stringer("from", remoteAddr))
 			continue
 		}
 
@@ -105,8 +105,8 @@ func (s *Server) ServeUDP(c net.PacketConn) error {
 					return
 				}
 				defer buf.Release()
-				if _, err := cmc.writeTo(b, cm, clientNetAddr); err != nil {
-					s.opts.Logger.Warn("failed to write response", zap.Stringer("client", clientNetAddr), zap.Error(err))
+				if _, err := cmc.writeTo(b, localAddr, ifIndex, remoteAddr); err != nil {
+					s.opts.Logger.Warn("failed to write response", zap.Stringer("client", remoteAddr), zap.Error(err))
 				}
 			}
 		}()
@@ -124,22 +124,22 @@ func getUDPSize(m *dns.Msg) int {
 	return int(s)
 }
 
-// newDummyUDPConn returns a dummyWrapper.
-func newDummyUDPConn(c net.PacketConn) cmcUDPConn {
-	return dummyWrapper{c: c}
+// newDummyCmc returns a dummyCmcWrapper.
+func newDummyCmc(c net.PacketConn) cmcUDPConn {
+	return dummyCmcWrapper{c: c}
 }
 
-// dummyWrapper is just a wrapper that implements cmcUDPConn but does not
+// dummyCmcWrapper is just a wrapper that implements cmcUDPConn but does not
 // write or read any control msg.
-type dummyWrapper struct {
+type dummyCmcWrapper struct {
 	c net.PacketConn
 }
 
-func (w dummyWrapper) readFrom(b []byte) (n int, cm any, src net.Addr, err error) {
+func (w dummyCmcWrapper) readFrom(b []byte) (n int, dst net.IP, IfIndex int, src net.Addr, err error) {
 	n, src, err = w.c.ReadFrom(b)
 	return
 }
 
-func (w dummyWrapper) writeTo(b []byte, cm any, dst net.Addr) (n int, err error) {
+func (w dummyCmcWrapper) writeTo(b []byte, src net.IP, IfIndex int, dst net.Addr) (n int, err error) {
 	return w.c.WriteTo(b, dst)
 }
