@@ -62,7 +62,7 @@ type Mosdns struct {
 func RunMosdns(cfg *Config) error {
 	lg, err := mlog.NewLogger(&cfg.Log)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to init logger: %w", err)
 	}
 
 	m := &Mosdns{

@@ -28,7 +28,6 @@ import (
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -107,25 +106,12 @@ func StartServer(sf *serverFlags) error {
 		mlog.L().Info("working directory changed", zap.String("path", sf.dir))
 	}
 
-	v := viper.New()
-	if len(sf.c) > 0 {
-		v.SetConfigFile(sf.c)
-	} else {
-		v.SetConfigName("config")
-		v.AddConfigPath(".")
+	cfg, fileUsed, err := loadConfig(sf.c)
+	if err != nil {
+		return fmt.Errorf("fail to load config, %w", err)
 	}
 
-	if err := v.ReadInConfig(); err != nil {
-		return fmt.Errorf("failed to read config file, %w", err)
-	}
-
-	cfg := new(Config)
-	if err := v.Unmarshal(cfg, decoderOpt); err != nil {
-		return fmt.Errorf("failed to parse config file, %w", err)
-	}
-
-	cfgPath := v.ConfigFileUsed()
-	if err := mergeInclude(cfg, 0, []string{cfgPath}, []string{tryGetAbsPath(cfgPath)}); err != nil {
+	if err := mergeInclude(cfg, 0, []string{fileUsed}); err != nil {
 		return fmt.Errorf("failed to load sub config file, %w", err)
 	}
 
@@ -135,13 +121,36 @@ func StartServer(sf *serverFlags) error {
 	return nil
 }
 
-func decoderOpt(cfg *mapstructure.DecoderConfig) {
-	cfg.ErrorUnused = true
-	cfg.TagName = "yaml"
-	cfg.WeaklyTypedInput = true
+// loadConfig load a config from a file. If filePath is empty, it will
+// automatically search and load a file which name start with "config".
+func loadConfig(filePath string) (*Config, string, error) {
+	v := viper.New()
+
+	if len(filePath) > 0 {
+		v.SetConfigFile(filePath)
+	} else {
+		v.SetConfigName("config")
+		v.AddConfigPath(".")
+	}
+
+	if err := v.ReadInConfig(); err != nil {
+		return nil, "", fmt.Errorf("failed to read config: %w", err)
+	}
+
+	decoderOpt := func(cfg *mapstructure.DecoderConfig) {
+		cfg.ErrorUnused = true
+		cfg.TagName = "yaml"
+		cfg.WeaklyTypedInput = true
+	}
+
+	cfg := new(Config)
+	if err := v.Unmarshal(cfg, decoderOpt); err != nil {
+		return nil, "", fmt.Errorf("failed to unmarshal config: %w", err)
+	}
+	return cfg, v.ConfigFileUsed(), nil
 }
 
-func mergeInclude(cfg *Config, depth int, paths, absPaths []string) error {
+func mergeInclude(cfg *Config, depth int, paths []string) error {
 	depth++
 	if depth > 8 {
 		return fmt.Errorf("maximun include depth reached, include path is %s", strings.Join(paths, " -> "))
@@ -150,25 +159,12 @@ func mergeInclude(cfg *Config, depth int, paths, absPaths []string) error {
 	includedCfg := new(Config)
 	for _, subCfgFile := range cfg.Include {
 		subPaths := append(paths, subCfgFile)
-		subCfgAbsPath := tryGetAbsPath(subCfgFile)
-		subAbsPaths := append(absPaths, subCfgAbsPath)
-		for _, includedAbsPath := range absPaths {
-			if includedAbsPath == subCfgAbsPath {
-				return fmt.Errorf("cycle include depth detected, include path is %s", strings.Join(subPaths, " -> "))
-			}
-		}
-
 		mlog.L().Info("reading sub config", zap.String("file", subCfgFile))
-		subV := viper.New()
-		subV.SetConfigFile(subCfgFile)
-		if err := subV.ReadInConfig(); err != nil {
-			mlog.L().Fatal("failed to read sub config file", zap.String("file", subCfgFile), zap.Error(err))
+		subCfg, _, err := loadConfig(subCfgFile)
+		if err != nil {
+			return fmt.Errorf("failed to load sub config, %w", err)
 		}
-		subCfg := new(Config)
-		if err := subV.Unmarshal(subCfg, decoderOpt); err != nil {
-			mlog.L().Fatal("failed to parse sub config file", zap.String("file", subCfgFile), zap.Error(err))
-		}
-		if err := mergeInclude(subCfg, depth, subPaths, subAbsPaths); err != nil {
+		if err := mergeInclude(subCfg, depth, subPaths); err != nil {
 			return err
 		}
 
@@ -181,12 +177,4 @@ func mergeInclude(cfg *Config, depth int, paths, absPaths []string) error {
 	cfg.Plugins = append(includedCfg.Plugins, cfg.Plugins...)
 	cfg.Servers = append(includedCfg.Servers, cfg.Servers...)
 	return nil
-}
-
-func tryGetAbsPath(s string) string {
-	p, err := filepath.Abs(s)
-	if err != nil {
-		return s
-	}
-	return p
 }
