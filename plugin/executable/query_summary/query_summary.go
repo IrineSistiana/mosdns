@@ -33,20 +33,40 @@ const (
 )
 
 func init() {
+	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(*Args) })
 	coremain.RegNewPersetPluginFunc("_query_summary", func(bp *coremain.BP) (coremain.Plugin, error) {
-		return newLogger(bp), nil
+		return newLogger(bp, &Args{}), nil
 	})
 }
 
 var _ coremain.ExecutablePlugin = (*logger)(nil)
 
+type Args struct {
+	Msg string `yaml:"msg"`
+}
+
+func (a *Args) init() {
+	if len(a.Msg) == 0 {
+		a.Msg = "query summary"
+	}
+}
+
 type logger struct {
+	args *Args
 	*coremain.BP
 }
 
-func newLogger(bp *coremain.BP) coremain.Plugin { return &logger{BP: bp} }
+// Init is a handler.NewPluginFunc.
+func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
+	return newLogger(bp, args.(*Args)), nil
+}
 
-func (t *logger) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
+func newLogger(bp *coremain.BP, args *Args) coremain.Plugin {
+	args.init()
+	return &logger{BP: bp, args: args}
+}
+
+func (l *logger) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
 	err := executable_seq.ExecChainNode(ctx, qCtx, next)
 
 	q := qCtx.Q()
@@ -59,8 +79,8 @@ func (t *logger) Exec(ctx context.Context, qCtx *query_context.Context, next exe
 		respRcode = r.Rcode
 	}
 
-	logger := t.BP.L()
-	logger.Info("query summary",
+	l.BP.L().Info(
+		l.args.Msg,
 		zap.Uint32("uqid", qCtx.Id()),
 		zap.String("qname", question.Name),
 		zap.Uint16("qtype", question.Qtype),
