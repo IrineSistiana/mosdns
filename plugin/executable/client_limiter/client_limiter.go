@@ -75,7 +75,6 @@ func (l *Limiter) Exec(ctx context.Context, qCtx *query_context.Context, next ex
 		return executable_seq.ExecChainNode(ctx, qCtx, next)
 	}
 	if ok := l.hpLimiter.AcquireToken(addr); !ok {
-		l.BP.M().GetBadIPObserver().Observe(addr)
 		r := new(dns.Msg)
 		r.SetRcode(qCtx.Q(), dns.RcodeRefused)
 		qCtx.SetResponse(r)
