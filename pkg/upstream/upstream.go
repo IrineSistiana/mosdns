@@ -51,10 +51,6 @@ type Upstream interface {
 	// response. It MUST NOT keep or modify m.
 	ExchangeContext(ctx context.Context, m *dns.Msg) (*dns.Msg, error)
 
-	// CloseIdleConnections closes any connections in the Upstream which
-	// now sitting idle. It does not interrupt any connections currently in use.
-	CloseIdleConnections()
-
 	io.Closer
 }
 
@@ -321,11 +317,6 @@ func (u *udpWithFallback) ExchangeContext(ctx context.Context, q *dns.Msg) (*dns
 		return u.t.ExchangeContext(ctx, q)
 	}
 	return m, nil
-}
-
-func (u *udpWithFallback) CloseIdleConnections() {
-	u.u.CloseIdleConnections()
-	u.t.CloseIdleConnections()
 }
 
 func (u *udpWithFallback) Close() error {
