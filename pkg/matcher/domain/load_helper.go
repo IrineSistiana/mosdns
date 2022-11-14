@@ -68,7 +68,15 @@ func BatchLoad[T any](m WriteableMatcher[T], b []string, parseString ParseString
 }
 
 type MatcherGroup[T any] struct {
-	g []Matcher[T]
+	g      []Matcher[T]
+	closer []func()
+}
+
+func (m *MatcherGroup[T]) Close() error {
+	for _, f := range m.closer {
+		f()
+	}
+	return nil
 }
 
 func (m *MatcherGroup[T]) Match(s string) (v T, ok bool) {
@@ -94,7 +102,14 @@ func (m *MatcherGroup[T]) Append(nm Matcher[T]) {
 	return
 }
 
+func (m *MatcherGroup[T]) AppendCloser(f func()) {
+	m.closer = append(m.closer, f)
+	return
+}
+
 // BatchLoadProvider loads multiple data entries.
+// Caller must call MatcherGroup.Close to detach this matcher from data_provider.DataManager to
+// avoid leaking.
 func BatchLoadProvider[T any](
 	e []string,
 	staticMatcher WriteableMatcher[T],
@@ -116,7 +131,10 @@ func BatchLoadProvider[T any](
 			if err := provider.LoadAndAddListener(m); err != nil {
 				return nil, fmt.Errorf("failed to load data from provider %s, %w", providerTag, err)
 			}
-			mg.g = append(mg.g, m)
+			mg.Append(m)
+			mg.AppendCloser(func() {
+				provider.DeleteListener(m)
+			})
 		} else {
 			err := Load[T](staticMatcher, s, parseString)
 			if err != nil {
@@ -128,6 +146,8 @@ func BatchLoadProvider[T any](
 }
 
 // BatchLoadDomainProvider loads multiple domain entries.
+// Caller must call MatcherGroup.Close to detach this matcher from data_provider.DataManager to
+// avoid leaking.
 func BatchLoadDomainProvider(
 	e []string,
 	dm *data_provider.DataManager,
@@ -157,7 +177,10 @@ func BatchLoadDomainProvider(
 			if err := provider.LoadAndAddListener(m); err != nil {
 				return nil, fmt.Errorf("failed to load data from provider %s, %w", providerTag, err)
 			}
-			mg.g = append(mg.g, m)
+			mg.Append(m)
+			mg.AppendCloser(func() {
+				provider.DeleteListener(m)
+			})
 		} else {
 			err := Load[struct{}](staticMatcher, s, nil)
 			if err != nil {

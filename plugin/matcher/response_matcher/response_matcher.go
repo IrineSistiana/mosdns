@@ -30,6 +30,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
+	"io"
 )
 
 const PluginType = "response_matcher"
@@ -55,10 +56,18 @@ type responseMatcher struct {
 	args *Args
 
 	matcherGroup []executable_seq.Matcher
+	closer       []io.Closer
 }
 
 func (m *responseMatcher) Match(ctx context.Context, qCtx *query_context.Context) (matched bool, err error) {
 	return executable_seq.LogicalAndMatcherGroup(ctx, qCtx, m.matcherGroup)
+}
+
+func (m *responseMatcher) Close() error {
+	for _, closer := range m.closer {
+		_ = closer.Close()
+	}
+	return nil
 }
 
 func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
@@ -83,6 +92,7 @@ func newResponseMatcher(bp *coremain.BP, args *Args) (m *responseMatcher, err er
 			return nil, err
 		}
 		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewCNameMatcher(mg))
+		m.closer = append(m.closer, mg)
 		bp.L().Info("cname matcher loaded", zap.Int("length", mg.Len()))
 	}
 
@@ -92,6 +102,7 @@ func newResponseMatcher(bp *coremain.BP, args *Args) (m *responseMatcher, err er
 			return nil, err
 		}
 		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewAAAAAIPMatcher(l))
+		m.closer = append(m.closer, l)
 		bp.L().Info("ip matcher loaded", zap.Int("length", l.Len()))
 	}
 

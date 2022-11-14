@@ -68,12 +68,12 @@ type DataProvider struct {
 	autoReload bool
 
 	lm        sync.Mutex
-	listeners []DataListener
+	listeners map[DataListener]struct{}
 
 	sc *safe_close.SafeClose
 }
 
-func NewDataProvider(lg *zap.Logger, cfg *DataProviderConfig) (*DataProvider, error) {
+func NewDataProvider(lg *zap.Logger, cfg DataProviderConfig) (*DataProvider, error) {
 	dp := new(DataProvider)
 	dp.logger = lg
 	dp.file = cfg.File
@@ -114,14 +114,20 @@ func (ds *DataProvider) LoadAndAddListener(l DataListener) error {
 		return err
 	}
 
-	ds.lm.Lock()
-	defer ds.lm.Unlock()
 	if err := l.Update(b); err != nil {
 		return err
 	}
 
-	ds.listeners = append(ds.listeners, l)
+	ds.lm.Lock()
+	ds.listeners[l] = struct{}{}
+	ds.lm.Unlock()
 	return nil
+}
+
+func (ds *DataProvider) DeleteListener(l DataListener) {
+	ds.lm.Lock()
+	defer ds.lm.Unlock()
+	delete(ds.listeners, l)
 }
 
 func (ds *DataProvider) GetData() ([]byte, error) {
@@ -131,8 +137,10 @@ func (ds *DataProvider) GetData() ([]byte, error) {
 // pushData notify the notifier and trigger all listeners.
 func (ds *DataProvider) pushData(newData []byte) {
 	ds.lm.Lock()
-	ls := make([]DataListener, 0)
-	ls = append(ls, ds.listeners...)
+	ls := make([]DataListener, 0, len(ds.listeners))
+	for listener := range ds.listeners {
+		ls = append(ls, listener)
+	}
 	ds.lm.Unlock()
 
 	for _, l := range ls {

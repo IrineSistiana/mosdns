@@ -27,6 +27,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v4/pkg/hosts"
 	"github.com/IrineSistiana/mosdns/v4/pkg/matcher/domain"
 	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
+	"io"
 )
 
 const PluginType = "hosts"
@@ -43,7 +44,8 @@ type Args struct {
 
 type hostsPlugin struct {
 	*coremain.BP
-	h *hosts.Hosts
+	h             *hosts.Hosts
+	matcherCloser io.Closer
 }
 
 func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
@@ -71,8 +73,9 @@ func newHostsContainer(bp *coremain.BP, args *Args) (*hostsPlugin, error) {
 		return nil, err
 	}
 	return &hostsPlugin{
-		BP: bp,
-		h:  hosts.NewHosts(m),
+		BP:            bp,
+		h:             hosts.NewHosts(m),
+		matcherCloser: m,
 	}, nil
 }
 
@@ -84,4 +87,9 @@ func (h *hostsPlugin) Exec(ctx context.Context, qCtx *query_context.Context, nex
 	}
 
 	return executable_seq.ExecChainNode(ctx, qCtx, next)
+}
+
+func (h *hostsPlugin) Close() error {
+	_ = h.matcherCloser.Close()
+	return nil
 }

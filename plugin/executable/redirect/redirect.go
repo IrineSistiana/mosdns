@@ -46,7 +46,7 @@ type Args struct {
 
 type redirectPlugin struct {
 	*coremain.BP
-	m domain.Matcher[string]
+	m *domain.MatcherGroup[string]
 }
 
 func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
@@ -124,4 +124,9 @@ func (r *redirectPlugin) Exec(ctx context.Context, qCtx *query_context.Context, 
 		r.Answer = newAns
 	}
 	return err
+}
+
+func (r *redirectPlugin) Close() error {
+	_ = r.m.Close()
+	return nil
 }

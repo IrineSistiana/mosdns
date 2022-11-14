@@ -21,6 +21,7 @@ package querymatcher
 
 import (
 	"context"
+	"io"
 
 	"github.com/IrineSistiana/mosdns/v4/coremain"
 	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
@@ -75,6 +76,7 @@ type queryMatcher struct {
 	args *Args
 
 	matcherGroup []executable_seq.Matcher
+	closer       []io.Closer
 }
 
 func (m *queryMatcher) Match(ctx context.Context, qCtx *query_context.Context) (matched bool, err error) {
@@ -95,6 +97,7 @@ func newQueryMatcher(bp *coremain.BP, args *Args) (m *queryMatcher, err error) {
 			return nil, err
 		}
 		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewClientIPMatcher(l))
+		m.closer = append(m.closer, l)
 		bp.L().Info("client ip matcher loaded", zap.Int("length", l.Len()))
 	}
 	if len(args.ECS) > 0 {
@@ -103,6 +106,7 @@ func newQueryMatcher(bp *coremain.BP, args *Args) (m *queryMatcher, err error) {
 			return nil, err
 		}
 		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewClientECSMatcher(l))
+		m.closer = append(m.closer, l)
 		bp.L().Info("ecs ip matcher loaded", zap.Int("length", l.Len()))
 	}
 	if len(args.Domain) > 0 {
@@ -114,6 +118,7 @@ func newQueryMatcher(bp *coremain.BP, args *Args) (m *queryMatcher, err error) {
 			return nil, err
 		}
 		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewQNameMatcher(mg))
+		m.closer = append(m.closer, mg)
 		bp.L().Info("domain matcher loaded", zap.Int("length", mg.Len()))
 	}
 	if len(args.QType) > 0 {

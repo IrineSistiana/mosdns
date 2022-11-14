@@ -34,7 +34,8 @@ import (
 )
 
 type MatcherGroup struct {
-	g []Matcher
+	g      []Matcher
+	closer []func()
 }
 
 func (m *MatcherGroup) Len() int {
@@ -56,6 +57,13 @@ func (m *MatcherGroup) Match(addr netip.Addr) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+func (m *MatcherGroup) Close() error {
+	for _, f := range m.closer {
+		f()
+	}
+	return nil
 }
 
 type DynamicMatcher struct {
@@ -85,6 +93,8 @@ func (d *DynamicMatcher) Len() int {
 }
 
 // BatchLoadProvider is a helper func to load multiple files using Load.
+// Caller must call MatcherGroup.Close to detach this matcher from data_provider.DataManager to
+// avoid leaking.
 func BatchLoadProvider(e []string, dm *data_provider.DataManager) (*MatcherGroup, error) {
 	mg := new(MatcherGroup)
 	staticMatcher := NewList()
@@ -117,6 +127,9 @@ func BatchLoadProvider(e []string, dm *data_provider.DataManager) (*MatcherGroup
 				return nil, fmt.Errorf("failed to load data from provider %s, %w", providerName, err)
 			}
 			mg.g = append(mg.g, m)
+			mg.closer = append(mg.closer, func() {
+				provider.DeleteListener(m)
+			})
 		} else {
 			if err := LoadFromText(staticMatcher, s); err != nil {
 				return nil, fmt.Errorf("failed to load data %s, %w", s, err)
