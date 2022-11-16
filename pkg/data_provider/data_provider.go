@@ -119,6 +119,9 @@ func (ds *DataProvider) LoadAndAddListener(l DataListener) error {
 	}
 
 	ds.lm.Lock()
+	if ds.listeners == nil {
+		ds.listeners = make(map[DataListener]struct{})
+	}
 	ds.listeners[l] = struct{}{}
 	ds.lm.Unlock()
 	return nil
