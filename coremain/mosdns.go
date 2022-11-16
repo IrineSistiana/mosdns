@@ -89,7 +89,7 @@ func RunMosdns(cfg *Config) error {
 		}
 		dupTag[dpc.Tag] = struct{}{}
 
-		dp, err := data_provider.NewDataProvider(lg, &dpc)
+		dp, err := data_provider.NewDataProvider(lg, dpc)
 		if err != nil {
 			return fmt.Errorf("failed to init data provider %s, %w", dpc.Tag, err)
 		}
