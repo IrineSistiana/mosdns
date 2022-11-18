@@ -21,7 +21,7 @@ package lru
 
 import (
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v4/pkg/list"
+	"github.com/IrineSistiana/mosdns/v5/pkg/list"
 )
 
 type LRU[K comparable, V any] struct {
@@ -114,6 +114,11 @@ func (q *LRU[K, V]) Clean(f func(key K, v V) (remove bool)) (removed int) {
 		e = next
 	}
 	return removed
+}
+
+func (q *LRU[K, V]) Flush() {
+	q.l = list.New[KV[K, V]]()
+	q.m = make(map[K]*list.Elem[KV[K, V]])
 }
 
 func (q *LRU[K, V]) Get(key K) (v V, ok bool) {

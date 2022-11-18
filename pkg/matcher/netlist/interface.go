@@ -24,6 +24,6 @@ import (
 )
 
 type Matcher interface {
-	Match(addr netip.Addr) (bool, error)
+	Match(addr netip.Addr) bool
 	Len() int
 }

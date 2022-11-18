@@ -20,21 +20,15 @@
 package coremain
 
 import (
-	"github.com/IrineSistiana/mosdns/v4/mlog"
-	"github.com/IrineSistiana/mosdns/v4/pkg/data_provider"
-	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
+	"github.com/IrineSistiana/mosdns/v5/mlog"
+	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 )
 
 type Config struct {
-	Log           mlog.LogConfig                     `yaml:"log"`
-	Include       []string                           `yaml:"include"`
-	DataProviders []data_provider.DataProviderConfig `yaml:"data_providers"`
-	Plugins       []PluginConfig                     `yaml:"plugins"`
-	Servers       []ServerConfig                     `yaml:"servers"`
-	API           APIConfig                          `yaml:"api"`
-
-	// Experimental
-	Security SecurityConfig `yaml:"security"`
+	Log     mlog.LogConfig `yaml:"log"`
+	Include []string       `yaml:"include"`
+	Plugins []PluginConfig `yaml:"plugins"`
+	API     APIConfig      `yaml:"api"`
 }
 
 // PluginConfig represents a plugin config

@@ -23,7 +23,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v4/pkg/pool"
+	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
 	"github.com/miekg/dns"
 	"io"
 )
@@ -35,11 +35,11 @@ var (
 // ReadRawMsgFromTCP reads msg from c in RFC 1035 format (msg is prefixed
 // with a two byte length field).
 // n represents how many bytes are read from c.
-func ReadRawMsgFromTCP(c io.Reader) (*pool.Buffer, int, error) {
+// The returned the []byte should be released by pool.ReleaseBuf.
+func ReadRawMsgFromTCP(c io.Reader) ([]byte, int, error) {
 	n := 0
-	hb := pool.GetBuf(2)
-	defer hb.Release()
-	h := hb.Bytes()
+	h := pool.GetBuf(2)
+	defer pool.ReleaseBuf(h)
 	nh, err := io.ReadFull(c, h)
 	n += nh
 	if err != nil {
@@ -53,14 +53,12 @@ func ReadRawMsgFromTCP(c io.Reader) (*pool.Buffer, int, error) {
 	}
 
 	buf := pool.GetBuf(int(length))
-
-	nm, err := io.ReadFull(c, buf.Bytes())
+	nm, err := io.ReadFull(c, buf)
 	n += nm
 	if err != nil {
-		buf.Release()
+		pool.ReleaseBuf(buf)
 		return nil, n, err
 	}
-	buf.SetLen(nm)
 	return buf, n, nil
 }
 
@@ -72,9 +70,9 @@ func ReadMsgFromTCP(c io.Reader) (*dns.Msg, int, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	defer b.Release()
+	defer pool.ReleaseBuf(b)
 
-	m, err := unpackMsgWithDetailedErr(b.Bytes())
+	m, err := unpackMsgWithDetailedErr(b)
 	return m, n, err
 }
 
@@ -85,7 +83,7 @@ func WriteMsgToTCP(c io.Writer, m *dns.Msg) (n int, err error) {
 	if err != nil {
 		return 0, err
 	}
-	defer buf.Release()
+	defer pool.ReleaseBuf(buf)
 	return WriteRawMsgToTCP(c, mRaw)
 }
 
@@ -95,13 +93,12 @@ func WriteRawMsgToTCP(c io.Writer, b []byte) (n int, err error) {
 		return 0, fmt.Errorf("payload length %d is greater than dns max msg size", len(b))
 	}
 
-	bb := pool.GetBuf(len(b) + 2)
-	defer bb.Release()
-	wb := bb.Bytes()
+	buf := pool.GetBuf(len(b) + 2)
+	defer pool.ReleaseBuf(buf)
 
-	binary.BigEndian.PutUint16(wb[:2], uint16(len(b)))
-	copy(wb[2:], b)
-	return c.Write(wb)
+	binary.BigEndian.PutUint16(buf[:2], uint16(len(b)))
+	copy(buf[2:], b)
+	return c.Write(buf)
 }
 
 func WriteMsgToUDP(c io.Writer, m *dns.Msg) (int, error) {
@@ -109,7 +106,7 @@ func WriteMsgToUDP(c io.Writer, m *dns.Msg) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer buf.Release()
+	defer pool.ReleaseBuf(buf)
 
 	return c.Write(b)
 }
@@ -119,9 +116,8 @@ func ReadMsgFromUDP(c io.Reader, bufSize int) (*dns.Msg, int, error) {
 		bufSize = dns.MinMsgSize
 	}
 
-	buf := pool.GetBuf(bufSize)
-	defer buf.Release()
-	b := buf.Bytes()
+	b := pool.GetBuf(bufSize)
+	defer pool.ReleaseBuf(b)
 	n, err := c.Read(b)
 	if err != nil {
 		return nil, n, err

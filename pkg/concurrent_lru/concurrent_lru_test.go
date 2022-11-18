@@ -21,36 +21,41 @@ package concurrent_lru
 
 import (
 	"reflect"
-	"strconv"
 	"testing"
 )
 
-func TestConcurrentLRU(t *testing.T) {
-	onEvict := func(key string, v int) {}
+type testKey int
 
-	var cache *ShardedLRU[int]
+func (k testKey) Sum() uint64 {
+	return uint64(k)
+}
+
+func TestConcurrentLRU(t *testing.T) {
+	onEvict := func(k testKey, v int) {}
+
+	var cache *ShardedLRU[testKey, int]
 	reset := func(shardNum, maxShardSize int) {
-		cache = NewShardedLRU[int](shardNum, maxShardSize, onEvict)
+		cache = NewShardedLRU[testKey, int](shardNum, maxShardSize, onEvict)
 	}
 
 	add := func(keys ...int) {
-		for _, key := range keys {
-			cache.Add(strconv.Itoa(key), key)
+		for _, k := range keys {
+			cache.Add(testKey(k), k)
 		}
 	}
 
 	mustGet := func(keys ...int) {
-		for _, key := range keys {
-			gotV, ok := cache.Get(strconv.Itoa(key))
-			if !ok || !reflect.DeepEqual(gotV, key) {
-				t.Fatalf("want %v, got %v", key, gotV)
+		for _, k := range keys {
+			gotV, ok := cache.Get(testKey(k))
+			if !ok || !reflect.DeepEqual(gotV, k) {
+				t.Fatalf("want %v, got %v", k, gotV)
 			}
 		}
 	}
 
 	emptyGet := func(keys ...int) {
-		for _, key := range keys {
-			gotV, ok := cache.Get(strconv.Itoa(key))
+		for _, k := range keys {
+			gotV, ok := cache.Get(testKey(k))
 			if ok {
 				t.Fatalf("want empty, got %v", gotV)
 			}
@@ -82,18 +87,18 @@ func TestConcurrentLRU(t *testing.T) {
 	// test del
 	reset(4, 16)
 	add(1, 2, 3, 4)
-	cache.Del("2")
-	cache.Del("4")
-	cache.Del("9999")
+	cache.Del(2)
+	cache.Del(4)
+	cache.Del(9999)
 	mustGet(1, 3)
 	emptyGet(2, 4)
 
 	// test clean
 	reset(4, 16)
 	add(1, 2, 3, 4)
-	cleanFunc := func(key string, v int) (remove bool) {
-		switch key {
-		case "1", "3":
+	cleanFunc := func(k testKey, v int) (remove bool) {
+		switch k {
+		case 1, 3:
 			return true
 		}
 		return false

@@ -22,17 +22,15 @@ package fastforward
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v4/coremain"
-	"github.com/IrineSistiana/mosdns/v4/pkg/bundled_upstream"
-	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
-	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
-	"github.com/IrineSistiana/mosdns/v4/pkg/upstream"
-	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
+	"github.com/IrineSistiana/mosdns/v5/coremain"
+	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v5/pkg/safe_close"
+	"github.com/IrineSistiana/mosdns/v5/pkg/upstream"
+	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
 	"github.com/miekg/dns"
-	"io"
+	"go.uber.org/zap"
 	"strings"
 	"time"
 )
@@ -43,25 +41,17 @@ func init() {
 	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
 }
 
-var _ coremain.ExecutablePlugin = (*fastForward)(nil)
-
-type fastForward struct {
-	*coremain.BP
-	args *Args
-
-	upstreamWrappers []bundled_upstream.Upstream
-	upstreamsCloser  []io.Closer
-}
+const maxConcurrentQueries = 3
 
 type Args struct {
-	Upstream []*UpstreamConfig `yaml:"upstream"`
-	CA       []string          `yaml:"ca"`
+	Upstreams  []*UpstreamConfig `yaml:"upstreams"`
+	Concurrent int               `yaml:"concurrent"`
 }
 
 type UpstreamConfig struct {
-	Addr         string `yaml:"addr"` // required
+	Tag          string `yaml:"tag"`
+	Addr         string `yaml:"addr"` // Required.
 	DialAddr     string `yaml:"dial_addr"`
-	Trusted      bool   `yaml:"trusted"`
 	Socks5       string `yaml:"socks5"`
 	SoMark       int    `yaml:"so_mark"`
 	BindToDevice string `yaml:"bind_to_device"`
@@ -74,44 +64,33 @@ type UpstreamConfig struct {
 	InsecureSkipVerify bool   `yaml:"insecure_skip_verify"`
 }
 
-func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
+func Init(bp *coremain.BP, args interface{}) (coremain.Plugin, error) {
 	return newFastForward(bp, args.(*Args))
 }
 
+var _ sequence.Executable = (*fastForward)(nil)
+
+type fastForward struct {
+	*coremain.BP
+	args *Args
+
+	us           map[*upstream.Upstream]struct{}
+	tag2Upstream map[string]*upstream.Upstream // for fast tag lookup only.
+}
+
 func newFastForward(bp *coremain.BP, args *Args) (*fastForward, error) {
-	if len(args.Upstream) == 0 {
+	if len(args.Upstreams) == 0 {
 		return nil, errors.New("no upstream is configured")
 	}
 
 	f := &fastForward{
-		BP:   bp,
-		args: args,
+		BP:           bp,
+		args:         args,
+		us:           make(map[*upstream.Upstream]struct{}),
+		tag2Upstream: make(map[string]*upstream.Upstream),
 	}
 
-	// rootCAs
-	var rootCAs *x509.CertPool
-	if len(args.CA) != 0 {
-		var err error
-		rootCAs, err = utils.LoadCertPool(args.CA)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load ca: %w", err)
-		}
-	}
-
-	for i, c := range args.Upstream {
-		if len(c.Addr) == 0 {
-			return nil, errors.New("missing server addr")
-		}
-
-		if strings.HasPrefix(c.Addr, "udpme://") {
-			u := newUDPME(c.Addr[8:], c.Trusted)
-			f.upstreamWrappers = append(f.upstreamWrappers, u)
-			if i == 0 {
-				u.trusted = true
-			}
-			continue
-		}
-
+	for i, c := range args.Upstreams {
 		opt := &upstream.Opt{
 			DialAddr:       c.DialAddr,
 			Socks5:         c.Socks5,
@@ -124,67 +103,27 @@ func newFastForward(bp *coremain.BP, args *Args) (*fastForward, error) {
 			Bootstrap:      c.Bootstrap,
 			TLSConfig: &tls.Config{
 				InsecureSkipVerify: c.InsecureSkipVerify,
-				RootCAs:            rootCAs,
-				ClientSessionCache: tls.NewLRUClientSessionCache(64),
+				ClientSessionCache: tls.NewLRUClientSessionCache(4),
 			},
 			Logger: bp.L(),
 		}
 
 		u, err := upstream.NewUpstream(c.Addr, opt)
-
 		if err != nil {
-			return nil, fmt.Errorf("failed to init upstream: %w", err)
+			_ = f.Close()
+			return nil, fmt.Errorf("failed to init upstream #%d: %w", i, err)
 		}
-
-		w := &upstreamWrapper{
-			address: c.Addr,
-			trusted: c.Trusted,
-			u:       u,
+		f.us[&u] = struct{}{}
+		if len(c.Tag) > 0 {
+			f.tag2Upstream[c.Tag] = &u
 		}
-
-		if i == 0 { // Set first upstream as trusted upstream.
-			w.trusted = true
-		}
-
-		f.upstreamWrappers = append(f.upstreamWrappers, w)
-		f.upstreamsCloser = append(f.upstreamsCloser, u)
 	}
 
 	return f, nil
 }
 
-type upstreamWrapper struct {
-	address string
-	trusted bool
-	u       upstream.Upstream
-}
-
-func (u *upstreamWrapper) Exchange(ctx context.Context, q *dns.Msg) (*dns.Msg, error) {
-	return u.u.ExchangeContext(ctx, q)
-}
-
-func (u *upstreamWrapper) Address() string {
-	return u.address
-}
-
-func (u *upstreamWrapper) Trusted() bool {
-	return u.trusted
-}
-
-// Exec forwards qCtx.Q() to upstreams, and sets qCtx.R().
-// qCtx.Status() will be set as
-// - handler.ContextStatusResponded: if it received a response.
-// - handler.ContextStatusServerFailed: if all upstreams failed.
-func (f *fastForward) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
-	err := f.exec(ctx, qCtx)
-	if err != nil {
-		return err
-	}
-	return executable_seq.ExecChainNode(ctx, qCtx, next)
-}
-
-func (f *fastForward) exec(ctx context.Context, qCtx *query_context.Context) (err error) {
-	r, err := bundled_upstream.ExchangeParallel(ctx, qCtx, f.upstreamWrappers, f.L())
+func (f *fastForward) Exec(ctx context.Context, qCtx *query_context.Context) (err error) {
+	r, err := f.exchange(ctx, qCtx, f.us)
 	if err != nil {
 		return err
 	}
@@ -192,9 +131,102 @@ func (f *fastForward) exec(ctx context.Context, qCtx *query_context.Context) (er
 	return nil
 }
 
-func (f *fastForward) Shutdown() error {
-	for _, u := range f.upstreamsCloser {
-		u.Close()
+// QuickConfigure format: [upstream_tag]...
+func (f *fastForward) QuickConfigure(args string) (any, error) {
+	var us map[*upstream.Upstream]struct{}
+	if len(args) == 0 { // No args, use all upstreams.
+		us = f.us
+	} else { // Pick up upstreams by tags.
+		us = make(map[*upstream.Upstream]struct{})
+		for _, tag := range strings.Fields(args) {
+			u := f.tag2Upstream[tag]
+			if u == nil {
+				return nil, fmt.Errorf("cannot find upstream by tag %s", tag)
+			}
+			us[u] = struct{}{}
+		}
+	}
+	execFunc := func(ctx context.Context, qCtx *query_context.Context) error {
+		r, err := f.exchange(ctx, qCtx, us)
+		if err != nil {
+			return err
+		}
+		qCtx.SetResponse(r)
+		return nil
+	}
+	return sequence.ExecutableFunc(execFunc), nil
+}
+
+func (f *fastForward) Close() error {
+	for u := range f.us {
+		_ = (*u).Close()
 	}
 	return nil
+}
+
+var ErrAllFailed = errors.New("all upstreams failed")
+
+func (f *fastForward) exchange(ctx context.Context, qCtx *query_context.Context, us map[*upstream.Upstream]struct{}) (*dns.Msg, error) {
+	if len(us) == 1 {
+		var u *upstream.Upstream
+		for u = range us {
+			break
+		}
+		return (*u).ExchangeContext(ctx, qCtx.Q())
+	}
+
+	q := qCtx.Q().Copy() // qCtx is not safe for concurrent use.
+
+	tn := f.args.Concurrent
+	if tn <= 0 {
+		tn = 1
+	}
+	if tn > len(us) {
+		tn = len(us)
+	}
+	if tn > maxConcurrentQueries {
+		tn = maxConcurrentQueries
+	}
+	c := make(chan *dns.Msg, 1) // Channel for responses.
+	idleDo := safe_close.IdleDo{Do: func() {
+		close(c)
+	}}
+	idleDo.Add(tn)
+
+	i := 0
+	for u := range us {
+		i++
+		if i > tn {
+			break
+		}
+
+		u := *u
+		go func() {
+			defer idleDo.Done()
+			r, err := u.ExchangeContext(ctx, q)
+			if err != nil {
+				f.L().Warn("upstream error", zap.Error(err))
+			}
+			if r != nil {
+				select {
+				case c <- r:
+				default:
+				}
+			}
+		}()
+	}
+
+readLoop:
+	for {
+		select {
+		case r, ok := <-c:
+			if !ok {
+				break readLoop
+			}
+			return r, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	return nil, ErrAllFailed
 }

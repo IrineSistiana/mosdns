@@ -22,6 +22,8 @@ package upstream
 import (
 	"context"
 	"fmt"
+	"github.com/IrineSistiana/mosdns/v5/pkg/dnsutils"
+	"github.com/miekg/dns"
 	"golang.org/x/net/proxy"
 	"net"
 )
@@ -41,4 +43,42 @@ func dialTCP(ctx context.Context, addr, socks5 string, dialer *net.Dialer) (net.
 	}
 
 	return dialer.DialContext(ctx, "tcp", addr)
+}
+
+// GoResolverDialerWrapper wraps an Upstream to a dialer that
+// can be used in net.Resolver.
+type GoResolverDialerWrapper struct {
+	u Upstream
+}
+
+func NewGoResolverDialer(u Upstream) *GoResolverDialerWrapper {
+	return &GoResolverDialerWrapper{u: u}
+}
+
+func (d *GoResolverDialerWrapper) Dial(_ context.Context, _ string, _ string) (net.Conn, error) {
+	c1, c2 := net.Pipe()
+	go d.servePipe(c2)
+	return c1, nil
+}
+
+func (d *GoResolverDialerWrapper) servePipe(c net.Conn) {
+	defer c.Close()
+
+	connCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	for {
+		m, _, err := dnsutils.ReadMsgFromTCP(c)
+		if err != nil {
+			return
+		}
+
+		go func() {
+			r, _ := d.u.ExchangeContext(connCtx, m)
+			if r == nil {
+				r = new(dns.Msg)
+				r.SetRcode(m, dns.RcodeServerFailure)
+			}
+			_, _ = dnsutils.WriteMsgToTCP(c, r)
+		}()
+	}
 }

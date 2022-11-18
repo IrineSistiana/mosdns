@@ -23,10 +23,12 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v4/pkg/dnsutils"
-	"github.com/IrineSistiana/mosdns/v4/pkg/pool"
-	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
-	"github.com/IrineSistiana/mosdns/v4/pkg/server/dns_handler"
+	"github.com/IrineSistiana/mosdns/v5/mlog"
+	"github.com/IrineSistiana/mosdns/v5/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
+	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v5/pkg/query_context/client_addr"
+	"github.com/IrineSistiana/mosdns/v5/pkg/server/dns_handler"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"io"
@@ -35,17 +37,9 @@ import (
 	"strings"
 )
 
-var (
-	nopLogger = zap.NewNop()
-)
-
 type HandlerOpts struct {
 	// DNSHandler is required.
 	DNSHandler dns_handler.Handler
-
-	// Path specifies the query endpoint. If it is empty, Handler
-	// will ignore the request path.
-	Path string
 
 	// SrcIPHeader specifies the header that contain client source address.
 	// e.g. "X-Forwarded-For".
@@ -56,25 +50,20 @@ type HandlerOpts struct {
 	Logger *zap.Logger
 }
 
-func (opts *HandlerOpts) Init() error {
-	if opts.DNSHandler == nil {
-		return errors.New("nil dns handler")
-	}
+func (opts *HandlerOpts) init() {
 	if opts.Logger == nil {
-		opts.Logger = nopLogger
+		opts.Logger = mlog.Nop()
 	}
-	return nil
+	return
 }
 
 type Handler struct {
 	opts HandlerOpts
 }
 
-func NewHandler(opts HandlerOpts) (*Handler, error) {
-	if err := opts.Init(); err != nil {
-		return nil, err
-	}
-	return &Handler{opts: opts}, nil
+func NewHandler(opts HandlerOpts) *Handler {
+	opts.init()
+	return &Handler{opts: opts}
 }
 
 func (h *Handler) warnErr(req *http.Request, msg string, err error) {
@@ -103,13 +92,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	// check url path
-	if len(h.opts.Path) != 0 && req.URL.Path != h.opts.Path {
-		w.WriteHeader(http.StatusNotFound)
-		h.warnErr(req, "invalid request", fmt.Errorf("invalid request path %s", req.URL.Path))
-		return
-	}
-
 	// read msg
 	q, err := ReadMsgFromReq(req)
 	if err != nil {
@@ -118,18 +100,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	r, err := h.opts.DNSHandler.ServeDNS(req.Context(), q, &query_context.RequestMeta{ClientAddr: clientAddr})
-	if err != nil {
+	qCtx := query_context.NewContext(q)
+	client_addr.SetClientAddr(qCtx, clientAddr)
+	if err := h.opts.DNSHandler.ServeDNS(req.Context(), qCtx); err != nil {
 		panic(err.Error()) // Force http server to close connection.
 	}
-
+	r := qCtx.R()
 	b, buf, err := pool.PackBuffer(r)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		h.warnErr(req, "failed to unpack handler's response", err)
 		return
 	}
-	defer buf.Release()
+	defer pool.ReleaseBuf(buf)
 
 	w.Header().Set("Content-Type", "application/dns-message")
 	w.Header().Set("Cache-Control", fmt.Sprintf("max-age=%d", dnsutils.GetMinimalTTL(r)))

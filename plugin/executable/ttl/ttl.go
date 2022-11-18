@@ -21,10 +21,12 @@ package ttl
 
 import (
 	"context"
-	"github.com/IrineSistiana/mosdns/v4/coremain"
-	"github.com/IrineSistiana/mosdns/v4/pkg/dnsutils"
-	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
-	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
+	"fmt"
+	"github.com/IrineSistiana/mosdns/v5/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
+	"strconv"
+	"strings"
 )
 
 const (
@@ -32,40 +34,60 @@ const (
 )
 
 func init() {
-	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
+	sequence.MustRegQuickSetup(PluginType, QuickSetup)
 }
 
-var _ coremain.ExecutablePlugin = (*ttl)(nil)
-
-type Args struct {
-	MaximumTTL uint32 `yaml:"maximum_ttl"`
-	MinimalTTL uint32 `yaml:"minimal_ttl"`
-}
+var _ sequence.Executable = (*ttl)(nil)
 
 type ttl struct {
-	*coremain.BP
-	args *Args
+	fix uint32
+	max uint32
+	min uint32
 }
 
-func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
-	return newTTL(bp, args.(*Args)), nil
-}
+// QuickSetup format: {[min-max]|[fix]}
+// e.g. range "300-600", fixed ttl "5".
+func QuickSetup(_ sequence.BQ, s string) (any, error) {
+	var f, l, u uint32
+	ls, us, ok := strings.Cut(s, "-")
+	if ok { // range
+		n, err := strconv.ParseUint(ls, 10, 32)
+		if err != nil {
+			return nil, fmt.Errorf("invalid lower bound, %w", err)
+		}
+		l = uint32(n)
+		n, err = strconv.ParseUint(us, 10, 32)
+		if err != nil {
+			return nil, fmt.Errorf("invalid upper bound, %w", err)
+		}
+		u = uint32(n)
+	} else { // fixed
+		n, err := strconv.ParseUint(s, 10, 32)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ttl, %w", err)
+		}
+		f = uint32(n)
+	}
 
-func newTTL(bp *coremain.BP, args *Args) coremain.Plugin {
 	return &ttl{
-		BP:   bp,
-		args: args,
-	}
+		fix: f,
+		max: u,
+		min: l,
+	}, nil
 }
 
-func (t *ttl) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
+func (t *ttl) Exec(_ context.Context, qCtx *query_context.Context) error {
 	if r := qCtx.R(); r != nil {
-		if t.args.MaximumTTL > 0 {
-			dnsutils.ApplyMaximumTTL(r, t.args.MaximumTTL)
-		}
-		if t.args.MinimalTTL > 0 {
-			dnsutils.ApplyMinimalTTL(r, t.args.MinimalTTL)
+		if t.fix > 0 {
+			dnsutils.SetTTL(r, t.fix)
+		} else {
+			if t.max > 0 {
+				dnsutils.ApplyMaximumTTL(r, t.max)
+			}
+			if t.min > 0 {
+				dnsutils.ApplyMinimalTTL(r, t.min)
+			}
 		}
 	}
-	return executable_seq.ExecChainNode(ctx, qCtx, next)
+	return nil
 }

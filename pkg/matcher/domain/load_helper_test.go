@@ -28,10 +28,13 @@ func TestParseV2Suffix(t *testing.T) {
 	tests := []struct {
 		name string
 		args string
-		want []*V2filter
+		want []*V2DomainPicker
 	}{
-		{"1", "test@a1@a2,,", []*V2filter{{Tag: "test", Attrs: []string{"a1", "a2"}}}},
-		{"1", ",test@a1,,test@a1", []*V2filter{{Tag: "test", Attrs: []string{"a1"}}, {Tag: "test", Attrs: []string{"a1"}}}},
+		{"1", "test@a1@a2,,", []*V2DomainPicker{{tag: "test", attrs: attrMap([]string{"a1", "a2"})}}},
+		{"1", ",test@a1,,test@a1", []*V2DomainPicker{
+			{tag: "test", attrs: attrMap([]string{"a1"})},
+			{tag: "test", attrs: attrMap([]string{"a1"})},
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

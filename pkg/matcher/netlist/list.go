@@ -20,15 +20,9 @@
 package netlist
 
 import (
-	"errors"
 	"fmt"
 	"net/netip"
 	"sort"
-)
-
-var (
-	ErrNotSorted   = errors.New("list is not sorted")
-	ErrInvalidAddr = errors.New("addr is invalid")
 )
 
 // List is a list of netip.Prefix. It stores all netip.Prefix in one single slice
@@ -116,17 +110,17 @@ func (list *List) Swap(i, j int) {
 	list.e[i], list.e[j] = list.e[j], list.e[i]
 }
 
-func (list *List) Match(addr netip.Addr) (bool, error) {
+func (list *List) Match(addr netip.Addr) bool {
 	return list.Contains(addr)
 }
 
 // Contains reports whether the list includes the given netip.Addr.
-func (list *List) Contains(addr netip.Addr) (bool, error) {
+func (list *List) Contains(addr netip.Addr) bool {
 	if !list.sorted {
-		return false, ErrNotSorted
+		panic("list is not sorted")
 	}
 	if !addr.IsValid() {
-		return false, ErrInvalidAddr
+		return false
 	}
 
 	addr = to6(addr)
@@ -142,10 +136,10 @@ func (list *List) Contains(addr netip.Addr) (bool, error) {
 	}
 
 	if i == 0 {
-		return false, nil
+		return false
 	}
 
-	return list.e[i-1].Contains(addr), nil
+	return list.e[i-1].Contains(addr)
 }
 
 func to6(addr netip.Addr) netip.Addr {

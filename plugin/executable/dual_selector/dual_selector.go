@@ -21,67 +21,47 @@ package dual_selector
 
 import (
 	"context"
-	"github.com/IrineSistiana/mosdns/v4/coremain"
-	"github.com/IrineSistiana/mosdns/v4/pkg/dnsutils"
-	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
-	"github.com/IrineSistiana/mosdns/v4/pkg/pool"
-	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v5/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
+	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"time"
 )
 
-const PluginType = "dual_selector"
-
 const (
-	modePreferIPv4 = iota
-	modePreferIPv6
-
-	defaultWaitTimeout      = time.Millisecond * 250
-	defaultSubRoutineTimout = time.Second * 5
+	referenceWaitTimeout     = time.Millisecond * 500
+	defaultSubRoutineTimeout = time.Second * 5
 )
 
 func init() {
-	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
-	coremain.RegNewPersetPluginFunc("_prefer_ipv4", func(bp *coremain.BP) (coremain.Plugin, error) {
-		return &Selector{BP: bp, mode: modePreferIPv4}, nil
+	sequence.MustRegQuickSetup("prefer_ipv4", func(bq sequence.BQ, _ string) (any, error) {
+		return NewPreferIpv4(bq), nil
 	})
-	coremain.RegNewPersetPluginFunc("_prefer_ipv6", func(bp *coremain.BP) (coremain.Plugin, error) {
-		return &Selector{BP: bp, mode: modePreferIPv6}, nil
+	sequence.MustRegQuickSetup("prefer_ipv6", func(bq sequence.BQ, _ string) (any, error) {
+		return NewPreferIpv6(bq), nil
 	})
 }
 
-type Args struct {
-	Mode        int `yaml:"mode"`
-	WaitTimeout int `yaml:"wait_timeout"`
-}
-
-var _ coremain.ExecutablePlugin = (*Selector)(nil)
+var _ sequence.RecursiveExecutable = (*Selector)(nil)
 
 type Selector struct {
-	*coremain.BP
-	mode        int
-	waitTimeout time.Duration
-}
-
-func (s *Selector) getWaitTimeout() time.Duration {
-	if s.waitTimeout <= 0 {
-		return defaultWaitTimeout
-	}
-	return s.waitTimeout
+	sequence.BQ
+	prefer uint16 // dns.TypeA or dns.TypeAAAA
 }
 
 // Exec implements handler.Executable.
-func (s *Selector) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
+func (s *Selector) Exec(ctx context.Context, qCtx *query_context.Context, next sequence.ChainWalker) error {
 	q := qCtx.Q()
 	if len(q.Question) != 1 { // skip wired query with multiple questions.
-		return executable_seq.ExecChainNode(ctx, qCtx, next)
+		return next.ExecNext(ctx, qCtx)
 	}
 
 	qtype := q.Question[0].Qtype
-	// skip queries that have preferred type or have other unrelated qtypes.
-	if (qtype == dns.TypeA && s.mode == modePreferIPv4) || (qtype == dns.TypeAAAA && s.mode == modePreferIPv6) || (qtype != dns.TypeA && qtype != dns.TypeAAAA) {
-		return executable_seq.ExecChainNode(ctx, qCtx, next)
+	// skip queries that have preferred type or have other unrelated types.
+	if qtype == s.prefer || (qtype != dns.TypeA && qtype != dns.TypeAAAA) {
+		return next.ExecNext(ctx, qCtx)
 	}
 
 	// start reference goroutine
@@ -96,21 +76,22 @@ func (s *Selector) Exec(ctx context.Context, qCtx *query_context.Context, next e
 
 	ddl, ok := ctx.Deadline()
 	if !ok {
-		ddl = time.Now().Add(defaultSubRoutineTimout)
+		ddl = time.Now().Add(defaultSubRoutineTimeout)
 	}
 
 	shouldBlock := make(chan struct{}, 0)
 	shouldPass := make(chan struct{}, 0)
-	ctxRef, cancelRef := context.WithDeadline(context.Background(), ddl)
 	go func() {
-		defer cancelRef()
-		err := executable_seq.ExecChainNode(ctxRef, qCtxRef, next)
+		qCtx := qCtxRef
+		ctx, cancel := context.WithDeadline(context.Background(), ddl)
+		defer cancel()
+		err := next.ExecNext(ctx, qCtx)
 		if err != nil {
-			s.L().Warn("reference query routine err", qCtxRef.InfoField(), zap.Error(err))
+			s.L().Warn("reference query routine err", qCtx.InfoField(), zap.Error(err))
 			close(shouldPass)
 			return
 		}
-		if r := qCtxRef.R(); r != nil && msgAnsHasRR(r, refQtype) {
+		if r := qCtx.R(); r != nil && msgAnsHasRR(r, refQtype) {
 			// Target domain has reference type.
 			close(shouldBlock)
 			return
@@ -121,11 +102,12 @@ func (s *Selector) Exec(ctx context.Context, qCtx *query_context.Context, next e
 
 	// start original query goroutine
 	doneChan := make(chan error, 1)
-	qCtxSub := qCtx.Copy()
-	ctxSub, cancelSub := context.WithDeadline(context.Background(), ddl)
-	defer cancelSub()
+	qCtxOrg := qCtx.Copy()
 	go func() {
-		doneChan <- executable_seq.ExecChainNode(ctxSub, qCtxSub, next)
+		qCtx := qCtxOrg
+		ctx, cancel := context.WithDeadline(context.Background(), ddl)
+		defer cancel()
+		doneChan <- next.ExecNext(ctx, qCtx)
 	}()
 
 	select {
@@ -136,7 +118,7 @@ func (s *Selector) Exec(ctx context.Context, qCtx *query_context.Context, next e
 		qCtx.SetResponse(r)
 		return nil
 	case err := <-doneChan: // The original query finished. Waiting for reference.
-		waitTimeoutTimer := pool.GetTimer(s.getWaitTimeout())
+		waitTimeoutTimer := pool.GetTimer(referenceWaitTimeout)
 		defer pool.ReleaseTimer(waitTimeoutTimer)
 		select {
 		case <-ctx.Done():
@@ -146,26 +128,28 @@ func (s *Selector) Exec(ctx context.Context, qCtx *query_context.Context, next e
 			qCtx.SetResponse(r)
 			return nil
 		case <-shouldPass:
-			*qCtx = *qCtxSub
+			*qCtx = *qCtxOrg // replace qCtx
 			return err
 		case <-waitTimeoutTimer.C:
 			// We have been waiting the reference query for too long.
 			// Something may go wrong. We accept the original reply.
-			*qCtx = *qCtxSub
+			*qCtx = *qCtxOrg
 			return err
 		}
 	}
 }
 
-func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
-	return NewDualSelector(bp, args.(*Args)), nil
+func NewPreferIpv4(bq sequence.BQ) *Selector {
+	return &Selector{
+		BQ:     bq,
+		prefer: dns.TypeA,
+	}
 }
 
-func NewDualSelector(bp *coremain.BP, args *Args) *Selector {
+func NewPreferIpv6(bq sequence.BQ) *Selector {
 	return &Selector{
-		BP:          bp,
-		mode:        args.Mode,
-		waitTimeout: time.Duration(args.WaitTimeout) * time.Millisecond,
+		BQ:     bq,
+		prefer: dns.TypeAAAA,
 	}
 }
 

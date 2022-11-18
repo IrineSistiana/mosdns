@@ -22,14 +22,12 @@ package reverselookup
 import (
 	"context"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v4/coremain"
-	"github.com/IrineSistiana/mosdns/v4/pkg/cache"
-	"github.com/IrineSistiana/mosdns/v4/pkg/cache/mem_cache"
-	"github.com/IrineSistiana/mosdns/v4/pkg/cache/redis_cache"
-	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
-	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
-	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
-	"github.com/go-redis/redis/v8"
+	"github.com/IrineSistiana/mosdns/v5/coremain"
+	"github.com/IrineSistiana/mosdns/v5/pkg/cache"
+	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
+	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
+	"github.com/go-chi/chi/v5"
 	"github.com/miekg/dns"
 	"net"
 	"net/http"
@@ -45,72 +43,51 @@ func init() {
 	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
 }
 
-var _ coremain.ExecutablePlugin = (*reverseLookup)(nil)
+var _ sequence.RecursiveExecutable = (*reverseLookup)(nil)
 
 type Args struct {
-	Size      int    `yaml:"size"` // Default is 64*1024
-	Redis     string `yaml:"redis"`
-	HandlePTR bool   `yaml:"handle_ptr"`
-	TTL       int    `yaml:"ttl"` // Default is 1800 (30min)
+	Size      int  `yaml:"size"` // Default is 64*1024
+	HandlePTR bool `yaml:"handle_ptr"`
+	TTL       int  `yaml:"ttl"` // Default is 7200 (2h)
 }
 
-func (a *Args) initDefault() *Args {
-	if a.Size <= 0 {
-		a.Size = 64 * 1024
-	}
-	if a.TTL <= 0 {
-		a.TTL = 1800
-	}
-	return a
+func (a *Args) init() {
+	utils.SetDefaultUnsignNum(&a.Size, 64*1024)
+	utils.SetDefaultUnsignNum(&a.TTL, 7200)
 }
 
 type reverseLookup struct {
 	*coremain.BP
 	args *Args
-	c    cache.Backend
+	c    *cache.Cache[key, string]
 }
 
-func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
+func Init(bp *coremain.BP, args interface{}) (coremain.Plugin, error) {
 	return newReverseLookup(bp, args.(*Args))
 }
 
 func newReverseLookup(bp *coremain.BP, args *Args) (coremain.Plugin, error) {
-	args.initDefault()
-	var c cache.Backend
-	if u := args.Redis; len(u) > 0 {
-		opts, err := redis.ParseURL(u)
-		if err != nil {
-			return nil, fmt.Errorf("invalid redis url, %w", err)
-		}
-		r := redis.NewClient(opts)
-		rc, err := redis_cache.NewRedisCache(redis_cache.RedisCacheOpts{
-			Client:       r,
-			ClientCloser: r,
-			Logger:       bp.L(),
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to init redis cache, %w", err)
-		}
-		c = rc
-	} else {
-		c = mem_cache.NewMemCache(args.Size, 0)
-	}
+	args.init()
+	c := cache.New[key, string](cache.Opts{Size: args.Size})
 	p := &reverseLookup{
 		BP:   bp,
 		args: args,
 		c:    c,
 	}
+	r := chi.NewRouter()
+	r.Get("/", p.ServeHTTP)
+	bp.RegAPI(r)
 	return p, nil
 }
 
-func (p *reverseLookup) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
+func (p *reverseLookup) Exec(ctx context.Context, qCtx *query_context.Context, next sequence.ChainWalker) error {
 	q := qCtx.Q()
 	if r := p.handlePTRQuery(q); r != nil {
 		qCtx.SetResponse(r)
 		return nil
 	}
 
-	if err := executable_seq.ExecChainNode(ctx, qCtx, next); err != nil {
+	if err := next.ExecNext(ctx, qCtx); err != nil {
 		return err
 	}
 	p.saveIPs(q, qCtx.R())
@@ -122,22 +99,26 @@ func (p *reverseLookup) Close() error {
 }
 
 func (p *reverseLookup) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	req.Context()
 	ipStr := req.URL.Query().Get("ip")
+	if len(ipStr) == 0 {
+		http.Error(w, "no 'ip' query parameter found", http.StatusBadRequest)
+		return
+	}
 	addr, err := netip.ParseAddr(ipStr)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(err.Error()))
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	d := p.lookup(netip.AddrFrom16(addr.As16()))
-	w.Write([]byte(d))
+	if len(d) > 0 {
+		_, _ = fmt.Fprint(w, d)
+	}
 }
 
 func (p *reverseLookup) lookup(n netip.Addr) string {
-	v, _, _ := p.c.Get(as16(n).String())
-	return string(v)
+	v, _, _ := p.c.Get(key(as16(n)))
+	return v
 }
 
 func (p *reverseLookup) handlePTRQuery(q *dns.Msg) *dns.Msg {
@@ -197,7 +178,7 @@ func (p *reverseLookup) saveIPs(q, r *dns.Msg) {
 		if len(q.Question) == 1 {
 			name = q.Question[0].Name
 		}
-		p.c.Store(as16(addr).String(), []byte(name), now, now.Add(time.Duration(p.args.TTL)*time.Second))
+		p.c.Store(key(as16(addr)), name, now, now.Add(time.Duration(p.args.TTL)*time.Second))
 	}
 }
 

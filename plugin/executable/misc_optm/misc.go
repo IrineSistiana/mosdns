@@ -21,10 +21,10 @@ package misc_optm
 
 import (
 	"context"
-	"github.com/IrineSistiana/mosdns/v4/coremain"
-	"github.com/IrineSistiana/mosdns/v4/pkg/dnsutils"
-	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
-	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v5/coremain"
+	"github.com/IrineSistiana/mosdns/v5/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
 	"github.com/miekg/dns"
 	"math/rand"
 )
@@ -43,13 +43,13 @@ func init() {
 	})
 }
 
-var _ coremain.ExecutablePlugin = (*optm)(nil)
+var _ sequence.RecursiveExecutable = (*optm)(nil)
 
 type optm struct {
 	*coremain.BP
 }
 
-func (t *optm) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
+func (t *optm) Exec(ctx context.Context, qCtx *query_context.Context, next sequence.ChainWalker) error {
 	q := qCtx.Q()
 
 	// Block query that is unusual.
@@ -67,7 +67,7 @@ func (t *optm) Exec(ctx context.Context, qCtx *query_context.Context, next execu
 		}
 	}
 
-	if err := executable_seq.ExecChainNode(ctx, qCtx, next); err != nil {
+	if err := next.ExecNext(ctx, qCtx); err != nil {
 		return err
 	}
 

@@ -21,107 +21,47 @@ package ecs
 
 import (
 	"context"
-	"fmt"
-	"github.com/IrineSistiana/mosdns/v4/coremain"
-	"github.com/IrineSistiana/mosdns/v4/pkg/dnsutils"
-	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
-	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
-	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
+	"github.com/IrineSistiana/mosdns/v5/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
 	"github.com/miekg/dns"
 	"net/netip"
+	"strings"
 )
 
 const PluginType = "ecs"
 
 func init() {
-	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
-
-	coremain.RegNewPersetPluginFunc("_no_ecs", func(bp *coremain.BP) (coremain.Plugin, error) {
-		return &noECS{BP: bp}, nil
-	})
+	sequence.MustRegQuickSetup(PluginType, QuickSetup)
 }
 
-var _ coremain.ExecutablePlugin = (*ecsPlugin)(nil)
+var _ sequence.RecursiveExecutable = (*addECS)(nil)
 
-type Args struct {
-	// Automatically append client address as ecs.
-	// If this is true, pre-set addresses will not be used.
-	Auto bool `yaml:"auto"`
-
-	// force overwrite existing ecs
-	ForceOverwrite bool `yaml:"force_overwrite"`
-
-	// mask for ecs
-	Mask4 int `yaml:"mask4"` // default 24
-	Mask6 int `yaml:"mask6"` // default 48
-
-	// pre-set address
-	IPv4 string `yaml:"ipv4"`
-	IPv6 string `yaml:"ipv6"`
-}
-
-func (a *Args) Init() error {
-	if ok := utils.CheckNumRange(a.Mask4, 0, 32); !ok {
-		return fmt.Errorf("invalid mask4 %d, should between 0~32", a.Mask4)
-	}
-	if ok := utils.CheckNumRange(a.Mask6, 0, 128); !ok {
-		return fmt.Errorf("invalid mask6 %d, should between 0~128", a.Mask6)
-	}
-	utils.SetDefaultNum(&a.Mask4, 24)
-	utils.SetDefaultNum(&a.Mask6, 48)
-	return nil
-}
-
-type ecsPlugin struct {
-	*coremain.BP
-	args       *Args
-	ipv4, ipv6 netip.Addr
-}
-
-func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
-	return newPlugin(bp, args.(*Args))
-}
-
-func newPlugin(bp *coremain.BP, args *Args) (p *ecsPlugin, err error) {
-	if err := args.Init(); err != nil {
-		return nil, err
-	}
-
-	ep := new(ecsPlugin)
-	ep.BP = bp
-	ep.args = args
-
-	if len(args.IPv4) != 0 {
-		addr, err := netip.ParseAddr(args.IPv4)
+// QuickSetup format: [ip/mask] [ip/mask]
+func QuickSetup(_ sequence.BQ, s string) (any, error) {
+	ecs := new(addECS)
+	for _, prefixStr := range strings.Fields(s) {
+		prefix, err := netip.ParsePrefix(prefixStr)
 		if err != nil {
-			return nil, fmt.Errorf("invaild ipv4 address, %w", err)
+			return nil, err
 		}
-		if !addr.Is4() {
-			return nil, fmt.Errorf("%s is not a ipv4 address", args.IPv4)
+		if prefix.Addr().Is4() {
+			ecs.ipv4 = prefix
 		} else {
-			ep.ipv4 = addr
+			ecs.ipv6 = prefix
 		}
 	}
+	return ecs, nil
+}
 
-	if len(args.IPv6) != 0 {
-		addr, err := netip.ParseAddr(args.IPv6)
-		if err != nil {
-			return nil, fmt.Errorf("invaild ipv6 address, %w", err)
-		}
-		if !addr.Is6() {
-			return nil, fmt.Errorf("%s is not a ipv6 address", args.IPv6)
-		} else {
-			ep.ipv6 = addr
-		}
-	}
-
-	return ep, nil
+type addECS struct {
+	ipv4, ipv6 netip.Prefix
 }
 
 // Exec tries to append ECS to qCtx.Q().
-func (e *ecsPlugin) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
+func (e *addECS) Exec(ctx context.Context, qCtx *query_context.Context, next sequence.ChainWalker) error {
 	upgraded, newECS := e.addECS(qCtx)
-	err := executable_seq.ExecChainNode(ctx, qCtx, next)
+	err := next.ExecNext(ctx, qCtx)
 	if err != nil {
 		return err
 	}
@@ -142,48 +82,31 @@ func (e *ecsPlugin) Exec(ctx context.Context, qCtx *query_context.Context, next 
 // upgraded: Whether the addECS upgraded the q to a EDNS0 enabled query.
 // newECS: Whether the addECS added a *dns.EDNS0_SUBNET to q that didn't
 // have a *dns.EDNS0_SUBNET before.
-func (e *ecsPlugin) addECS(qCtx *query_context.Context) (upgraded bool, newECS bool) {
+func (e *addECS) addECS(qCtx *query_context.Context) (upgraded bool, newECS bool) {
 	q := qCtx.Q()
-	opt := q.IsEdns0()
-	hasECS := opt != nil && dnsutils.GetECS(opt) != nil
-	if hasECS && !e.args.ForceOverwrite {
-		// Argument args.ForceOverwrite is disabled. q already has an edns0 subnet. Skip it.
+	if len(q.Question) != 1 || q.Question[0].Qclass != dns.ClassINET {
 		return false, false
 	}
+	qtype := q.Question[0].Qtype
 
 	var ecs *dns.EDNS0_SUBNET
-	if e.args.Auto { // use client ip
-		clientAddr := qCtx.ReqMeta().ClientAddr
-		if !clientAddr.IsValid() {
-			return false, false
+	switch qtype {
+	case dns.TypeAAAA: // append ipv6 ecs first for AAAA type.
+		if e.ipv6.IsValid() {
+			ecs = dnsutils.NewEDNS0Subnet(e.ipv6.Addr().AsSlice(), uint8(e.ipv6.Bits()), true)
+		} else if e.ipv4.IsValid() {
+			ecs = dnsutils.NewEDNS0Subnet(e.ipv4.Addr().AsSlice(), uint8(e.ipv4.Bits()), false)
 		}
 
-		switch {
-		case clientAddr.Is4():
-			ecs = dnsutils.NewEDNS0Subnet(clientAddr.AsSlice(), uint8(e.args.Mask4), false)
-		case clientAddr.Is4In6():
-			ecs = dnsutils.NewEDNS0Subnet(clientAddr.Unmap().AsSlice(), uint8(e.args.Mask4), false)
-		case clientAddr.Is6():
-			ecs = dnsutils.NewEDNS0Subnet(clientAddr.AsSlice(), uint8(e.args.Mask6), true)
-		}
-	} else { // use preset ip
-		switch {
-		case checkQueryType(q, dns.TypeA):
-			if e.ipv4.IsValid() {
-				ecs = dnsutils.NewEDNS0Subnet(e.ipv4.AsSlice(), uint8(e.args.Mask4), false)
-			} else if e.ipv6.IsValid() {
-				ecs = dnsutils.NewEDNS0Subnet(e.ipv6.AsSlice(), uint8(e.args.Mask6), true)
-			}
-
-		case checkQueryType(q, dns.TypeAAAA):
-			if e.ipv6.IsValid() {
-				ecs = dnsutils.NewEDNS0Subnet(e.ipv6.AsSlice(), uint8(e.args.Mask6), true)
-			} else if e.ipv4.IsValid() {
-				ecs = dnsutils.NewEDNS0Subnet(e.ipv4.AsSlice(), uint8(e.args.Mask4), false)
-			}
+	default: // append ipv4 first for other types, including A.
+		if e.ipv4.IsValid() {
+			ecs = dnsutils.NewEDNS0Subnet(e.ipv4.Addr().AsSlice(), uint8(e.ipv4.Bits()), false)
+		} else if e.ipv6.IsValid() {
+			ecs = dnsutils.NewEDNS0Subnet(e.ipv6.Addr().AsSlice(), uint8(e.ipv6.Bits()), true)
 		}
 	}
 
+	opt := q.IsEdns0()
 	if ecs != nil {
 		if opt == nil {
 			upgraded = true
@@ -193,28 +116,4 @@ func (e *ecsPlugin) addECS(qCtx *query_context.Context) (upgraded bool, newECS b
 		return upgraded, newECS
 	}
 	return false, false
-}
-
-func checkQueryType(m *dns.Msg, typ uint16) bool {
-	if len(m.Question) > 0 && m.Question[0].Qtype == typ {
-		return true
-	}
-	return false
-}
-
-type noECS struct {
-	*coremain.BP
-}
-
-var _ coremain.ExecutablePlugin = (*noECS)(nil)
-
-func (n *noECS) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
-	dnsutils.RemoveMsgECS(qCtx.Q())
-	if err := executable_seq.ExecChainNode(ctx, qCtx, next); err != nil {
-		return err
-	}
-	if qCtx.R() != nil {
-		dnsutils.RemoveMsgECS(qCtx.R())
-	}
-	return nil
 }

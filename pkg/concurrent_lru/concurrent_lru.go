@@ -20,76 +20,77 @@
 package concurrent_lru
 
 import (
-	"github.com/IrineSistiana/mosdns/v4/pkg/lru"
-	"hash/maphash"
+	"github.com/IrineSistiana/mosdns/v5/pkg/lru"
 	"sync"
 )
 
-type ShardedLRU[V any] struct {
-	seed maphash.Seed
-	l    []*ConcurrentLRU[string, V]
+type Hashable interface {
+	comparable
+	Sum() uint64
 }
 
-func NewShardedLRU[V any](
+type ShardedLRU[K Hashable, V any] struct {
+	l []*ConcurrentLRU[K, V]
+}
+
+func NewShardedLRU[K Hashable, V any](
 	shardNum, maxSizePerShard int,
-	onEvict func(key string, v V),
-) *ShardedLRU[V] {
-	cl := &ShardedLRU[V]{
-		seed: maphash.MakeSeed(),
-		l:    make([]*ConcurrentLRU[string, V], shardNum),
+	onEvict func(key K, v V),
+) *ShardedLRU[K, V] {
+	cl := &ShardedLRU[K, V]{
+		l: make([]*ConcurrentLRU[K, V], 0, shardNum),
 	}
 
-	for i := range cl.l {
-		cl.l[i] = &ConcurrentLRU[string, V]{
-			lru: lru.NewLRU[string, V](maxSizePerShard, onEvict),
-		}
+	for i := 0; i < shardNum; i++ {
+		cl.l = append(cl.l, NewConecurrentLRU[K, V](maxSizePerShard, onEvict))
 	}
 
 	return cl
 }
 
-func (c *ShardedLRU[V]) Add(key string, v V) {
+func (c *ShardedLRU[K, V]) Add(key K, v V) {
 	sl := c.getShard(key)
 	sl.Add(key, v)
 }
 
-func (c *ShardedLRU[V]) Del(key string) {
+func (c *ShardedLRU[K, V]) Del(key K) {
 	sl := c.getShard(key)
 	sl.Del(key)
 }
 
-func (c *ShardedLRU[V]) Clean(f func(key string, v V) (remove bool)) (removed int) {
-	for i := range c.l {
-		removed += c.l[i].Clean(f)
+func (c *ShardedLRU[K, V]) Clean(f func(key K, v V) (remove bool)) (removed int) {
+	for _, l := range c.l {
+		removed += l.Clean(f)
 	}
 	return removed
 }
 
-func (c *ShardedLRU[V]) Get(key string) (v V, ok bool) {
+func (c *ShardedLRU[K, V]) Flush() {
+	for _, l := range c.l {
+		l.Flush()
+	}
+}
+
+func (c *ShardedLRU[K, V]) Get(key K) (v V, ok bool) {
 	sl := c.getShard(key)
 	v, ok = sl.Get(key)
 	return
 }
 
-func (c *ShardedLRU[V]) Len() int {
+func (c *ShardedLRU[K, V]) Len() int {
 	sum := 0
-	for _, shard := range c.l {
-		sum += shard.Len()
+	for _, l := range c.l {
+		sum += l.Len()
 	}
 	return sum
 }
 
-func (c *ShardedLRU[V]) shardNum() int {
+func (c *ShardedLRU[K, V]) shardNum() int {
 	return len(c.l)
 }
 
-func (c *ShardedLRU[V]) getShard(key string) *ConcurrentLRU[string, V] {
-	h := maphash.Hash{}
-	h.SetSeed(c.seed)
-
-	h.WriteString(key)
-	n := h.Sum64() % uint64(c.shardNum())
-	return c.l[n]
+func (c *ShardedLRU[K, V]) getShard(key K) *ConcurrentLRU[K, V] {
+	return c.l[key.Sum()%uint64(c.shardNum())]
 }
 
 // ConcurrentLRU is a lru.LRU with a lock.
@@ -124,6 +125,12 @@ func (c *ConcurrentLRU[K, V]) Clean(f func(key K, v V) (remove bool)) (removed i
 	defer c.Unlock()
 
 	return c.lru.Clean(f)
+}
+
+func (c *ConcurrentLRU[K, V]) Flush() {
+	c.Lock()
+	defer c.Unlock()
+	c.lru.Flush()
 }
 
 func (c *ConcurrentLRU[K, V]) Get(key K) (v V, ok bool) {

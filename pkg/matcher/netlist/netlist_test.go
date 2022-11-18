@@ -34,6 +34,7 @@ func TestIPNetList_Sort_And_Merge(t *testing.T) {
 192.168.9.24/24 # merged
 192.168.3.0/24 # merged
 192.169.0.0/16
+104.16.0.0/12
 `
 	ipNetList := NewList()
 	err := LoadFromReader(ipNetList, bytes.NewBufferString(raw))
@@ -42,7 +43,7 @@ func TestIPNetList_Sort_And_Merge(t *testing.T) {
 	}
 	ipNetList.Sort()
 
-	if ipNetList.Len() != 2 {
+	if ipNetList.Len() != 3 {
 		t.Fatalf("unexpected length %d", ipNetList.Len())
 	}
 
@@ -59,10 +60,12 @@ func TestIPNetList_Sort_And_Merge(t *testing.T) {
 		{"5", netip.MustParseAddr("192.169.1.1"), true},
 		{"6", netip.MustParseAddr("192.170.1.1"), false},
 		{"7", netip.MustParseAddr("1.1.1.1"), false},
+		{"8", netip.MustParseAddr("104.16.67.38"), true},
+		{"9", netip.MustParseAddr("104.32.67.38"), false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got, _ := ipNetList.Match(tt.testIP); got != tt.want {
+			if got := ipNetList.Match(tt.testIP); got != tt.want {
 				t.Errorf("IPNetList.Match() = %v, want %v", got, tt.want)
 			}
 		})
@@ -107,7 +110,7 @@ func TestIPNetList_New_And_Contains(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got, _ := ipNetList.Match(tt.testIP); got != tt.want {
+			if got := ipNetList.Match(tt.testIP); got != tt.want {
 				t.Errorf("IPNetList.Match() = %v, want %v", got, tt.want)
 			}
 		})

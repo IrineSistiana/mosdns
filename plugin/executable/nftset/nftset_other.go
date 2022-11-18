@@ -24,19 +24,15 @@ package nftset
 
 import (
 	"context"
-	"github.com/IrineSistiana/mosdns/v4/coremain"
-	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
-	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 )
 
-type nftsetPlugin struct {
-	*coremain.BP
+type nftSetPlugin struct{}
+
+func newNftSetPlugin(args *Args) (*nftSetPlugin, error) {
+	return &nftSetPlugin{}, nil
 }
 
-func newNftsetPlugin(bp *coremain.BP, args *Args) (*nftsetPlugin, error) {
-	return &nftsetPlugin{BP: bp}, nil
-}
-
-func (p *nftsetPlugin) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
-	return executable_seq.ExecChainNode(ctx, qCtx, next)
+func (p *nftSetPlugin) Exec(_ context.Context, _ *query_context.Context) error {
+	return nil
 }

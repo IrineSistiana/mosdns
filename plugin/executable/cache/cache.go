@@ -22,20 +22,22 @@ package cache
 import (
 	"context"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v4/coremain"
-	"github.com/IrineSistiana/mosdns/v4/pkg/cache"
-	"github.com/IrineSistiana/mosdns/v4/pkg/cache/mem_cache"
-	"github.com/IrineSistiana/mosdns/v4/pkg/cache/redis_cache"
-	"github.com/IrineSistiana/mosdns/v4/pkg/dnsutils"
-	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
-	"github.com/IrineSistiana/mosdns/v4/pkg/pool"
-	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
-	"github.com/go-redis/redis/v8"
-	"github.com/golang/snappy"
+	"github.com/IrineSistiana/mosdns/v5/coremain"
+	"github.com/IrineSistiana/mosdns/v5/pkg/cache"
+	"github.com/IrineSistiana/mosdns/v5/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
+	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
+	"github.com/go-chi/chi/v5"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 	"golang.org/x/sync/singleflight"
+	"io"
+	"net/http"
+	"os"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -45,37 +47,40 @@ const (
 
 func init() {
 	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
-
-	coremain.RegNewPersetPluginFunc("_default_cache", func(bp *coremain.BP) (coremain.Plugin, error) {
-		return newCachePlugin(bp, &Args{})
-	})
 }
 
 const (
 	defaultLazyUpdateTimeout = time.Second * 5
 	defaultEmptyAnswerTTL    = time.Second * 300
+	minimumChangesToDump     = 1024
 )
 
-var _ coremain.ExecutablePlugin = (*cachePlugin)(nil)
+var _ sequence.RecursiveExecutable = (*cachePlugin)(nil)
 
 type Args struct {
 	Size              int    `yaml:"size"`
-	Redis             string `yaml:"redis"`
-	RedisTimeout      int    `yaml:"redis_timeout"`
 	LazyCacheTTL      int    `yaml:"lazy_cache_ttl"`
 	LazyCacheReplyTTL int    `yaml:"lazy_cache_reply_ttl"`
-	CacheEverything   bool   `yaml:"cache_everything"`
-	CompressResp      bool   `yaml:"compress_resp"`
-	WhenHit           string `yaml:"when_hit"`
+	CompatibilityMode bool   `yaml:"compatibility_mode"`
+	DumpFile          string `yaml:"dump_file"`
+	DumpInterval      int    `yaml:"dump_interval"`
+}
+
+func (a *Args) init() {
+	utils.SetDefaultUnsignNum(&a.Size, 1024)
+	utils.SetDefaultUnsignNum(&a.LazyCacheReplyTTL, 5)
+	utils.SetDefaultUnsignNum(&a.DumpInterval, 600)
 }
 
 type cachePlugin struct {
 	*coremain.BP
 	args *Args
 
-	whenHit      executable_seq.Executable
-	backend      cache.Backend
+	backend      *cache.Cache[key, []byte]
 	lazyUpdateSF singleflight.Group
+	closeOnce    sync.Once
+	closeNotify  chan struct{}
+	updatedKey   atomic.Uint64
 
 	queryTotal   prometheus.Counter
 	hitTotal     prometheus.Counter
@@ -83,52 +88,19 @@ type cachePlugin struct {
 	size         prometheus.GaugeFunc
 }
 
-func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
+func Init(bp *coremain.BP, args interface{}) (coremain.Plugin, error) {
 	return newCachePlugin(bp, args.(*Args))
 }
 
 func newCachePlugin(bp *coremain.BP, args *Args) (*cachePlugin, error) {
-	var c cache.Backend
-	if len(args.Redis) != 0 {
-		opt, err := redis.ParseURL(args.Redis)
-		if err != nil {
-			return nil, fmt.Errorf("invalid redis url, %w", err)
-		}
-		opt.MaxRetries = -1
-		r := redis.NewClient(opt)
-		rcOpts := redis_cache.RedisCacheOpts{
-			Client:        r,
-			ClientCloser:  r,
-			ClientTimeout: time.Duration(args.RedisTimeout) * time.Millisecond,
-			Logger:        bp.L(),
-		}
-		rc, err := redis_cache.NewRedisCache(rcOpts)
-		if err != nil {
-			return nil, fmt.Errorf("failed to init redis cache, %w", err)
-		}
-		c = rc
-	} else {
-		c = mem_cache.NewMemCache(args.Size, 0)
-	}
+	args.init()
 
-	if args.LazyCacheReplyTTL <= 0 {
-		args.LazyCacheReplyTTL = 5
-	}
-
-	var whenHit executable_seq.Executable
-	if tag := args.WhenHit; len(tag) > 0 {
-		m := bp.M().GetExecutables()
-		whenHit = m[tag]
-		if whenHit == nil {
-			return nil, fmt.Errorf("cannot find exectable %s", tag)
-		}
-	}
+	backend := cache.New[key, []byte](cache.Opts{Size: args.Size})
 
 	p := &cachePlugin{
 		BP:      bp,
 		args:    args,
-		whenHit: whenHit,
-		backend: c,
+		backend: backend,
 
 		queryTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "query_total",
@@ -146,23 +118,26 @@ func newCachePlugin(bp *coremain.BP, args *Args) (*cachePlugin, error) {
 			Name: "cache_size",
 			Help: "Current cache size in records",
 		}, func() float64 {
-			return float64(c.Len())
+			return float64(backend.Len())
 		}),
 	}
 	bp.GetMetricsReg().MustRegister(p.queryTotal, p.hitTotal, p.lazyHitTotal, p.size)
+
+	if err := p.loadDump(); err != nil {
+		p.L().Error("failed to load cache dump", zap.Error(err))
+	}
+
+	bp.RegAPI(p.api())
 	return p, nil
 }
 
-func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
+func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, next sequence.ChainWalker) error {
 	c.queryTotal.Inc()
 	q := qCtx.Q()
 
-	msgKey, err := c.getMsgKey(q)
-	if err != nil {
-		c.L().Error("get msg key", qCtx.InfoField(), zap.Error(err))
-	}
+	msgKey := c.getMsgKey(qCtx)
 	if len(msgKey) == 0 { // skip cache
-		return executable_seq.ExecChainNode(ctx, qCtx, next)
+		return next.ExecNext(ctx, qCtx)
 	}
 
 	cachedResp, lazyHit, err := c.lookupCache(msgKey)
@@ -178,17 +153,15 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, nex
 		cachedResp.Id = q.Id // change msg id
 		c.L().Debug("cache hit", qCtx.InfoField())
 		qCtx.SetResponse(cachedResp)
-		if c.whenHit != nil {
-			return c.whenHit.Exec(ctx, qCtx, nil)
-		}
-		return nil
+	} else {
+		c.L().Debug("cache miss", qCtx.InfoField())
 	}
 
-	// cache miss, run the entry and try to store its response.
-	c.L().Debug("cache miss", qCtx.InfoField())
-	err = executable_seq.ExecChainNode(ctx, qCtx, next)
+	err = next.ExecNext(ctx, qCtx)
+
+	// save resp to cache if cache missed.
 	r := qCtx.R()
-	if r != nil {
+	if cachedResp == nil && r != nil {
 		if err := c.tryStoreMsg(msgKey, r); err != nil {
 			c.L().Error("cache store", qCtx.InfoField(), zap.Error(err))
 		}
@@ -198,41 +171,29 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, nex
 
 // getMsgKey returns a string key for the query msg, or an empty
 // string if query should not be cached.
-func (c *cachePlugin) getMsgKey(q *dns.Msg) (string, error) {
-	isSimpleQuery := len(q.Question) == 1 && len(q.Answer) == 0 && len(q.Ns) == 0 && len(q.Extra) == 0
-	if isSimpleQuery || c.args.CacheEverything {
-		msgKey, err := dnsutils.GetMsgKey(q, 0)
-		if err != nil {
-			return "", fmt.Errorf("failed to unpack query msg, %w", err)
-		}
-		return msgKey, nil
+func (c *cachePlugin) getMsgKey(qCtx *query_context.Context) string {
+	q := qCtx.Q()
+	var k string
+	var err error
+	if c.args.CompatibilityMode {
+		k, err = dnsutils.GetMsgKey(q, 0)
+	} else {
+		k, err = dnsutils.GetMsgQuestionKey(q, 0)
 	}
-	return "", nil
+	if err != nil {
+		c.L().Error("get msg key", qCtx.InfoField(), zap.Error(err))
+	}
+	return k
 }
 
 // lookupCache returns the cached response. The ttl of returned msg will be changed properly.
 // Remember, caller must change the msg id.
 func (c *cachePlugin) lookupCache(msgKey string) (r *dns.Msg, lazyHit bool, err error) {
 	// lookup in cache
-	v, storedTime, _ := c.backend.Get(msgKey)
+	v, storedTime, _ := c.backend.Get(key(msgKey))
 
 	// cache hit
 	if v != nil {
-		if c.args.CompressResp {
-			decodeLen, err := snappy.DecodedLen(v)
-			if err != nil {
-				return nil, false, fmt.Errorf("snappy decode err: %w", err)
-			}
-			if decodeLen > dns.MaxMsgSize {
-				return nil, false, fmt.Errorf("invalid snappy data, not a dns msg, data len: %d", decodeLen)
-			}
-			decompressBuf := pool.GetBuf(decodeLen)
-			defer decompressBuf.Release()
-			v, err = snappy.Decode(decompressBuf.Bytes(), v)
-			if err != nil {
-				return nil, false, fmt.Errorf("snappy decode err: %w", err)
-			}
-		}
 		r = new(dns.Msg)
 		if err := r.Unpack(v); err != nil {
 			return nil, false, fmt.Errorf("failed to unpack cached data, %w", err)
@@ -265,33 +226,35 @@ func (c *cachePlugin) lookupCache(msgKey string) (r *dns.Msg, lazyHit bool, err 
 
 // doLazyUpdate starts a new goroutine to execute next node and update the cache in the background.
 // It has an inner singleflight.Group to de-duplicate same msgKey.
-func (c *cachePlugin) doLazyUpdate(msgKey string, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) {
-	lazyQCtx := qCtx.Copy()
+func (c *cachePlugin) doLazyUpdate(msgKey string, qCtx *query_context.Context, next sequence.ChainWalker) {
+	qCtxCopy := qCtx.Copy()
 	lazyUpdateFunc := func() (interface{}, error) {
-		c.L().Debug("start lazy cache update", lazyQCtx.InfoField())
 		defer c.lazyUpdateSF.Forget(msgKey)
-		lazyCtx, cancel := context.WithTimeout(context.Background(), defaultLazyUpdateTimeout)
+		qCtx := qCtxCopy
+
+		c.L().Debug("start lazy cache update", qCtx.InfoField())
+		ctx, cancel := context.WithTimeout(context.Background(), defaultLazyUpdateTimeout)
 		defer cancel()
 
-		err := executable_seq.ExecChainNode(lazyCtx, lazyQCtx, next)
+		err := next.ExecNext(ctx, qCtx)
 		if err != nil {
-			c.L().Warn("failed to update lazy cache", lazyQCtx.InfoField(), zap.Error(err))
+			c.L().Warn("failed to update lazy cache", qCtx.InfoField(), zap.Error(err))
 		}
 
-		r := lazyQCtx.R()
+		r := qCtx.R()
 		if r != nil {
 			if err := c.tryStoreMsg(msgKey, r); err != nil {
 				c.L().Error("cache store", qCtx.InfoField(), zap.Error(err))
 			}
 		}
-		c.L().Debug("lazy cache updated", lazyQCtx.InfoField())
+		c.L().Debug("lazy cache updated", qCtx.InfoField())
 		return nil, nil
 	}
 	c.lazyUpdateSF.DoChan(msgKey, lazyUpdateFunc) // DoChan won't block this goroutine
 }
 
 // tryStoreMsg tries to store r to cache. If r should be cached.
-func (c *cachePlugin) tryStoreMsg(key string, r *dns.Msg) error {
+func (c *cachePlugin) tryStoreMsg(msgKey string, r *dns.Msg) error {
 	if r.Rcode != dns.RcodeSuccess || r.Truncated != false {
 		return nil
 	}
@@ -312,15 +275,102 @@ func (c *cachePlugin) tryStoreMsg(key string, r *dns.Msg) error {
 		}
 		expirationTime = now.Add(time.Duration(minTTL) * time.Second)
 	}
-	if c.args.CompressResp {
-		compressBuf := pool.GetBuf(snappy.MaxEncodedLen(len(v)))
-		v = snappy.Encode(compressBuf.Bytes(), v)
-		defer compressBuf.Release()
-	}
-	c.backend.Store(key, v, now, expirationTime)
+	c.updatedKey.Add(1)
+	c.backend.Store(key(msgKey), v, now, expirationTime)
 	return nil
 }
 
-func (c *cachePlugin) Shutdown() error {
+func (c *cachePlugin) Close() error {
+	if err := c.dumpCache(); err != nil {
+		c.L().Error("failed to dump cache", zap.Error(err))
+	}
 	return c.backend.Close()
+}
+
+func (c *cachePlugin) loadDump() error {
+	if len(c.args.DumpFile) == 0 {
+		return nil
+	}
+	b, err := os.ReadFile(c.args.DumpFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			err = nil
+		}
+		return err
+	}
+	if err := c.backend.LoadDump(b, unmarshalKey, unmarshalValue); err != nil {
+		return err
+	}
+	c.L().Info("cache dump loaded", zap.Int("size", c.backend.Len()))
+	return nil
+}
+
+func (c *cachePlugin) dumpLoop() {
+	ticker := time.NewTicker(time.Duration(c.args.DumpInterval) * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			keyUpdated := c.updatedKey.Swap(0)
+			if keyUpdated < minimumChangesToDump {
+				c.updatedKey.Add(keyUpdated)
+				continue
+			}
+			if err := c.dumpCache(); err != nil {
+				c.L().Error("dump cache", zap.Error(err))
+			}
+		case <-c.closeNotify:
+			return
+		}
+	}
+}
+
+func (c *cachePlugin) dumpCache() error {
+	if len(c.args.DumpFile) == 0 {
+		return nil
+	}
+	b, err := c.backend.Dump(marshalKey, marshalValue)
+	if err != nil {
+		return err
+	}
+
+	f, err := os.Create(c.args.DumpFile)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if _, err := f.Write(b); err != nil {
+		return err
+	}
+	c.L().Info("cache dumped", zap.Int("size", len(b)))
+	return nil
+}
+
+func (c *cachePlugin) api() *chi.Mux {
+	r := chi.NewRouter()
+	r.Get("/flush", func(w http.ResponseWriter, req *http.Request) {
+		c.backend.Flush()
+	})
+	r.Get("/dump", func(w http.ResponseWriter, req *http.Request) {
+		b, err := c.backend.Dump(marshalKey, marshalValue)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("content-type", "application/octet-stream")
+		_, _ = w.Write(b)
+	})
+	r.Post("/load_dump", func(w http.ResponseWriter, req *http.Request) {
+		b, err := io.ReadAll(req.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := c.backend.LoadDump(b, unmarshalKey, unmarshalValue); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	return r
 }

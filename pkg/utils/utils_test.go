@@ -112,3 +112,12 @@ func Test_WeakDecode(t *testing.T) {
 		t.Fatalf("args decode failed, want %v, got %v", wantObj, testObj)
 	}
 }
+
+func Test_WeakDecode2(t *testing.T) {
+	testObj := new([]byte)
+	args := []any{"1", 2, 3}
+	err := WeakDecode(args, testObj)
+	if err != nil {
+		t.Fatal(err)
+	}
+}

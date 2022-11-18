@@ -21,13 +21,12 @@ package dns_handler
 
 import (
 	"context"
-	"errors"
-	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
-	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
-	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
+	"github.com/IrineSistiana/mosdns/v5/mlog"
+	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
+	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
-	"testing"
 	"time"
 )
 
@@ -36,115 +35,77 @@ const (
 )
 
 var (
-	nopLogger = zap.NewNop()
+	nopLogger = mlog.Nop()
 )
 
 // Handler handles dns query.
 type Handler interface {
-	// ServeDNS handles incoming request req and returns a response.
-	// Implements must not keep and use req after the ServeDNS returned.
+	// ServeDNS handles incoming request qCtx and MUST ALWAYS set a response.
+	// Implements must not keep and use qCtx after the ServeDNS returned.
 	// ServeDNS should handle dns errors by itself and return a proper error responses
 	// for clients.
-	// ServeDNS should always return a responses.
 	// If ServeDNS returns an error, caller considers that the error is associated
 	// with the downstream connection and will close the downstream connection
 	// immediately.
-	// All input parameters won't be nil.
-	ServeDNS(ctx context.Context, req *dns.Msg, meta *query_context.RequestMeta) (*dns.Msg, error)
+	ServeDNS(ctx context.Context, qCtx *query_context.Context) error
 }
 
 type EntryHandlerOpts struct {
 	// Logger is used for logging. Default is a noop logger.
 	Logger *zap.Logger
 
-	Entry executable_seq.Executable
+	// Required.
+	Entry sequence.Executable
 
 	// QueryTimeout limits the timeout value of each query.
 	// Default is defaultQueryTimeout.
 	QueryTimeout time.Duration
-
-	// RecursionAvailable sets the dns.Msg.RecursionAvailable flag globally.
-	RecursionAvailable bool
 }
 
-func (opts *EntryHandlerOpts) Init() error {
+func (opts *EntryHandlerOpts) init() {
 	if opts.Logger == nil {
 		opts.Logger = nopLogger
 	}
-	if opts.Entry == nil {
-		return errors.New("nil entry")
-	}
 	utils.SetDefaultNum(&opts.QueryTimeout, defaultQueryTimeout)
-	return nil
 }
 
 type EntryHandler struct {
 	opts EntryHandlerOpts
 }
 
-func NewEntryHandler(opts EntryHandlerOpts) (*EntryHandler, error) {
-	if err := opts.Init(); err != nil {
-		return nil, err
-	}
-	return &EntryHandler{opts: opts}, nil
+func NewEntryHandler(opts EntryHandlerOpts) *EntryHandler {
+	opts.init()
+	return &EntryHandler{opts: opts}
 }
 
 // ServeDNS implements Handler.
-// If entry returns an error, a SERVFAIL response will be returned.
-// If entry returns without a response, a REFUSED response will be returned.
-func (h *EntryHandler) ServeDNS(ctx context.Context, req *dns.Msg, meta *query_context.RequestMeta) (*dns.Msg, error) {
-	// apply timeout to ctx
+// If entry returns an error, a SERVFAIL response will be set.
+// If entry returns without a response, a REFUSED response will be set.
+func (h *EntryHandler) ServeDNS(ctx context.Context, qCtx *query_context.Context) error {
 	ddl := time.Now().Add(h.opts.QueryTimeout)
-	ctxDdl, ok := ctx.Deadline()
-	if !(ok && ctxDdl.Before(ddl)) {
-		newCtx, cancel := context.WithDeadline(ctx, ddl)
-		defer cancel()
-		ctx = newCtx
-	}
+	ctx, cancel := context.WithDeadline(ctx, ddl)
+	defer cancel()
 
 	// exec entry
-	qCtx := query_context.NewContext(req, meta)
-	err := h.opts.Entry.Exec(ctx, qCtx, nil)
+	err := h.opts.Entry.Exec(ctx, qCtx)
 	respMsg := qCtx.R()
 	if err != nil {
 		h.opts.Logger.Warn("entry returned an err", qCtx.InfoField(), zap.Error(err))
 	} else {
 		h.opts.Logger.Debug("entry returned", qCtx.InfoField())
 	}
-	if err == nil && respMsg == nil {
-		h.opts.Logger.Error("entry returned an nil response", qCtx.InfoField())
-	}
 
-	if respMsg == nil || err != nil {
+	if err == nil && respMsg == nil {
 		respMsg = new(dns.Msg)
-		respMsg.SetReply(req)
+		respMsg.SetReply(qCtx.Q())
+		respMsg.Rcode = dns.RcodeRefused
+	}
+	if err != nil {
+		respMsg = new(dns.Msg)
+		respMsg.SetReply(qCtx.Q())
 		respMsg.Rcode = dns.RcodeServerFailure
 	}
-
-	if h.opts.RecursionAvailable {
-		respMsg.RecursionAvailable = true
-	}
-	return respMsg, nil
-}
-
-type DummyServerHandler struct {
-	T       *testing.T
-	WantMsg *dns.Msg
-	WantErr error
-}
-
-func (d *DummyServerHandler) ServeDNS(_ context.Context, req *dns.Msg, meta *query_context.RequestMeta) (*dns.Msg, error) {
-	if d.WantErr != nil {
-		return nil, d.WantErr
-	}
-
-	var resp *dns.Msg
-	if d.WantMsg != nil {
-		resp = d.WantMsg.Copy()
-		resp.Id = req.Id
-	} else {
-		resp = new(dns.Msg)
-		resp.SetReply(req)
-	}
-	return resp, nil
+	respMsg.RecursionAvailable = true
+	qCtx.SetResponse(respMsg)
+	return nil
 }

@@ -1,0 +1,18 @@
+// This proto is a copy of v2ray.com/core/app/router/config.proto
+
+syntax = "proto3";
+
+package cache;
+
+option go_package = "pkg/cache";
+
+message CachedEntry {
+  string key = 1;
+  int64 store_time = 2;
+  int64 expiration_time = 3;
+  bytes value = 4;
+}
+
+message CacheDump {
+  repeated CachedEntry entries = 1;
+}

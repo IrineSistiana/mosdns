@@ -21,7 +21,7 @@ package hosts
 
 import (
 	"bytes"
-	"github.com/IrineSistiana/mosdns/v4/pkg/matcher/domain"
+	"github.com/IrineSistiana/mosdns/v5/pkg/matcher/domain"
 	"github.com/miekg/dns"
 	"net"
 	"testing"

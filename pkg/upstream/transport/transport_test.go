@@ -23,7 +23,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v4/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v5/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"io"
@@ -43,9 +44,9 @@ func TestTransport_Exchange(t *testing.T) {
 				m, _, readErr := dnsutils.ReadRawMsgFromTCP(c2)
 				if m != nil {
 					go func() {
-						defer m.Release()
+						defer pool.ReleaseBuf(m)
 						randSleepMs(20)
-						dnsutils.WriteRawMsgToTCP(c2, m.Bytes())
+						dnsutils.WriteRawMsgToTCP(c2, m)
 					}()
 				}
 				if readErr != nil {

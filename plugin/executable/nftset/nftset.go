@@ -20,28 +20,65 @@
 package nftset
 
 import (
-	"github.com/IrineSistiana/mosdns/v4/coremain"
+	"fmt"
+	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
+	"strconv"
+	"strings"
 )
 
 const PluginType = "nftset"
 
 func init() {
-	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
+	sequence.MustRegQuickSetup(PluginType, QuickSetup)
 }
 
-var _ coremain.ExecutablePlugin = (*nftsetPlugin)(nil)
+var _ sequence.Executable = (*nftSetPlugin)(nil)
 
 type Args struct {
-	TableFamily4 string `yaml:"table_family4"`
-	TableFamily6 string `yaml:"table_family6"`
-	TableName4   string `yaml:"table_name4"`
-	TableName6   string `yaml:"table_name6"`
-	SetName4     string `yaml:"set_name4"`
-	SetName6     string `yaml:"set_name6"`
-	Mask4        int    `yaml:"mask4"` // default 24
-	Mask6        int    `yaml:"mask6"` // default 32
+	IPv4 SetArgs `yaml:"ipv4"`
+	IPv6 SetArgs `yaml:"ipv6"`
 }
 
-func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
-	return newNftsetPlugin(bp, args.(*Args))
+type SetArgs struct {
+	TableFamily string `yaml:"table_family"`
+	Table       string `yaml:"table_name"`
+	Set         string `yaml:"set_name"`
+	Mask        int    `yaml:"mask"`
+}
+
+// QuickSetup format: [{ip|ip6|inet},table_name,set_name,{ipv4_addr|ipv6_addr},mask] *2 (can repeat once)
+// e.g. "inet,my_table,my_set,ipv4_addr,24 inet,my_table,my_set,ipv6_addr,48"
+func QuickSetup(_ sequence.BQ, s string) (any, error) {
+	fs := strings.Fields(s)
+	if len(fs) > 2 {
+		return nil, fmt.Errorf("expect no more than 2 fields, got %d", len(fs))
+	}
+
+	args := new(Args)
+	for _, argsStr := range fs {
+		ss := strings.Split(argsStr, ",")
+		if len(ss) != 5 {
+			return nil, fmt.Errorf("invalid args, expect 5 fields, got %d", len(ss))
+		}
+
+		m, err := strconv.Atoi(ss[4])
+		if err != nil {
+			return nil, fmt.Errorf("invalid mask, %w", err)
+		}
+		sa := SetArgs{
+			TableFamily: ss[0],
+			Table:       ss[1],
+			Set:         ss[2],
+			Mask:        m,
+		}
+		switch ss[3] {
+		case "ipv4_addr":
+			args.IPv4 = sa
+		case "ipv6_addr":
+			args.IPv6 = sa
+		default:
+			return nil, fmt.Errorf("invalid ip type, %s", ss[0])
+		}
+	}
+	return newNftSetPlugin(args)
 }

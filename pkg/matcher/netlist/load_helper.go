@@ -21,133 +21,14 @@ package netlist
 
 import (
 	"bufio"
-	"bytes"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v4/pkg/data_provider"
-	"github.com/IrineSistiana/mosdns/v4/pkg/matcher/v2data"
-	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
+	"github.com/IrineSistiana/mosdns/v5/pkg/matcher/v2data"
+	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 	"google.golang.org/protobuf/proto"
 	"io"
 	"net/netip"
 	"strings"
-	"sync/atomic"
 )
-
-type MatcherGroup struct {
-	g      []Matcher
-	closer []func()
-}
-
-func (m *MatcherGroup) Len() int {
-	s := 0
-	for _, l := range m.g {
-		s += l.Len()
-	}
-	return s
-}
-
-func (m *MatcherGroup) Match(addr netip.Addr) (bool, error) {
-	for _, list := range m.g {
-		ok, err := list.Match(addr)
-		if err != nil {
-			return false, err
-		}
-		if ok {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-func (m *MatcherGroup) Close() error {
-	for _, f := range m.closer {
-		f()
-	}
-	return nil
-}
-
-type DynamicMatcher struct {
-	parseFunc func(in []byte) (*List, error)
-	v         atomic.Value
-}
-
-func NewDynamicMatcher(parseFunc func(in []byte) (*List, error)) *DynamicMatcher {
-	return &DynamicMatcher{parseFunc: parseFunc}
-}
-
-func (d *DynamicMatcher) Update(newData []byte) error {
-	list, err := d.parseFunc(newData)
-	if err != nil {
-		return err
-	}
-	d.v.Store(list)
-	return nil
-}
-
-func (d *DynamicMatcher) Match(addr netip.Addr) (bool, error) {
-	return d.v.Load().(*List).Match(addr)
-}
-
-func (d *DynamicMatcher) Len() int {
-	return d.v.Load().(*List).Len()
-}
-
-// BatchLoadProvider is a helper func to load multiple files using Load.
-// Caller must call MatcherGroup.Close to detach this matcher from data_provider.DataManager to
-// avoid leaking.
-func BatchLoadProvider(e []string, dm *data_provider.DataManager) (*MatcherGroup, error) {
-	mg := new(MatcherGroup)
-	staticMatcher := NewList()
-	mg.g = append(mg.g, staticMatcher)
-	for _, s := range e {
-		if strings.HasPrefix(s, "provider:") {
-			providerName := strings.TrimPrefix(s, "provider:")
-			providerName, v2suffix, _ := strings.Cut(providerName, ":")
-			provider := dm.GetDataProvider(providerName)
-			if provider == nil {
-				return nil, fmt.Errorf("cannot find provider %s", providerName)
-			}
-			var parseFunc func(in []byte) (*List, error)
-			if len(v2suffix) > 0 {
-				parseFunc = func(in []byte) (*List, error) {
-					return ParseV2rayIPDat(in, v2suffix)
-				}
-			} else {
-				parseFunc = func(in []byte) (*List, error) {
-					l := NewList()
-					if err := LoadFromReader(l, bytes.NewReader(in)); err != nil {
-						return nil, err
-					}
-					l.Sort()
-					return l, nil
-				}
-			}
-			m := NewDynamicMatcher(parseFunc)
-			if err := provider.LoadAndAddListener(m); err != nil {
-				return nil, fmt.Errorf("failed to load data from provider %s, %w", providerName, err)
-			}
-			mg.g = append(mg.g, m)
-			mg.closer = append(mg.closer, func() {
-				provider.DeleteListener(m)
-			})
-		} else {
-			if err := LoadFromText(staticMatcher, s); err != nil {
-				return nil, fmt.Errorf("failed to load data %s, %w", s, err)
-			}
-		}
-	}
-
-	staticMatcher.Sort()
-	return mg, nil
-}
-
-// Load loads data from entry.
-// If entry begin with "ext:", Load loads the file by using LoadFromFile.
-// Else it loads the entry as a text pattern by using LoadFromText.
-func Load(l *List, ip string) error {
-	ip = strings.TrimSpace(ip)
-	return LoadFromText(l, ip)
-}
 
 // LoadFromReader loads IP list from a reader.
 // It might modify the List and causes List unsorted.
@@ -197,36 +78,26 @@ func LoadFromText(l *List, s string) error {
 	return nil
 }
 
-func ParseV2rayIPDat(in []byte, args string) (*List, error) {
-	v, err := LoadGeoIPListFromDAT(in)
-	if err != nil {
-		return nil, err
-	}
-	return NewV2rayIPDat(v, args)
-}
-
-// NewV2rayIPDat builds a List from given v and args.
+// LoadIPDat builds a List from given v and args.
 // The format of args is "tag1,tag2,...".
-// Only lists that are matched by given tags will be loaded to List.
-func NewV2rayIPDat(v *v2data.GeoIPList, args string) (*List, error) {
+// Only lists that are matched by given tags will be loaded to l.
+func LoadIPDat(l *List, v *v2data.GeoIPList, args string) error {
 	m := make(map[string][]*v2data.CIDR)
 	for _, gs := range v.GetEntry() {
 		m[strings.ToLower(gs.GetCountryCode())] = gs.GetCidr()
 	}
 
-	l := NewList()
 	for _, tag := range strings.Split(args, ",") {
-		cidrs := m[tag]
-		if cidrs == nil {
-			return nil, fmt.Errorf("tag %s does not exist", tag)
+		cidr := m[tag]
+		if cidr == nil {
+			return fmt.Errorf("tag %s does not exist", tag)
 		}
-		if err := LoadFromV2CIDR(l, cidrs); err != nil {
-			return nil, fmt.Errorf("failed to parse v2 cidr data, %w", err)
+		if err := LoadFromV2CIDR(l, cidr); err != nil {
+			return fmt.Errorf("failed to parse v2 cidr data, %w", err)
 		}
 
 	}
-	l.Sort()
-	return l, nil
+	return nil
 }
 
 // LoadFromV2CIDR loads ip from v2ray CIDR.

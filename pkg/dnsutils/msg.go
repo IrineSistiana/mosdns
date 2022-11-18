@@ -21,8 +21,8 @@ package dnsutils
 
 import (
 	"encoding/binary"
-	"github.com/IrineSistiana/mosdns/v4/pkg/pool"
-	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
+	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
+	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 	"github.com/miekg/dns"
 	"strconv"
 	"strings"
@@ -175,13 +175,28 @@ func GetMsgKey(m *dns.Msg, salt uint16) (string, error) {
 	return utils.BytesToStringUnsafe(wireMsg), nil
 }
 
+// GetMsgQuestionKey unpacks m question section and set its id to salt.
+func GetMsgQuestionKey(m *dns.Msg, salt uint16) (string, error) {
+	var mc dns.Msg
+	mc = *m
+	mc.Ns = nil
+	mc.Extra = nil
+	mc.Answer = nil
+	mc.Id = salt
+	wireMsg, err := mc.Pack()
+	if err != nil {
+		return "", err
+	}
+	return utils.BytesToStringUnsafe(wireMsg), nil
+}
+
 // GetMsgKeyWithBytesSalt unpacks m and appends salt to the string.
 func GetMsgKeyWithBytesSalt(m *dns.Msg, salt []byte) (string, error) {
 	wireMsg, buf, err := pool.PackBuffer(m)
 	if err != nil {
 		return "", err
 	}
-	defer buf.Release()
+	defer pool.ReleaseBuf(buf)
 
 	wireMsg[0] = 0
 	wireMsg[1] = 0

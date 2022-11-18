@@ -24,24 +24,18 @@ package ipset
 import (
 	"context"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v4/coremain"
-	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
-	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/miekg/dns"
 	"github.com/nadoo/ipset"
-	"go.uber.org/zap"
 	"net/netip"
 )
 
-var _ coremain.ExecutablePlugin = (*ipsetPlugin)(nil)
-
-type ipsetPlugin struct {
-	*coremain.BP
+type ipSetPlugin struct {
 	args *Args
 	nl   *ipset.NetLink
 }
 
-func newIpsetPlugin(bp *coremain.BP, args *Args) (*ipsetPlugin, error) {
+func newIpSetPlugin(args *Args) (*ipSetPlugin, error) {
 	if args.Mask4 == 0 {
 		args.Mask4 = 24
 	}
@@ -54,30 +48,27 @@ func newIpsetPlugin(bp *coremain.BP, args *Args) (*ipsetPlugin, error) {
 		return nil, err
 	}
 
-	return &ipsetPlugin{
-		BP:   bp,
+	return &ipSetPlugin{
 		args: args,
 		nl:   nl,
 	}, nil
 }
 
-func (p *ipsetPlugin) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
+func (p *ipSetPlugin) Exec(_ context.Context, qCtx *query_context.Context) error {
 	r := qCtx.R()
 	if r != nil {
-		er := p.addIPSet(r)
-		if er != nil {
-			p.L().Warn("failed to add response IP to ipset", qCtx.InfoField(), zap.Error(er))
+		if err := p.addIPSet(r); err != nil {
+			return fmt.Errorf("ipset: %w", err)
 		}
 	}
-
-	return executable_seq.ExecChainNode(ctx, qCtx, next)
+	return nil
 }
 
-func (p *ipsetPlugin) Close() error {
+func (p *ipSetPlugin) Close() error {
 	return p.nl.Close()
 }
 
-func (p *ipsetPlugin) addIPSet(r *dns.Msg) error {
+func (p *ipSetPlugin) addIPSet(r *dns.Msg) error {
 	for i := range r.Answer {
 		switch rr := r.Answer[i].(type) {
 		case *dns.A:

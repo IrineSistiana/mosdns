@@ -21,7 +21,7 @@ package coremain
 
 import (
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v4/mlog"
+	"github.com/IrineSistiana/mosdns/v5/mlog"
 	"github.com/kardianos/service"
 	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/cobra"
@@ -168,13 +168,9 @@ func mergeInclude(cfg *Config, depth int, paths []string) error {
 			return err
 		}
 
-		includedCfg.DataProviders = append(includedCfg.DataProviders, subCfg.DataProviders...)
 		includedCfg.Plugins = append(includedCfg.Plugins, subCfg.Plugins...)
-		includedCfg.Servers = append(includedCfg.Servers, subCfg.Servers...)
 	}
 
-	cfg.DataProviders = append(includedCfg.DataProviders, cfg.DataProviders...)
 	cfg.Plugins = append(includedCfg.Plugins, cfg.Plugins...)
-	cfg.Servers = append(includedCfg.Servers, cfg.Servers...)
 	return nil
 }

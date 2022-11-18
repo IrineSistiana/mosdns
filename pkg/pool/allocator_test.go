@@ -26,7 +26,7 @@ import (
 )
 
 func TestAllocator_Get(t *testing.T) {
-	alloc := NewAllocator(8) // 256 bytes
+	alloc := NewAllocator()
 	tests := []struct {
 		size      int
 		wantCap   int
@@ -38,7 +38,7 @@ func TestAllocator_Get(t *testing.T) {
 		{2, 2, false},
 		{12, 16, false},
 		{256, 256, false},
-		{257, 0, true}, // invalid, too large
+		{257, 512, false},
 	}
 	for _, tt := range tests {
 		t.Run(strconv.Itoa(tt.size), func(t *testing.T) {
@@ -53,11 +53,11 @@ func TestAllocator_Get(t *testing.T) {
 
 			for i := 0; i < 5; i++ {
 				b := alloc.Get(tt.size)
-				if b.Len() != tt.size {
-					t.Fatalf("buffer size, want %d, got %d", tt.size, b.Len())
+				if len(b) != tt.size {
+					t.Fatalf("buffer size, want %d, got %d", tt.size, len(b))
 				}
-				if b.Cap() != tt.wantCap {
-					t.Fatalf("buffer cap, want %d, got %d", tt.wantCap, b.Cap())
+				if cap(b) != tt.wantCap {
+					t.Fatalf("buffer cap, want %d, got %d", tt.wantCap, cap(b))
 				}
 				alloc.Release(b)
 			}
@@ -92,7 +92,7 @@ func Test_shard(t *testing.T) {
 }
 
 func Benchmark_Allocator(b *testing.B) {
-	allocator := NewAllocator(16)
+	allocator := NewAllocator()
 
 	for l := 0; l <= 16; l += 4 {
 		bufLen := 1 << l

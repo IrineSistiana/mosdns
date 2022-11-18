@@ -21,9 +21,8 @@ package metrics_collector
 
 import (
 	"context"
-	"github.com/IrineSistiana/mosdns/v4/coremain"
-	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
-	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
 	"github.com/prometheus/client_golang/prometheus"
 	"time"
 )
@@ -31,25 +30,20 @@ import (
 const PluginType = "metrics_collector"
 
 func init() {
-	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
+	sequence.MustRegQuickSetup(PluginType, QuickSetup)
 }
 
-type Args struct{}
-
-var _ coremain.ExecutablePlugin = (*Collector)(nil)
+var _ sequence.RecursiveExecutable = (*Collector)(nil)
 
 type Collector struct {
-	*coremain.BP
-
 	queryTotal      prometheus.Counter
 	errTotal        prometheus.Counter
 	thread          prometheus.Gauge
 	responseLatency prometheus.Histogram
 }
 
-func NewCollector(bp *coremain.BP, args *Args) *Collector {
+func NewCollector(bq sequence.BQ, nameSpace string) *Collector {
 	var c = &Collector{
-		BP: bp,
 		queryTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "query_total",
 			Help: "The total number of queries pass through this collector",
@@ -68,17 +62,24 @@ func NewCollector(bp *coremain.BP, args *Args) *Collector {
 			Buckets: []float64{1, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000},
 		}),
 	}
-	bp.GetMetricsReg().MustRegister(c.queryTotal, c.errTotal, c.thread, c.responseLatency)
+
+	var register func(...prometheus.Collector)
+	if len(nameSpace) > 0 {
+		register = prometheus.WrapRegistererWithPrefix(nameSpace, bq.M().GetMetricsReg()).MustRegister
+	} else {
+		register = bq.M().GetMetricsReg().MustRegister
+	}
+	register(c.queryTotal, c.errTotal, c.thread, c.responseLatency)
 	return c
 }
 
-func (c *Collector) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
+func (c *Collector) Exec(ctx context.Context, qCtx *query_context.Context, next sequence.ChainWalker) error {
 	c.thread.Inc()
 	defer c.thread.Dec()
 
 	c.queryTotal.Inc()
 	start := time.Now()
-	err := executable_seq.ExecChainNode(ctx, qCtx, next)
+	err := next.ExecNext(ctx, qCtx)
 	if err != nil {
 		c.errTotal.Inc()
 	}
@@ -88,6 +89,7 @@ func (c *Collector) Exec(ctx context.Context, qCtx *query_context.Context, next 
 	return err
 }
 
-func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
-	return NewCollector(bp, args.(*Args)), nil
+// QuickSetup format: metrics_name
+func QuickSetup(bp sequence.BQ, s string) (any, error) {
+	return NewCollector(bp, s), nil
 }

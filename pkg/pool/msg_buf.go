@@ -29,12 +29,13 @@ import (
 const packBufSize = 4096
 
 // PackBuffer packs the dns msg m to wire format.
-// Callers should release the buf after they have done with the wire []byte.
-func PackBuffer(m *dns.Msg) (wire []byte, buf *Buffer, err error) {
+// Callers should release the buf by calling ReleaseBuf after they have done
+// with the wire []byte.
+func PackBuffer(m *dns.Msg) (wire, buf []byte, err error) {
 	buf = GetBuf(packBufSize)
-	wire, err = m.PackBuffer(buf.Bytes())
+	wire, err = m.PackBuffer(buf)
 	if err != nil {
-		buf.Release()
+		ReleaseBuf(buf)
 		return nil, nil, err
 	}
 	return wire, buf, nil

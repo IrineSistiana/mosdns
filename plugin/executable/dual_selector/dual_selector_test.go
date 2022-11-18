@@ -21,10 +21,11 @@ package dual_selector
 
 import (
 	"context"
-	"github.com/IrineSistiana/mosdns/v4/coremain"
-	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
-	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v5/coremain"
+	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
 	"github.com/miekg/dns"
+	"go.uber.org/zap"
 	"net"
 	"testing"
 	"time"
@@ -37,7 +38,7 @@ type dummyNext struct {
 	latencyAAAA time.Duration
 }
 
-func (d *dummyNext) Exec(_ context.Context, qCtx *query_context.Context, _ executable_seq.ExecutableChainNode) error {
+func (d *dummyNext) Exec(_ context.Context, qCtx *query_context.Context, _ sequence.ChainWalker) error {
 	q := qCtx.Q()
 	r := new(dns.Msg)
 	r.SetReply(q)
@@ -67,40 +68,40 @@ func (d *dummyNext) Exec(_ context.Context, qCtx *query_context.Context, _ execu
 }
 
 func TestSelector_Exec(t *testing.T) {
-	nextNoA := executable_seq.WrapExecutable(&dummyNext{
+	nextNoA := &dummyNext{
 		returnA:    false,
 		returnAAAA: true,
-	})
-	nextNoAAAA := executable_seq.WrapExecutable(&dummyNext{
+	}
+	nextNoAAAA := &dummyNext{
 		returnA:    true,
 		returnAAAA: false,
-	})
-	nextDual := executable_seq.WrapExecutable(&dummyNext{
+	}
+	nextDual := &dummyNext{
 		returnA:    true,
 		returnAAAA: true,
-	})
-	nextLateA := executable_seq.WrapExecutable(&dummyNext{
+	}
+	nextLateA := &dummyNext{
 		returnA:    true,
-		latencyA:   time.Millisecond * 100,
+		latencyA:   time.Millisecond * 1000,
 		returnAAAA: true,
-	})
-	nextLateAAAA := executable_seq.WrapExecutable(&dummyNext{
+	}
+	nextLateAAAA := &dummyNext{
 		returnA:     true,
 		returnAAAA:  true,
-		latencyAAAA: time.Millisecond * 100,
-	})
+		latencyAAAA: time.Millisecond * 1000,
+	}
 
 	tests := []struct {
 		name      string
-		mode      int
+		prefer    uint16
 		qtype     uint16
-		next      executable_seq.ExecutableChainNode
+		next      *dummyNext
 		wantErr   bool
 		wantReply bool
 	}{
 		{
 			name:      "prefer v4: do not block domain AAAA if domain does not have an A record",
-			mode:      modePreferIPv4,
+			prefer:    dns.TypeA,
 			qtype:     dns.TypeAAAA,
 			next:      nextNoA,
 			wantErr:   false,
@@ -108,7 +109,7 @@ func TestSelector_Exec(t *testing.T) {
 		},
 		{
 			name:      "prefer v4: do not block domain AAAA if A reply wasn't returned on time",
-			mode:      modePreferIPv4,
+			prefer:    dns.TypeA,
 			qtype:     dns.TypeAAAA,
 			next:      nextLateA,
 			wantErr:   false,
@@ -116,7 +117,7 @@ func TestSelector_Exec(t *testing.T) {
 		},
 		{
 			name:      "prefer v4: block domain AAAA if domain has A records",
-			mode:      modePreferIPv4,
+			prefer:    dns.TypeA,
 			qtype:     dns.TypeAAAA,
 			next:      nextDual,
 			wantErr:   false,
@@ -124,7 +125,7 @@ func TestSelector_Exec(t *testing.T) {
 		},
 		{
 			name:      "prefer v6: do not block domain A if domain does not have an AAAA record",
-			mode:      modePreferIPv6,
+			prefer:    dns.TypeAAAA,
 			qtype:     dns.TypeA,
 			next:      nextNoAAAA,
 			wantErr:   false,
@@ -132,7 +133,7 @@ func TestSelector_Exec(t *testing.T) {
 		},
 		{
 			name:      "prefer v6: do not block domain A if AAAA reply wasn't returned on time",
-			mode:      modePreferIPv6,
+			prefer:    dns.TypeAAAA,
 			qtype:     dns.TypeA,
 			next:      nextLateAAAA,
 			wantErr:   false,
@@ -140,7 +141,7 @@ func TestSelector_Exec(t *testing.T) {
 		},
 		{
 			name:      "prefer v6: block domain A if domain has AAAA records",
-			mode:      modePreferIPv6,
+			prefer:    dns.TypeAAAA,
 			qtype:     dns.TypeA,
 			next:      nextDual,
 			wantErr:   false,
@@ -151,15 +152,15 @@ func TestSelector_Exec(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &Selector{
-				BP:          coremain.NewBP("", PluginType, nil, nil),
-				mode:        tt.mode,
-				waitTimeout: time.Millisecond * 20,
+				BQ:     sequence.NewBQ(coremain.NewTestMosdns(nil), zap.NewNop()),
+				prefer: tt.prefer,
 			}
 
 			q := new(dns.Msg)
 			q.SetQuestion("example.", tt.qtype)
-			qCtx := query_context.NewContext(q, nil)
-			if err := s.Exec(context.Background(), qCtx, tt.next); (err != nil) != tt.wantErr {
+			qCtx := query_context.NewContext(q)
+			cw := sequence.NewTestChainWalker(tt.next)
+			if err := s.Exec(context.Background(), qCtx, cw); (err != nil) != tt.wantErr {
 				t.Errorf("Exec() error = %v, wantErr %v", err, tt.wantErr)
 			}
 

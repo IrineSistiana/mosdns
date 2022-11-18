@@ -50,6 +50,8 @@ var (
 	lvl = zap.NewAtomicLevelAt(zap.InfoLevel)
 	l   = newLogger(zapcore.NewConsoleEncoder, defaultEncoderConfig(), lvl, stderr)
 	s   = l.Sugar()
+
+	nop = zap.NewNop()
 )
 
 func NewLogger(lc *LogConfig) (*zap.Logger, error) {
@@ -106,6 +108,11 @@ func SetLevel(l zapcore.Level) {
 func S() *zap.SugaredLogger {
 	return s
 }
+
+func Nop() *zap.Logger {
+	return nop
+}
+
 func defaultEncoderConfig() zapcore.EncoderConfig {
 	return zapcore.EncoderConfig{
 		TimeKey:        "time",

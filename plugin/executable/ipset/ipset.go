@@ -20,13 +20,16 @@
 package ipset
 
 import (
-	"github.com/IrineSistiana/mosdns/v4/coremain"
+	"fmt"
+	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
+	"strconv"
+	"strings"
 )
 
 const PluginType = "ipset"
 
 func init() {
-	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
+	sequence.MustRegQuickSetup(PluginType, QuickSetup)
 }
 
 type Args struct {
@@ -36,6 +39,37 @@ type Args struct {
 	Mask6    int    `yaml:"mask6"` // default 32
 }
 
-func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
-	return newIpsetPlugin(bp, args.(*Args))
+var _ sequence.Executable = (*ipSetPlugin)(nil)
+
+// QuickSetup format: [set_name,{inet|inet6},mask] *2
+// e.g. "my_set,inet,24 my_set6,inet6,48"
+func QuickSetup(_ sequence.BQ, s string) (any, error) {
+	fs := strings.Fields(s)
+	if len(fs) > 2 {
+		return nil, fmt.Errorf("expect no more than 2 fields, got %d", len(fs))
+	}
+
+	args := new(Args)
+	for _, argsStr := range fs {
+		ss := strings.Split(argsStr, ",")
+		if len(ss) != 3 {
+			return nil, fmt.Errorf("invalid args, expect 5 fields, got %d", len(ss))
+		}
+
+		m, err := strconv.Atoi(ss[2])
+		if err != nil {
+			return nil, fmt.Errorf("invalid mask, %w", err)
+		}
+		switch ss[1] {
+		case "inet":
+			args.Mask4 = m
+			args.SetName4 = ss[0]
+		case "inet6":
+			args.Mask6 = m
+			args.SetName6 = ss[0]
+		default:
+			return nil, fmt.Errorf("invalid set family, %s", ss[0])
+		}
+	}
+	return newIpSetPlugin(args)
 }

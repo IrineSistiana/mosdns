@@ -23,6 +23,7 @@ import (
 	"github.com/miekg/dns"
 	"io"
 	"os"
+	"strings"
 )
 
 type Matcher struct {
@@ -53,7 +54,7 @@ func (m *Matcher) Load(r io.Reader) error {
 		}
 		h := rr.Header()
 		q := dns.Question{
-			Name:   h.Name,
+			Name:   strings.ToLower(h.Name),
 			Qtype:  h.Rrtype,
 			Qclass: h.Class,
 		}
@@ -63,6 +64,7 @@ func (m *Matcher) Load(r io.Reader) error {
 }
 
 func (m *Matcher) Search(q dns.Question) []dns.RR {
+	q.Name = strings.ToLower(q.Name)
 	return m.m[q]
 }
 

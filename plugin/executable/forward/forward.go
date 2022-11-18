@@ -24,9 +24,9 @@ import (
 	"errors"
 	"fmt"
 	"github.com/AdguardTeam/dnsproxy/upstream"
-	"github.com/IrineSistiana/mosdns/v4/coremain"
-	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
-	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v5/coremain"
+	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
 	"github.com/miekg/dns"
 	"net"
 	"time"
@@ -38,7 +38,7 @@ func init() {
 	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
 }
 
-var _ coremain.ExecutablePlugin = (*forwardPlugin)(nil)
+var _ sequence.Executable = (*forwardPlugin)(nil)
 
 type forwardPlugin struct {
 	*coremain.BP
@@ -48,40 +48,32 @@ type forwardPlugin struct {
 
 type Args struct {
 	// options for dnsproxy upstream
-	UpstreamConfig     []UpstreamConfig `yaml:"upstream"`
+	Upstreams          []UpstreamConfig `yaml:"upstreams"`
 	Timeout            int              `yaml:"timeout"`
 	InsecureSkipVerify bool             `yaml:"insecure_skip_verify"`
 	Bootstrap          []string         `yaml:"bootstrap"`
 }
 
 type UpstreamConfig struct {
-	Addr   string   `yaml:"addr"`
-	IPAddr []string `yaml:"ip_addr"`
-
-	// Deprecated: This field is preserved. It has no effect.
-	// TODO: Remove it in v5.
-	Trusted bool `yaml:"trusted"`
+	Addr    string   `yaml:"addr"`
+	IPAddrs []string `yaml:"ip_addrs"`
 }
 
-func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
+func Init(bp *coremain.BP, args interface{}) (coremain.Plugin, error) {
 	return newForwarder(bp, args.(*Args))
 }
 
 func newForwarder(bp *coremain.BP, args *Args) (*forwardPlugin, error) {
-	if len(args.UpstreamConfig) == 0 {
+	if len(args.Upstreams) == 0 {
 		return nil, errors.New("no upstream is configured")
 	}
 
 	f := new(forwardPlugin)
 	f.BP = bp
 
-	for i, conf := range args.UpstreamConfig {
-		if len(conf.Addr) == 0 {
-			return nil, fmt.Errorf("upstream #%d, missing upstream address", i)
-		}
-
-		serverIPAddrs := make([]net.IP, 0, len(conf.IPAddr))
-		for _, s := range conf.IPAddr {
+	for i, conf := range args.Upstreams {
+		serverIPAddrs := make([]net.IP, 0, len(conf.IPAddrs))
+		for _, s := range conf.IPAddrs {
 			ip := net.ParseIP(s)
 			if ip == nil {
 				return nil, fmt.Errorf("invalid ip addr %s", s)
@@ -109,17 +101,8 @@ func newForwarder(bp *coremain.BP, args *Args) (*forwardPlugin, error) {
 	return f, nil
 }
 
-// Exec forwards qCtx.Q() to upstreams, and sets qCtx.R().
-// qCtx.Status() will be set as
-// - handler.ContextStatusResponded: if it received a response.
-// - handler.ContextStatusServerFailed: if all upstreams failed.
-func (f *forwardPlugin) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
-	err := f.exec(ctx, qCtx)
-	if err != nil {
-		return err
-	}
-
-	return executable_seq.ExecChainNode(ctx, qCtx, next)
+func (f *forwardPlugin) Exec(ctx context.Context, qCtx *query_context.Context) error {
+	return f.exec(ctx, qCtx)
 }
 
 func (f *forwardPlugin) exec(ctx context.Context, qCtx *query_context.Context) error {

@@ -21,10 +21,11 @@ package query_summary
 
 import (
 	"context"
-	"github.com/IrineSistiana/mosdns/v4/coremain"
-	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
-	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v5/pkg/query_context/client_addr"
+	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"time"
 )
 
@@ -33,62 +34,62 @@ const (
 )
 
 func init() {
-	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(*Args) })
-	coremain.RegNewPersetPluginFunc("_query_summary", func(bp *coremain.BP) (coremain.Plugin, error) {
-		return newLogger(bp, &Args{}), nil
-	})
+	sequence.MustRegQuickSetup(PluginType, QuickSetup)
 }
 
-var _ coremain.ExecutablePlugin = (*logger)(nil)
+var _ sequence.RecursiveExecutable = (*summaryLogger)(nil)
 
-type Args struct {
-	Msg string `yaml:"msg"`
+type summaryLogger struct {
+	l   *zap.Logger
+	msg string
 }
 
-func (a *Args) init() {
-	if len(a.Msg) == 0 {
-		a.Msg = "query summary"
+// QuickSetup format: [msg_title]
+func QuickSetup(bq sequence.BQ, s string) (any, error) {
+	return &summaryLogger{
+		l:   bq.L(),
+		msg: s,
+	}, nil
+}
+
+func (l *summaryLogger) Exec(ctx context.Context, qCtx *query_context.Context, next sequence.ChainWalker) error {
+	err := next.ExecNext(ctx, qCtx)
+	l.l.Info(
+		l.msg,
+		zap.Inline(&qCtxLogger{qCtx: qCtx, err: err}),
+	)
+	return err
+}
+
+type qCtxLogger struct {
+	qCtx *query_context.Context
+	err  error
+}
+
+func (ql *qCtxLogger) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
+	qCtx := ql.qCtx
+
+	encoder.AddUint32("uqid", qCtx.Id())
+
+	if addr, _ := client_addr.GetClientAddr(qCtx); addr.IsValid() {
+		zap.Stringer("client", addr).AddTo(encoder)
 	}
-}
-
-type logger struct {
-	args *Args
-	*coremain.BP
-}
-
-// Init is a handler.NewPluginFunc.
-func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
-	return newLogger(bp, args.(*Args)), nil
-}
-
-func newLogger(bp *coremain.BP, args *Args) coremain.Plugin {
-	args.init()
-	return &logger{BP: bp, args: args}
-}
-
-func (l *logger) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
-	err := executable_seq.ExecChainNode(ctx, qCtx, next)
 
 	q := qCtx.Q()
 	if len(q.Question) != 1 {
-		return nil
+		encoder.AddBool("odd_question", true)
+	} else {
+		question := q.Question[0]
+		encoder.AddString("qname", question.Name)
+		encoder.AddUint16("qtype", question.Qtype)
+		encoder.AddUint16("qclass", question.Qclass)
 	}
-	question := q.Question[0]
-	respRcode := -1
 	if r := qCtx.R(); r != nil {
-		respRcode = r.Rcode
+		encoder.AddInt("rcode", r.Rcode)
 	}
-
-	l.BP.L().Info(
-		l.args.Msg,
-		zap.Uint32("uqid", qCtx.Id()),
-		zap.String("qname", question.Name),
-		zap.Uint16("qtype", question.Qtype),
-		zap.Uint16("qclass", question.Qclass),
-		zap.Stringer("client", qCtx.ReqMeta().ClientAddr),
-		zap.Int("resp_rcode", respRcode),
-		zap.Duration("elapsed", time.Now().Sub(qCtx.StartTime())),
-		zap.Error(err),
-	)
-	return err
+	encoder.AddDuration("elapsed", time.Now().Sub(qCtx.StartTime()))
+	if ql.err != nil {
+		zap.Error(ql.err).AddTo(encoder)
+	}
+	return nil
 }

@@ -22,10 +22,23 @@ package utils
 import (
 	"github.com/mitchellh/mapstructure"
 	"golang.org/x/exp/constraints"
+	"strconv"
 )
 
 func SetDefaultNum[K constraints.Integer | constraints.Float](p *K, d K) {
 	if *p == 0 {
+		*p = d
+	}
+}
+
+func SetDefaultUnsignNum[K constraints.Integer | constraints.Float](p *K, d K) {
+	if *p <= 0 {
+		*p = d
+	}
+}
+
+func SetDefaultString(p *string, d string) {
+	if len(*p) == 0 {
 		*p = d
 	}
 }
@@ -38,7 +51,7 @@ func CheckNumRange[K constraints.Integer | constraints.Float](v, min, max K) boo
 }
 
 // WeakDecode decodes args from config to output.
-func WeakDecode(in map[string]interface{}, output interface{}) error {
+func WeakDecode(in any, output interface{}) error {
 	config := &mapstructure.DecoderConfig{
 		ErrorUnused:      true,
 		Result:           output,
@@ -52,4 +65,13 @@ func WeakDecode(in map[string]interface{}, output interface{}) error {
 	}
 
 	return decoder.Decode(in)
+}
+
+func ParseNameOrNum[T constraints.Integer](s string, m map[string]T) (T, bool) {
+	i, err := strconv.Atoi(s)
+	if err != nil {
+		v, ok := m[s]
+		return v, ok
+	}
+	return T(i), true
 }

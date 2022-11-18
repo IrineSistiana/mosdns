@@ -21,10 +21,11 @@ package sleep
 
 import (
 	"context"
-	"github.com/IrineSistiana/mosdns/v4/coremain"
-	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
-	"github.com/IrineSistiana/mosdns/v4/pkg/pool"
-	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v5/coremain"
+	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
+	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
+	"strconv"
 	"time"
 )
 
@@ -40,6 +41,10 @@ func init() {
 	coremain.RegNewPersetPluginFunc("_sleep_500ms", func(bp *coremain.BP) (coremain.Plugin, error) {
 		return &sleep{BP: bp, d: time.Millisecond * 500}, nil
 	})
+
+	// You can register a quick setup func for sequence. So that users can
+	// init your plugin in the sequence directly in one string.
+	sequence.MustRegQuickSetup(PluginType, QuickSetup)
 }
 
 // Args is the arguments of plugin. It will be decoded from yaml.
@@ -48,7 +53,7 @@ type Args struct {
 	Duration uint `yaml:"duration"` // (milliseconds) duration for sleep.
 }
 
-var _ coremain.ExecutablePlugin = (*sleep)(nil)
+var _ sequence.Executable = (*sleep)(nil)
 
 // sleep implements handler.ExecutablePlugin.
 type sleep struct {
@@ -57,7 +62,7 @@ type sleep struct {
 }
 
 // Exec implements handler.Executable.
-func (s *sleep) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
+func (s *sleep) Exec(ctx context.Context, qCtx *query_context.Context) error {
 	if s.d > 0 {
 		timer := pool.GetTimer(s.d)
 		defer pool.ReleaseTimer(timer)
@@ -67,19 +72,21 @@ func (s *sleep) Exec(ctx context.Context, qCtx *query_context.Context, next exec
 			return ctx.Err()
 		}
 	}
-
-	// Call handler.ExecChainNode() can execute next plugin.
-	return executable_seq.ExecChainNode(ctx, qCtx, next)
-
-	// You can control how/when to execute next plugin.
-	// For more complex example, see plugin "cache".
+	return nil
 }
 
-// Init is a handler.NewPluginFunc.
-func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
+func Init(bp *coremain.BP, args interface{}) (coremain.Plugin, error) {
 	d := args.(*Args).Duration
 	return &sleep{
 		BP: bp,
 		d:  time.Duration(d) * time.Millisecond,
 	}, nil
+}
+
+func QuickSetup(_ sequence.BQ, s string) (any, error) {
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return nil, err
+	}
+	return &sleep{d: time.Duration(n) * time.Millisecond}, nil
 }

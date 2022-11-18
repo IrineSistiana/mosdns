@@ -21,61 +21,59 @@ package sequence
 
 import (
 	"context"
-	"fmt"
-	"github.com/IrineSistiana/mosdns/v4/coremain"
-	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
-	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v5/coremain"
+	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 )
 
 const PluginType = "sequence"
 
 func init() {
 	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
-	coremain.RegNewPersetPluginFunc("_return", func(bp *coremain.BP) (coremain.Plugin, error) {
-		return &_return{BP: bp}, nil
-	})
+
+	MustRegQuickSetup("accept", setupAccept)
+	MustRegQuickSetup("reject", setupReject)
+	MustRegQuickSetup("return", setupReturn)
+	MustRegQuickSetup("goto", setupGoto)
+	MustRegQuickSetup("jump", setupJump)
 }
 
 type sequence struct {
 	*coremain.BP
 
-	ecs executable_seq.ExecutableChainNode
+	chain            []*chainNode
+	anonymousPlugins []any
 }
 
-type Args struct {
-	Exec interface{} `yaml:"exec"`
-}
-
-func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
-	return newSequencePlugin(bp, args.(*Args))
-}
-
-func newSequencePlugin(bp *coremain.BP, args *Args) (*sequence, error) {
-	ecs, err := executable_seq.BuildExecutableLogicTree(args.Exec, bp.L(), bp.M().GetExecutables(), bp.M().GetMatchers())
-	if err != nil {
-		return nil, fmt.Errorf("cannot build sequence: %w", err)
+func (s *sequence) Close() error {
+	for _, plugin := range s.anonymousPlugins {
+		closePlugin(plugin)
 	}
-
-	return &sequence{
-		BP:  bp,
-		ecs: ecs,
-	}, nil
-}
-
-func (s *sequence) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
-	if err := executable_seq.ExecChainNode(ctx, qCtx, s.ecs); err != nil {
-		return err
-	}
-
-	return executable_seq.ExecChainNode(ctx, qCtx, next)
-}
-
-var _ coremain.ExecutablePlugin = (*_return)(nil)
-
-type _return struct {
-	*coremain.BP
-}
-
-func (n *_return) Exec(_ context.Context, _ *query_context.Context, _ executable_seq.ExecutableChainNode) error {
 	return nil
+}
+
+type Args = []RuleArgs
+
+func Init(bp *coremain.BP, args interface{}) (coremain.Plugin, error) {
+	return newSequencePlugin(bp, *args.(*Args))
+}
+
+func newSequencePlugin(bp *coremain.BP, ra []RuleArgs) (*sequence, error) {
+	s := &sequence{
+		BP: bp,
+	}
+
+	var rc []RuleConfig
+	for _, ra := range ra {
+		rc = append(rc, parseArgs(ra))
+	}
+	if err := s.buildChain(rc); err != nil {
+		_ = s.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
+func (s *sequence) Exec(ctx context.Context, qCtx *query_context.Context) error {
+	walker := newChainWalker(s.chain, nil)
+	return walker.ExecNext(ctx, qCtx)
 }

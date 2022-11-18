@@ -97,7 +97,7 @@ func (h *NftSetHandler) AddElems(es ...netip.Prefix) error {
 	}
 
 	for _, e := range es {
-		if set.Interval {
+		if set.Interval && !e.IsSingleIP() {
 			r := netipx.RangeOfPrefix(e)
 			start := r.From()
 			end := r.To()
@@ -110,7 +110,6 @@ func (h *NftSetHandler) AddElems(es ...netip.Prefix) error {
 			elems = append(elems, nftables.SetElement{Key: e.Addr().AsSlice()})
 		}
 	}
-
 	err = h.opts.Conn.SetAddElements(set, elems)
 	if err != nil {
 		return err
