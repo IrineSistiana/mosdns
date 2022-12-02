@@ -20,7 +20,7 @@
 package plugin
 
 import (
-	_ "github.com/IrineSistiana/mosdns/v5/plugin/server/doh_server"
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/server/http_server"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/server/tcp_server"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/server/udp_server"
 )

@@ -29,7 +29,7 @@ import (
 	"time"
 )
 
-const PluginType = "doh_server"
+const PluginType = "http_server"
 
 func init() {
 	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
@@ -44,21 +44,21 @@ type Args struct {
 	SrcIPHeader string `yaml:"src_ip_header"`
 	Cert        string `yaml:"cert"`
 	Key         string `yaml:"key"`
-	IdleTimeout int    `yaml:"idleTimeout"`
+	IdleTimeout int    `yaml:"idle_timeout"`
 }
 
 func (a *Args) init() {
 	utils.SetDefaultNum(&a.IdleTimeout, 30)
 }
 
-type DoHServer struct {
+type HttpServer struct {
 	*coremain.BP
 	args *Args
 
 	server *http.Server
 }
 
-func (s *DoHServer) Close() error {
+func (s *HttpServer) Close() error {
 	return s.server.Close()
 }
 
@@ -66,7 +66,7 @@ func Init(bp *coremain.BP, args interface{}) (coremain.Plugin, error) {
 	return StartServer(bp, args.(*Args))
 }
 
-func StartServer(bp *coremain.BP, args *Args) (*DoHServer, error) {
+func StartServer(bp *coremain.BP, args *Args) (*HttpServer, error) {
 	mux := http.NewServeMux()
 	for _, entry := range args.Entries {
 		dh, err := server_utils.NewHandler(bp, entry.Exec)
@@ -99,7 +99,7 @@ func StartServer(bp *coremain.BP, args *Args) (*DoHServer, error) {
 		}
 		bp.M().GetSafeClose().SendCloseSignal(err)
 	}()
-	return &DoHServer{
+	return &HttpServer{
 		BP:     bp,
 		args:   args,
 		server: hs,
