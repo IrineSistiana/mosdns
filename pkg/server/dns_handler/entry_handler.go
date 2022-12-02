@@ -90,9 +90,7 @@ func (h *EntryHandler) ServeDNS(ctx context.Context, qCtx *query_context.Context
 	err := h.opts.Entry.Exec(ctx, qCtx)
 	respMsg := qCtx.R()
 	if err != nil {
-		h.opts.Logger.Warn("entry returned an err", qCtx.InfoField(), zap.Error(err))
-	} else {
-		h.opts.Logger.Debug("entry returned", qCtx.InfoField())
+		h.opts.Logger.Warn("entry err", qCtx.InfoField(), zap.Error(err))
 	}
 
 	if err == nil && respMsg == nil {

@@ -153,10 +153,7 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, nex
 		c.hitTotal.Inc()
 		cachedResp.Id = q.Id // change msg id
 		shuffleIP(cachedResp)
-		c.L().Debug("cache hit", qCtx.InfoField())
 		qCtx.SetResponse(cachedResp)
-	} else {
-		c.L().Debug("cache miss", qCtx.InfoField())
 	}
 
 	err = next.ExecNext(ctx, qCtx)
