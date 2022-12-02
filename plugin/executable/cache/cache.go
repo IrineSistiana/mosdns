@@ -34,6 +34,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/singleflight"
 	"io"
+	"math/rand"
 	"net/http"
 	"os"
 	"sync"
@@ -151,6 +152,7 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, nex
 	if cachedResp != nil { // cache hit
 		c.hitTotal.Inc()
 		cachedResp.Id = q.Id // change msg id
+		shuffleIP(cachedResp)
 		c.L().Debug("cache hit", qCtx.InfoField())
 		qCtx.SetResponse(cachedResp)
 	} else {
@@ -373,4 +375,22 @@ func (c *cachePlugin) api() *chi.Mux {
 		w.WriteHeader(http.StatusOK)
 	})
 	return r
+}
+
+// shuffle A/AAAA records in m.
+func shuffleIP(m *dns.Msg) {
+	ans := m.Answer
+	ipStart := len(ans) - 1
+	for i := len(ans) - 1; i >= 0; i-- {
+		switch ans[i].Header().Rrtype {
+		case dns.TypeA, dns.TypeAAAA:
+			ipStart = i
+			continue
+		}
+		break
+	}
+	ips := ans[ipStart:]
+	rand.Shuffle(len(ips), func(i, j int) {
+		ips[i], ips[j] = ips[j], ips[i]
+	})
 }
