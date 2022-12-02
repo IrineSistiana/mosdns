@@ -71,11 +71,16 @@ func (h *H3RTHelper) getRT() *http3.RoundTripper {
 	return h.rt
 }
 
-func (h *H3RTHelper) markAsDead(rt *http3.RoundTripper) {
+func (h *H3RTHelper) markAsDead(rt *http3.RoundTripper, err error) {
 	h.m.Lock()
-	defer h.m.Unlock()
-	if h.rt == rt {
+	ok := h.rt == rt
+	if ok {
 		h.rt = nil
+	}
+	h.m.Unlock()
+	if ok {
+		_ = rt.Close()
+		h.logger().Debug("quic round trip closed", zap.Error(err))
 	}
 }
 
@@ -94,9 +99,7 @@ func (h *H3RTHelper) roundTrip(request *http.Request) (*http.Response, error) {
 	rt := h.getRT()
 	resp, err := rt.RoundTrip(request)
 	if err != nil {
-		h.markAsDead(rt)
-		rt.Close()
-		h.logger().Debug("quic round trip closed", zap.Error(err))
+		h.markAsDead(rt, err)
 	}
 	return resp, err
 }
