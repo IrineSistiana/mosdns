@@ -120,7 +120,7 @@ func NewUpstream(addr string, opt *Opt) (Upstream, error) {
 	}
 
 	dialer := &net.Dialer{
-		Resolver: bootstrap.NewPlainBootstrap(opt.Bootstrap),
+		Resolver: bootstrap.NewBootstrap(opt.Bootstrap),
 		Control: getSocketControlFunc(socketOpts{
 			so_mark:        opt.SoMark,
 			bind_to_device: opt.BindToDevice,
