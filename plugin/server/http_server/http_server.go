@@ -25,6 +25,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v5/pkg/server/http_handler"
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 	"github.com/IrineSistiana/mosdns/v5/plugin/server/server_utils"
+	"golang.org/x/net/http2"
 	"net/http"
 	"time"
 )
@@ -88,6 +89,14 @@ func StartServer(bp *coremain.BP, args *Args) (*HttpServer, error) {
 		ReadTimeout:    time.Second,
 		IdleTimeout:    time.Duration(args.IdleTimeout) * time.Second,
 		MaxHeaderBytes: 512,
+	}
+	if err := http2.ConfigureServer(hs, &http2.Server{
+		MaxReadFrameSize:             16 * 1024,
+		IdleTimeout:                  time.Duration(args.IdleTimeout) * time.Second,
+		MaxUploadBufferPerConnection: 65535,
+		MaxUploadBufferPerStream:     65535,
+	}); err != nil {
+		return nil, fmt.Errorf("failed to setup http2 server, %w", err)
 	}
 
 	go func() {
