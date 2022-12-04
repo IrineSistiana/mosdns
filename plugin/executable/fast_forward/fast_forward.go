@@ -41,7 +41,10 @@ func init() {
 	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
 }
 
-const maxConcurrentQueries = 3
+const (
+	maxConcurrentQueries = 3
+	queryTimeout         = time.Second * 5
+)
 
 type Args struct {
 	Upstreams  []*UpstreamConfig `yaml:"upstreams"`
@@ -207,6 +210,10 @@ func (f *fastForward) exchange(ctx context.Context, qCtx *query_context.Context,
 		u := *u
 		go func() {
 			defer idleDo.Done()
+
+			// Give each upstream a fixed time to finsh the query.
+			ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
+			defer cancel()
 			r, err := u.ExchangeContext(ctx, q)
 			if err != nil {
 				f.L().Warn("upstream error", zap.Error(err))
