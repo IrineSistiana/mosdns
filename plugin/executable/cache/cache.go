@@ -377,6 +377,8 @@ func (c *cachePlugin) api() *chi.Mux {
 // shuffle A/AAAA records in m.
 func shuffleIP(m *dns.Msg) {
 	ans := m.Answer
+
+	// Find out where the a/aaaa records start. Usually is at the suffix.
 	ipStart := len(ans) - 1
 	for i := len(ans) - 1; i >= 0; i-- {
 		switch ans[i].Header().Rrtype {
@@ -386,8 +388,12 @@ func shuffleIP(m *dns.Msg) {
 		}
 		break
 	}
-	ips := ans[ipStart:]
-	rand.Shuffle(len(ips), func(i, j int) {
-		ips[i], ips[j] = ips[j], ips[i]
-	})
+
+	// Shuffle the ip suffix.
+	if ipStart >= 0 {
+		ips := ans[ipStart:]
+		rand.Shuffle(len(ips), func(i, j int) {
+			ips[i], ips[j] = ips[j], ips[i]
+		})
+	}
 }
