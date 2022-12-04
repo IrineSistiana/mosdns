@@ -91,6 +91,10 @@ func newFastForward(bp *coremain.BP, args *Args) (*fastForward, error) {
 	}
 
 	for i, c := range args.Upstreams {
+		if len(c.Addr) == 0 {
+			return nil, fmt.Errorf("#%d upstream invalid args, addr is required", i)
+		}
+
 		opt := &upstream.Opt{
 			DialAddr:       c.DialAddr,
 			Socks5:         c.Socks5,
