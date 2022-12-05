@@ -153,6 +153,18 @@ func Test_sequence_Exec(t *testing.T) {
 			wantTarget: true,
 		},
 		{
+			name: "jump end",
+			ra: []RuleArgs{
+				{Exec: "jump seq2"},
+				{Exec: "$target"},
+			},
+			ra2: []RuleArgs{
+				{Exec: "$nop"},
+			},
+			wantErr:    false,
+			wantTarget: true,
+		},
+		{
 			name: "reject",
 			ra: []RuleArgs{
 				{Exec: "reject"},

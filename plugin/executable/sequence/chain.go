@@ -71,13 +71,18 @@ checkMatchesLoop:
 		// Exec rules' executables in loop, or in stack if it is a recursive executable.
 		switch {
 		case n.e != nil:
-			p++
 			if err := n.e.Exec(ctx, qCtx); err != nil {
 				return err
 			}
+			p++
 			continue
 		case n.re != nil:
-			return n.re.Exec(ctx, qCtx, w.next())
+			next := ChainWalker{
+				p:        p + 1,
+				chain:    w.chain,
+				jumpBack: w.jumpBack,
+			}
+			return n.re.Exec(ctx, qCtx, next)
 		default:
 			panic("n cannot be executed")
 		}
@@ -93,14 +98,6 @@ checkMatchesLoop:
 
 func (w *ChainWalker) nop() bool {
 	return w.p >= len(w.chain)
-}
-
-func (w *ChainWalker) next() ChainWalker {
-	return ChainWalker{
-		p:        w.p + 1,
-		chain:    w.chain,
-		jumpBack: w.jumpBack,
-	}
 }
 
 func (s *sequence) buildChain(rs []RuleConfig) error {
