@@ -66,7 +66,6 @@ func (h *Hosts) LookupMsg(m *dns.Msg) *dns.Msg {
 
 	r := new(dns.Msg)
 	r.SetReply(m)
-	r.RecursionAvailable = true
 	switch {
 	case typ == dns.TypeA && len(ipv4) > 0:
 		for _, ip := range ipv4 {

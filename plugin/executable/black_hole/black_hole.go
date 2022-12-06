@@ -107,7 +107,6 @@ func (b *blackHole) exec(qCtx *query_context.Context) {
 	case qtype == dns.TypeAAAA && len(b.ipv6) > 0:
 		r := new(dns.Msg)
 		r.SetRcode(q, dns.RcodeSuccess)
-		r.RecursionAvailable = true
 		for _, addr := range b.ipv6 {
 			rr := &dns.AAAA{
 				Hdr: dns.RR_Header{
