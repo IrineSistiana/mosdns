@@ -29,7 +29,6 @@ import (
 	"go.uber.org/zap"
 	"os"
 	"runtime"
-	"strings"
 )
 
 type serverFlags struct {
@@ -110,10 +109,7 @@ func StartServer(sf *serverFlags) error {
 	if err != nil {
 		return fmt.Errorf("fail to load config, %w", err)
 	}
-
-	if err := mergeInclude(cfg, 0, []string{fileUsed}); err != nil {
-		return fmt.Errorf("failed to load sub config file, %w", err)
-	}
+	mlog.L().Info("main config loaded", zap.String("file", fileUsed))
 
 	if err := RunMosdns(cfg); err != nil {
 		return fmt.Errorf("mosdns exited, %w", err)
@@ -148,29 +144,4 @@ func loadConfig(filePath string) (*Config, string, error) {
 		return nil, "", fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 	return cfg, v.ConfigFileUsed(), nil
-}
-
-func mergeInclude(cfg *Config, depth int, paths []string) error {
-	depth++
-	if depth > 8 {
-		return fmt.Errorf("maximun include depth reached, include path is %s", strings.Join(paths, " -> "))
-	}
-
-	includedCfg := new(Config)
-	for _, subCfgFile := range cfg.Include {
-		subPaths := append(paths, subCfgFile)
-		mlog.L().Info("reading sub config", zap.String("file", subCfgFile))
-		subCfg, _, err := loadConfig(subCfgFile)
-		if err != nil {
-			return fmt.Errorf("failed to load sub config, %w", err)
-		}
-		if err := mergeInclude(subCfg, depth, subPaths); err != nil {
-			return err
-		}
-
-		includedCfg.Plugins = append(includedCfg.Plugins, subCfg.Plugins...)
-	}
-
-	cfg.Plugins = append(includedCfg.Plugins, cfg.Plugins...)
-	return nil
 }

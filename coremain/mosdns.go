@@ -22,6 +22,7 @@ package coremain
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v5/mlog"
 	"github.com/IrineSistiana/mosdns/v5/pkg/safe_close"
@@ -79,34 +80,6 @@ func RunMosdns(cfg *Config) error {
 	return m.sc.Err()
 }
 
-func (m *Mosdns) GetSafeClose() *safe_close.SafeClose {
-	return m.sc
-}
-
-func (m *Mosdns) GetPlugins(tag string) Plugin {
-	return m.plugins[tag]
-}
-
-// GetMetricsReg returns a prometheus.Registerer with a prefix of "mosdns_"
-func (m *Mosdns) GetMetricsReg() prometheus.Registerer {
-	return prometheus.WrapRegistererWithPrefix("mosdns_", m.metricsReg)
-}
-
-func (m *Mosdns) GetAPIRouter() *chi.Mux {
-	return m.httpMux
-}
-
-func (m *Mosdns) RegPluginAPI(tag string, mux *chi.Mux) {
-	m.httpMux.Mount("/plugins/"+tag, mux)
-}
-
-func newMetricsReg() *prometheus.Registry {
-	reg := prometheus.NewRegistry()
-	reg.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
-	reg.MustRegister(collectors.NewGoCollector())
-	return reg
-}
-
 func NewMosdns(cfg *Config) (*Mosdns, error) {
 	// Init logger.
 	lg, err := mlog.NewLogger(&cfg.Log)
@@ -121,35 +94,7 @@ func NewMosdns(cfg *Config) (*Mosdns, error) {
 		metricsReg: newMetricsReg(),
 		sc:         safe_close.NewSafeClose(),
 	}
-
-	// Register metrics.
-	m.httpMux.Method(http.MethodGet, "/metrics", promhttp.HandlerFor(m.metricsReg, promhttp.HandlerOpts{}))
-
-	// Register pprof.
-	m.httpMux.Route("/debug/pprof", func(r chi.Router) {
-		r.Get("/*", pprof.Index)
-		r.Get("/cmdline", pprof.Cmdline)
-		r.Get("/profile", pprof.Profile)
-		r.Get("/symbol", pprof.Symbol)
-		r.Get("/trace", pprof.Trace)
-	})
-
-	// A helper page for 404.
-	invalidApiReqHelper := func(w http.ResponseWriter, req *http.Request) {
-		b := new(bytes.Buffer)
-		_, _ = fmt.Fprintf(b, "Invalid request %s %s\n\n", req.Method, req.RequestURI)
-		b.WriteString("Available api urls:\n")
-		_ = chi.Walk(m.httpMux, func(method string, route string, handler http.Handler, middlewares ...func(http.Handler) http.Handler) error {
-			b.WriteString(method)
-			b.WriteByte(' ')
-			b.WriteString(route)
-			b.WriteByte('\n')
-			return nil
-		})
-		_, _ = w.Write(b.Bytes())
-	}
-	m.httpMux.NotFound(invalidApiReqHelper)
-	m.httpMux.MethodNotAllowed(invalidApiReqHelper)
+	m.initHttpMux()
 
 	// Init preset plugins
 	for tag, f := range LoadNewPersetPluginFuncs() {
@@ -165,21 +110,8 @@ func NewMosdns(cfg *Config) (*Mosdns, error) {
 	}
 
 	// Init plugins
-	for i, pc := range cfg.Plugins {
-		if len(pc.Type) == 0 || len(pc.Tag) == 0 {
-			continue
-		}
-
-		if _, dup := m.plugins[pc.Tag]; dup {
-			return nil, fmt.Errorf("duplicated plugin tag %s", pc.Tag)
-		}
-
-		m.logger.Info("loading plugin", zap.String("tag", pc.Tag), zap.String("type", pc.Type))
-		p, err := NewPlugin(&pc, m)
-		if err != nil {
-			return nil, fmt.Errorf("failed to init plugin #%d %s, %w", i, pc.Tag, err)
-		}
-		m.plugins[pc.Tag] = p
+	if err := m.loadPlugins(cfg, 0); err != nil {
+		return nil, err
 	}
 	m.logger.Info("all plugins are loaded")
 
@@ -220,4 +152,103 @@ func NewTestMosdns(plugins map[string]Plugin) *Mosdns {
 		metricsReg: newMetricsReg(),
 		sc:         safe_close.NewSafeClose(),
 	}
+}
+
+func (m *Mosdns) GetSafeClose() *safe_close.SafeClose {
+	return m.sc
+}
+
+func (m *Mosdns) GetPlugins(tag string) Plugin {
+	return m.plugins[tag]
+}
+
+// GetMetricsReg returns a prometheus.Registerer with a prefix of "mosdns_"
+func (m *Mosdns) GetMetricsReg() prometheus.Registerer {
+	return prometheus.WrapRegistererWithPrefix("mosdns_", m.metricsReg)
+}
+
+func (m *Mosdns) GetAPIRouter() *chi.Mux {
+	return m.httpMux
+}
+
+func (m *Mosdns) RegPluginAPI(tag string, mux *chi.Mux) {
+	m.httpMux.Mount("/plugins/"+tag, mux)
+}
+
+func newMetricsReg() *prometheus.Registry {
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
+	reg.MustRegister(collectors.NewGoCollector())
+	return reg
+}
+
+// initHttpMux initializes api entries. It MUST be called after m.metricsReg being initialized.
+func (m *Mosdns) initHttpMux() {
+	// Register metrics.
+	m.httpMux.Method(http.MethodGet, "/metrics", promhttp.HandlerFor(m.metricsReg, promhttp.HandlerOpts{}))
+
+	// Register pprof.
+	m.httpMux.Route("/debug/pprof", func(r chi.Router) {
+		r.Get("/*", pprof.Index)
+		r.Get("/cmdline", pprof.Cmdline)
+		r.Get("/profile", pprof.Profile)
+		r.Get("/symbol", pprof.Symbol)
+		r.Get("/trace", pprof.Trace)
+	})
+
+	// A helper page for invalid request.
+	invalidApiReqHelper := func(w http.ResponseWriter, req *http.Request) {
+		b := new(bytes.Buffer)
+		_, _ = fmt.Fprintf(b, "Invalid request %s %s\n\n", req.Method, req.RequestURI)
+		b.WriteString("Available api urls:\n")
+		_ = chi.Walk(m.httpMux, func(method string, route string, handler http.Handler, middlewares ...func(http.Handler) http.Handler) error {
+			b.WriteString(method)
+			b.WriteByte(' ')
+			b.WriteString(route)
+			b.WriteByte('\n')
+			return nil
+		})
+		_, _ = w.Write(b.Bytes())
+	}
+	m.httpMux.NotFound(invalidApiReqHelper)
+	m.httpMux.MethodNotAllowed(invalidApiReqHelper)
+}
+
+// loadPlugins loads plugins from this config. It follows include first.
+func (m *Mosdns) loadPlugins(cfg *Config, includeDepth int) error {
+	const maxIncludeDepth = 8
+	if includeDepth > maxIncludeDepth {
+		return errors.New("maximum include depth reached")
+	}
+	includeDepth++
+
+	// Follow include first.
+	for _, s := range cfg.Include {
+		subCfg, path, err := loadConfig(s)
+		if err != nil {
+			return fmt.Errorf("failed to read config from %s, %w", s, err)
+		}
+		m.logger.Info("load config", zap.String("file", path))
+		if err := m.loadPlugins(subCfg, includeDepth); err != nil {
+			return fmt.Errorf("failed to load config from %s, %w", s, err)
+		}
+	}
+
+	for i, pc := range cfg.Plugins {
+		if len(pc.Type) == 0 || len(pc.Tag) == 0 {
+			continue
+		}
+
+		if _, dup := m.plugins[pc.Tag]; dup {
+			return fmt.Errorf("duplicated plugin tag %s", pc.Tag)
+		}
+
+		m.logger.Info("loading plugin", zap.String("tag", pc.Tag), zap.String("type", pc.Type))
+		p, err := NewPlugin(&pc, m)
+		if err != nil {
+			return fmt.Errorf("failed to init plugin #%d %s, %w", i, pc.Tag, err)
+		}
+		m.plugins[pc.Tag] = p
+	}
+	return nil
 }
