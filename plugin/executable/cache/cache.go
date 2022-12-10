@@ -127,6 +127,7 @@ func newCachePlugin(bp *coremain.BP, args *Args) (*cachePlugin, error) {
 	if err := p.loadDump(); err != nil {
 		p.L().Error("failed to load cache dump", zap.Error(err))
 	}
+	p.startDumpLoop()
 
 	bp.RegAPI(p.api())
 	return p, nil
@@ -304,24 +305,30 @@ func (c *cachePlugin) loadDump() error {
 	return nil
 }
 
-func (c *cachePlugin) dumpLoop() {
-	ticker := time.NewTicker(time.Duration(c.args.DumpInterval) * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			keyUpdated := c.updatedKey.Swap(0)
-			if keyUpdated < minimumChangesToDump {
-				c.updatedKey.Add(keyUpdated)
-				continue
-			}
-			if err := c.dumpCache(); err != nil {
-				c.L().Error("dump cache", zap.Error(err))
-			}
-		case <-c.closeNotify:
-			return
-		}
+// startDumpLoop starts a dump loop in another goroutine. It does not block.
+func (c *cachePlugin) startDumpLoop() {
+	if len(c.args.DumpFile) == 0 {
+		return
 	}
+	go func() {
+		ticker := time.NewTicker(time.Duration(c.args.DumpInterval) * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				keyUpdated := c.updatedKey.Swap(0)
+				if keyUpdated < minimumChangesToDump {
+					c.updatedKey.Add(keyUpdated)
+					continue
+				}
+				if err := c.dumpCache(); err != nil {
+					c.L().Error("dump cache", zap.Error(err))
+				}
+			case <-c.closeNotify:
+				return
+			}
+		}
+	}()
 }
 
 func (c *cachePlugin) dumpCache() error {
