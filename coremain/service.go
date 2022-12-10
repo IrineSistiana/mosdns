@@ -42,23 +42,35 @@ var (
 
 type serverService struct {
 	f *serverFlags
+	m *Mosdns
 }
 
 func (ss *serverService) Start(s service.Service) error {
 	mlog.L().Info("starting service", zap.String("platform", s.Platform()))
+	m, err := NewServer(ss.f)
+	if err != nil {
+		return err
+	}
+	ss.m = m
 	go func() {
-		err := StartServer(ss.f)
-		mlog.L().Fatal("server exited", zap.Error(err))
+		err := m.GetSafeClose().WaitClosed()
+		if err != nil {
+			m.Logger().Fatal("server exited", zap.Error(err))
+		} else {
+			m.Logger().Info("server exited")
+		}
 	}()
 	return nil
 }
 
-func (ss *serverService) Stop(s service.Service) error {
-	return nil
+func (ss *serverService) Stop(_ service.Service) error {
+	ss.m.Logger().Info("service is shutting down")
+	ss.m.GetSafeClose().SendCloseSignal(nil)
+	return ss.m.GetSafeClose().WaitClosed()
 }
 
 // initService will init svc for sub command "service"
-func initService(cmd *cobra.Command, args []string) error {
+func initService(_ *cobra.Command, _ []string) error {
 	s, err := service.New(&serverService{}, svcCfg)
 	if err != nil {
 		return fmt.Errorf("cannot init service, %w", err)

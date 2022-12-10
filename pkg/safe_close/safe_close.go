@@ -21,46 +21,37 @@ package safe_close
 
 import "sync"
 
-// SafeClose can achieve safe close where CloseWait returns only after
+// SafeClose can achieve safe close where WaitClosed returns only after
 // all sub goroutines exited.
 //
-// 1. Main service goroutine starts and wait on ReceiveCloseSignal and call Done before returns.
-// 2. Any service's sub goroutine should be started by Attach and wait on ReceiveCloseSignal.
-// 3. If any fatal err occurs, any service goroutine can call SendCloseSignal to close the service.
-//    Note that CloseWait cannot be called in the service, otherwise it will be deadlocked.
-// 4. Any third party caller can call CloseWait to close the service.
+//  1. Main service goroutine starts and wait on ReceiveCloseSignal.
+//  2. Any service's sub goroutine should be started by Attach and wait on ReceiveCloseSignal.
+//  3. If any fatal err occurs, any service goroutine can call SendCloseSignal to close the service.
+//  4. Any third party caller can call SendCloseSignal to close the service.
 type SafeClose struct {
 	m           sync.Mutex
 	wg          sync.WaitGroup
 	closeSignal chan struct{}
-	done        chan struct{}
 	closeErr    error
 }
 
 func NewSafeClose() *SafeClose {
 	return &SafeClose{
 		closeSignal: make(chan struct{}),
-		done:        make(chan struct{}),
 	}
 }
 
-// CloseWait sends a close signal to SafeClose and wait until it is closed.
-// It is concurrent safe and can be called multiple times.
-// CloseWait blocks until s.Done() is called and all Attach-ed goroutines is done.
-func (s *SafeClose) CloseWait() {
-	s.m.Lock()
-	select {
-	case <-s.closeSignal:
-	default:
-		close(s.closeSignal)
-	}
-	s.m.Unlock()
-
+// WaitClosed waits until all SendCloseSignal is called and all
+// attached funcs in SafeClose are done.
+func (s *SafeClose) WaitClosed() error {
+	<-s.closeSignal
 	s.wg.Wait()
-	<-s.done
+	return s.closeErr
 }
 
-// SendCloseSignal sends a close signal.
+// SendCloseSignal sends a close signal. Unblock WaitClosed.
+// The given error will be read by WaitClosed.
+// Once SendCloseSignal is called, following calls are noop.
 func (s *SafeClose) SendCloseSignal(err error) {
 	s.m.Lock()
 	select {
@@ -72,18 +63,11 @@ func (s *SafeClose) SendCloseSignal(err error) {
 	s.m.Unlock()
 }
 
-// Err returns the first SendCloseSignal error.
-func (s *SafeClose) Err() error {
-	s.m.Lock()
-	defer s.m.Unlock()
-	return s.closeErr
-}
-
 func (s *SafeClose) ReceiveCloseSignal() <-chan struct{} {
 	return s.closeSignal
 }
 
-// Attach add this goroutine to s.wg CloseWait.
+// Attach add this goroutine to s.wg WaitClosed.
 // f must receive closeSignal and call done when it is done.
 // If s was closed, f will not run.
 func (s *SafeClose) Attach(f func(done func(), closeSignal <-chan struct{})) {
@@ -93,27 +77,8 @@ func (s *SafeClose) Attach(f func(done func(), closeSignal <-chan struct{})) {
 	default:
 		s.wg.Add(1)
 		go func() {
-			f(s.attachDone, s.closeSignal)
+			f(s.wg.Done, s.closeSignal)
 		}()
 	}
 	s.m.Unlock()
-}
-
-func (s *SafeClose) attachDone() {
-	s.m.Lock()
-	defer s.m.Unlock()
-	s.wg.Done()
-}
-
-// Done notifies CloseWait that is done.
-// It is concurrent safe and can be called multiple times.
-func (s *SafeClose) Done() {
-	s.m.Lock()
-	defer s.m.Unlock()
-
-	select {
-	case <-s.done:
-	default:
-		close(s.done)
-	}
 }

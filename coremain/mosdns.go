@@ -34,11 +34,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/pprof"
-	"os"
-	"os/signal"
-	"runtime/debug"
-	"syscall"
-	"time"
 )
 
 type Mosdns struct {
@@ -55,31 +50,7 @@ type Mosdns struct {
 	sc *safe_close.SafeClose
 }
 
-func RunMosdns(cfg *Config) error {
-	m, err := NewMosdns(cfg)
-	if err != nil {
-		return err
-	}
-
-	go func() {
-		c := make(chan os.Signal, 1)
-		signal.Notify(c, os.Interrupt, os.Kill, syscall.SIGTERM)
-		sig := <-c
-		m.logger.Warn("mosdns is closing", zap.Stringer("sig", sig))
-		m.sc.SendCloseSignal(nil)
-	}()
-	<-m.sc.ReceiveCloseSignal()
-	m.sc.Done()
-	for _, plugin := range m.plugins {
-		if closer, _ := plugin.(io.Closer); closer != nil {
-			m.logger.Info("closing plugin", zap.String("tag", plugin.Tag()))
-			_ = closer.Close()
-		}
-	}
-	m.sc.CloseWait()
-	return m.sc.Err()
-}
-
+// NewMosdns initializes a mosdns instance and its plugins.
 func NewMosdns(cfg *Config) (*Mosdns, error) {
 	// Init logger.
 	lg, err := mlog.NewLogger(&cfg.Log)
@@ -95,25 +66,6 @@ func NewMosdns(cfg *Config) (*Mosdns, error) {
 		sc:         safe_close.NewSafeClose(),
 	}
 	m.initHttpMux()
-
-	// Init preset plugins
-	for tag, f := range LoadNewPersetPluginFuncs() {
-		bpOpts := BPOpts{
-			Logger: m.logger.Named(tag),
-			Mosdns: m,
-		}
-		p, err := f(NewBP(tag, "preset", bpOpts))
-		if err != nil {
-			return nil, fmt.Errorf("failed to init preset plugin %s, %w", tag, err)
-		}
-		m.plugins[tag] = p
-	}
-
-	// Init plugins
-	if err := m.loadPlugins(cfg, 0); err != nil {
-		return nil, err
-	}
-	m.logger.Info("all plugins are loaded")
 
 	// Start http api server
 	if httpAddr := cfg.API.HTTP; len(httpAddr) > 0 {
@@ -137,10 +89,46 @@ func NewMosdns(cfg *Config) (*Mosdns, error) {
 		})
 	}
 
-	// Run GC to release memory asap.
-	time.AfterFunc(time.Second*1, func() {
-		debug.FreeOSMemory()
+	// Load plugins.
+
+	// Close all plugins on signal.
+	// From here, call m.sc.SendCloseSignal() if any plugin failed to load.
+	m.sc.Attach(func(done func(), closeSignal <-chan struct{}) {
+		go func() {
+			defer done()
+			<-closeSignal
+			m.logger.Info("starting shutdown sequences")
+			for _, plugin := range m.plugins {
+				if closer, _ := plugin.(io.Closer); closer != nil {
+					m.logger.Info("closing plugin", zap.String("tag", plugin.Tag()))
+					_ = closer.Close()
+				}
+			}
+			m.logger.Info("all plugins were closed")
+		}()
 	})
+
+	// Preset plugins
+	for tag, f := range LoadNewPersetPluginFuncs() {
+		bpOpts := BPOpts{
+			Logger: m.logger.Named(tag),
+			Mosdns: m,
+		}
+		p, err := f(NewBP(tag, "preset", bpOpts))
+		if err != nil {
+			m.sc.SendCloseSignal(err)
+			return nil, fmt.Errorf("failed to init preset plugin %s, %w", tag, err)
+		}
+		m.plugins[tag] = p
+	}
+
+	// Plugins from config.
+	if err := m.loadPlugins(cfg, 0); err != nil {
+		m.sc.SendCloseSignal(err)
+		return nil, err
+	}
+	m.logger.Info("all plugins are loaded")
+
 	return m, nil
 }
 
@@ -156,6 +144,15 @@ func NewTestMosdns(plugins map[string]Plugin) *Mosdns {
 
 func (m *Mosdns) GetSafeClose() *safe_close.SafeClose {
 	return m.sc
+}
+
+// CloseWithErr is a shortcut for m.sc.SendCloseSignal
+func (m *Mosdns) CloseWithErr(err error) {
+	m.sc.SendCloseSignal(err)
+}
+
+func (m *Mosdns) Logger() *zap.Logger {
+	return m.logger
 }
 
 func (m *Mosdns) GetPlugins(tag string) Plugin {

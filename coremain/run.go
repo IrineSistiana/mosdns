@@ -28,7 +28,9 @@ import (
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"os"
+	"os/signal"
 	"runtime"
+	"syscall"
 )
 
 type serverFlags struct {
@@ -55,7 +57,20 @@ func init() {
 				}
 				return svc.Run()
 			}
-			return StartServer(sf)
+
+			m, err := NewServer(sf)
+			if err != nil {
+				return err
+			}
+
+			go func() {
+				c := make(chan os.Signal, 1)
+				signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
+				sig := <-c
+				m.logger.Warn("signal received", zap.Stringer("signal", sig))
+				m.sc.SendCloseSignal(nil)
+			}()
+			return m.GetSafeClose().WaitClosed()
 		},
 		DisableFlagsInUseLine: true,
 		SilenceUsage:          true,
@@ -66,7 +81,7 @@ func init() {
 	fs.StringVarP(&sf.dir, "dir", "d", "", "working dir")
 	fs.IntVar(&sf.cpu, "cpu", 0, "set runtime.GOMAXPROCS")
 	fs.BoolVar(&sf.asService, "as-service", false, "start as a service")
-	fs.MarkHidden("as-service")
+	_ = fs.MarkHidden("as-service")
 
 	serviceCmd := &cobra.Command{
 		Use:   "service",
@@ -92,7 +107,7 @@ func Run() error {
 	return rootCmd.Execute()
 }
 
-func StartServer(sf *serverFlags) error {
+func NewServer(sf *serverFlags) (*Mosdns, error) {
 	if sf.cpu > 0 {
 		runtime.GOMAXPROCS(sf.cpu)
 	}
@@ -100,21 +115,18 @@ func StartServer(sf *serverFlags) error {
 	if len(sf.dir) > 0 {
 		err := os.Chdir(sf.dir)
 		if err != nil {
-			return fmt.Errorf("failed to change the current working directory, %w", err)
+			return nil, fmt.Errorf("failed to change the current working directory, %w", err)
 		}
 		mlog.L().Info("working directory changed", zap.String("path", sf.dir))
 	}
 
 	cfg, fileUsed, err := loadConfig(sf.c)
 	if err != nil {
-		return fmt.Errorf("fail to load config, %w", err)
+		return nil, fmt.Errorf("fail to load config, %w", err)
 	}
 	mlog.L().Info("main config loaded", zap.String("file", fileUsed))
 
-	if err := RunMosdns(cfg); err != nil {
-		return fmt.Errorf("mosdns exited, %w", err)
-	}
-	return nil
+	return NewMosdns(cfg)
 }
 
 // loadConfig load a config from a file. If filePath is empty, it will
