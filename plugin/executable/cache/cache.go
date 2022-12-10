@@ -90,10 +90,10 @@ type cachePlugin struct {
 }
 
 func Init(bp *coremain.BP, args interface{}) (coremain.Plugin, error) {
-	return newCachePlugin(bp, args.(*Args))
+	return newCachePlugin(bp, args.(*Args)), nil
 }
 
-func newCachePlugin(bp *coremain.BP, args *Args) (*cachePlugin, error) {
+func newCachePlugin(bp *coremain.BP, args *Args) *cachePlugin {
 	args.init()
 
 	backend := cache.New[key, []byte](cache.Opts{Size: args.Size})
@@ -130,7 +130,7 @@ func newCachePlugin(bp *coremain.BP, args *Args) (*cachePlugin, error) {
 	p.startDumpLoop()
 
 	bp.RegAPI(p.api())
-	return p, nil
+	return p
 }
 
 func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, next sequence.ChainWalker) error {
@@ -301,7 +301,7 @@ func (c *cachePlugin) loadDump() error {
 	if err := c.backend.LoadDump(b, unmarshalKey, unmarshalValue); err != nil {
 		return err
 	}
-	c.L().Info("cache dump loaded", zap.Int("size", c.backend.Len()))
+	c.L().Info("cache dump loaded", zap.Int("entries", c.backend.Len()))
 	return nil
 }
 
@@ -335,7 +335,7 @@ func (c *cachePlugin) dumpCache() error {
 	if len(c.args.DumpFile) == 0 {
 		return nil
 	}
-	b, err := c.backend.Dump(marshalKey, marshalValue)
+	b, n, err := c.backend.Dump(marshalKey, marshalValue)
 	if err != nil {
 		return err
 	}
@@ -348,7 +348,7 @@ func (c *cachePlugin) dumpCache() error {
 	if _, err := f.Write(b); err != nil {
 		return err
 	}
-	c.L().Info("cache dumped", zap.Int("size", len(b)))
+	c.L().Info("cache dumped", zap.Int("file_size", len(b)), zap.Int("entries", n))
 	return nil
 }
 
@@ -358,7 +358,7 @@ func (c *cachePlugin) api() *chi.Mux {
 		c.backend.Flush()
 	})
 	r.Get("/dump", func(w http.ResponseWriter, req *http.Request) {
-		b, err := c.backend.Dump(marshalKey, marshalValue)
+		b, _, err := c.backend.Dump(marshalKey, marshalValue)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

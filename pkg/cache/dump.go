@@ -28,13 +28,14 @@ import (
 	"time"
 )
 
+// Dump packs all cached data.
 func (c *Cache[K, V]) Dump(
 	marshalKey func(k K) (string, error),
 	marshalValue func(v V) ([]byte, error),
-) ([]byte, error) {
+) ([]byte, int, error) {
 	now := time.Now()
 	cd := new(CacheDump)
-	rangeFunc := func(k K, v V, storedTime, expirationTime time.Time) {
+	pickUpCacheEntries := func(k K, v V, storedTime, expirationTime time.Time) {
 		if expirationTime.Before(now) {
 			return
 		}
@@ -53,20 +54,21 @@ func (c *Cache[K, V]) Dump(
 			Value:          vb,
 		})
 	}
-	c.Range(rangeFunc)
+	c.Range(pickUpCacheEntries)
 
 	b, err := proto.Marshal(cd)
 	if err != nil {
-		return nil, fmt.Errorf("failed to pack cache dump, %w", err)
+		return nil, 0, fmt.Errorf("failed to pack cache dump, %w", err)
 	}
 	buf := new(bytes.Buffer)
-	gw := gzip.NewWriter(buf)
+	gw, _ := gzip.NewWriterLevel(buf, gzip.BestSpeed)
 	_, _ = gw.Write(b)
 	_ = gw.Close()
 
-	return buf.Bytes(), nil
+	return buf.Bytes(), len(cd.Entries), nil
 }
 
+// LoadDump loads packed cache data to the cache.
 func (c *Cache[K, V]) LoadDump(
 	b []byte,
 	unmarshalKey func(s string) (K, error),
