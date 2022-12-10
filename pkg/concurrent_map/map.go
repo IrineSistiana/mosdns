@@ -48,7 +48,7 @@ func NewMap[K Hashable, V any]() *Map[K, V] {
 
 func NewMapCache[K Hashable, V any](size int) *Map[K, V] {
 	sizePreShard := size / mapShardSize
-	if size > 0 || sizePreShard == 0 {
+	if size > 0 && sizePreShard == 0 {
 		sizePreShard = 1
 	}
 	m := new(Map[K, V])
