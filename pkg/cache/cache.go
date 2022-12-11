@@ -87,9 +87,13 @@ func (c *Cache[K, V]) Close() error {
 	return nil
 }
 
-func (c *Cache[K, V]) Get(key K) (v V, storedTime, expirationTime time.Time) {
-	if e, ok := c.m.Get(key); ok {
-		return e.v, e.storedTime, e.expirationTime
+func (c *Cache[K, V]) Get(key K) (v V, storedTime, expirationTime time.Time, ok bool) {
+	if e, hasEntry := c.m.Get(key); hasEntry {
+		if e.expirationTime.Before(time.Now()) {
+			c.m.Del(key)
+			return
+		}
+		return e.v, e.storedTime, e.expirationTime, true
 	}
 	return
 }
@@ -106,6 +110,9 @@ func (c *Cache[K, V]) Store(key K, v V, storedTime, expirationTime time.Time) {
 	now := time.Now()
 	if now.After(expirationTime) {
 		return
+	}
+	if storedTime.IsZero() {
+		storedTime = now
 	}
 
 	e := &elem[V]{

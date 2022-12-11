@@ -31,6 +31,7 @@ import (
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
+	"golang.org/x/exp/constraints"
 	"golang.org/x/sync/singleflight"
 	"io"
 	"math/rand"
@@ -51,7 +52,6 @@ func init() {
 
 const (
 	defaultLazyUpdateTimeout = time.Second * 5
-	defaultEmptyAnswerTTL    = time.Second * 300
 	minimumChangesToDump     = 1024
 )
 
@@ -154,47 +154,11 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, nex
 
 	err := next.ExecNext(ctx, qCtx)
 
-	// save resp to cache if cache missed.
-	r := qCtx.R()
-	if cachedResp == nil && r != nil {
+	// This response is not from cache. Cache it.
+	if r := qCtx.R(); cachedResp == nil && r != nil {
 		c.tryStoreMsg(msgKey, r)
 	}
 	return err
-}
-
-// lookupCache returns the cached response. The ttl of returned msg will be changed properly.
-// Note: Caller SHOULD change the msg id because it's not same as query's.
-func (c *cachePlugin) lookupCache(msgKey string) (r *dns.Msg, lazyHit bool) {
-	// lookup in cache
-	v, storedTime, _ := c.backend.Get(key(msgKey))
-
-	// cache hit
-	if v != nil {
-		r = v.Copy()
-
-		var msgTTL time.Duration
-		if len(r.Answer) == 0 {
-			msgTTL = defaultEmptyAnswerTTL
-		} else {
-			msgTTL = time.Duration(dnsutils.GetMinimalTTL(r)) * time.Second
-		}
-
-		// not expired
-		if storedTime.Add(msgTTL).After(time.Now()) {
-			dnsutils.SubtractTTL(r, uint32(time.Since(storedTime).Seconds()))
-			return r, false
-		}
-
-		// expired but lazy update enabled
-		if c.args.LazyCacheTTL > 0 {
-			// set the default ttl
-			dnsutils.SetTTL(r, uint32(c.args.LazyCacheReplyTTL))
-			return r, true
-		}
-	}
-
-	// cache miss
-	return nil, false
 }
 
 // doLazyUpdate starts a new goroutine to execute next node and update the cache in the background.
@@ -224,22 +188,63 @@ func (c *cachePlugin) doLazyUpdate(msgKey string, qCtx *query_context.Context, n
 	c.lazyUpdateSF.DoChan(msgKey, lazyUpdateFunc) // DoChan won't block this goroutine
 }
 
+// lookupCache returns the cached response. The ttl of returned msg will be changed properly.
+// Note: Caller SHOULD change the msg id because it's not same as query's.
+func (c *cachePlugin) lookupCache(msgKey string) (r *dns.Msg, lazyHit bool) {
+	// lookup in cache
+	v, storedTime, _, _ := c.backend.Get(key(msgKey))
+
+	// cache hit
+	if v != nil {
+		r = v.Copy()
+		msgTTL := time.Duration(dnsutils.GetMinimalTTL(r)) * time.Second
+
+		// Not expired.
+		if storedTime.Add(msgTTL).After(time.Now()) {
+			dnsutils.SubtractTTL(r, uint32(time.Since(storedTime).Seconds()))
+			return r, false
+		}
+
+		// Expired but lazy update enabled and cached response has valid answer.
+		if c.args.LazyCacheTTL > 0 && r.Rcode == dns.RcodeSuccess && len(r.Answer) > 0 {
+			dnsutils.SetTTL(r, uint32(c.args.LazyCacheReplyTTL))
+			return r, true
+		}
+		// Expired negative response (NXDOMAIN, etc. ) should not be used.
+	}
+
+	// cache miss
+	return nil, false
+}
+
 // tryStoreMsg tries to store r to cache. If r should be cached.
 func (c *cachePlugin) tryStoreMsg(msgKey string, r *dns.Msg) {
-	if r.Rcode != dns.RcodeSuccess || r.Truncated != false {
+	if r.Truncated != false {
 		return
 	}
 
-	now := time.Now()
-	var expirationTime time.Time
-	if c.args.LazyCacheTTL > 0 {
-		expirationTime = now.Add(time.Duration(c.args.LazyCacheTTL) * time.Second)
-	} else {
+	// Set different ttl for different responses.
+	var ttl time.Duration
+	switch r.Rcode {
+	case dns.RcodeNameError:
+		ttl = time.Second * 30
+	case dns.RcodeServerFailure:
+		ttl = time.Second * 5
+	case dns.RcodeSuccess:
 		minTTL := dnsutils.GetMinimalTTL(r)
-		if minTTL == 0 {
-			return
+		if len(r.Answer) == 0 { // Empty answer. Set ttl between 0~300.
+			const emtpyAnswerTtl = 300
+			ttl = time.Duration(min(minTTL, emtpyAnswerTtl)) * time.Second
+			break
 		}
-		expirationTime = now.Add(time.Duration(minTTL) * time.Second)
+
+		if c.args.LazyCacheTTL > 0 {
+			ttl = time.Duration(c.args.LazyCacheTTL) * time.Second
+		} else {
+			ttl = time.Duration(minTTL) * time.Second
+		}
+	default:
+		return
 	}
 
 	v := r.Copy()
@@ -248,7 +253,8 @@ func (c *cachePlugin) tryStoreMsg(msgKey string, r *dns.Msg) {
 	dnsutils.RemoveEDNS0(v)
 
 	c.updatedKey.Add(1)
-	c.backend.Store(key(msgKey), v, now, expirationTime)
+	now := time.Now()
+	c.backend.Store(key(msgKey), v, now, now.Add(ttl))
 }
 
 func (c *cachePlugin) Close() error {
@@ -374,4 +380,11 @@ func shuffleIP(m *dns.Msg) {
 			ips[i], ips[j] = ips[j], ips[i]
 		})
 	}
+}
+
+func min[T constraints.Ordered](a, b T) T {
+	if a < b {
+		return a
+	}
+	return b
 }

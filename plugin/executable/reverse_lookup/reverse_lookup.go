@@ -117,7 +117,7 @@ func (p *reverseLookup) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 func (p *reverseLookup) lookup(n netip.Addr) string {
-	v, _, _ := p.c.Get(key(as16(n)))
+	v, _, _, _ := p.c.Get(key(as16(n)))
 	return v
 }
 

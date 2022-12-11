@@ -38,10 +38,13 @@ func Test_Cache(t *testing.T) {
 	for i := 0; i < 128; i++ {
 		key := testKey(i)
 		c.Store(key, i, time.Now(), time.Now().Add(time.Millisecond*200))
-		v, _, _ := c.Get(key)
+		v, _, _, ok := c.Get(key)
 
 		if v != i {
 			t.Fatal("cache kv mismatched")
+		}
+		if !ok {
+			t.Fatal()
 		}
 	}
 
@@ -86,7 +89,7 @@ func Test_memCache_race(t *testing.T) {
 			for i := 0; i < 256; i++ {
 				key := testKey(i)
 				c.Store(key, i, time.Now(), time.Now().Add(time.Minute))
-				_, _, _ = c.Get(key)
+				_, _, _, _ = c.Get(key)
 				c.gc(time.Now())
 			}
 		}()
