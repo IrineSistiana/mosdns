@@ -20,6 +20,7 @@
 package tools
 
 import (
+	"bufio"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v5/mlog"
 	"github.com/IrineSistiana/mosdns/v5/pkg/matcher/domain"
@@ -27,7 +28,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v5/pkg/matcher/v2data"
 	"github.com/spf13/cobra"
 	"io"
-	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -70,16 +71,48 @@ func newUnpackIPCmd() *cobra.Command {
 func splitTags(s string) (string, []string) {
 	file, tags, ok := strings.Cut(s, ":")
 	if ok {
-		t := strings.FieldsFunc(tags, func(r rune) bool {
-			return r == ','
-		})
-		return file, t
+		return file, strings.Split(tags, ",")
 	}
 	return s, nil
 }
 
+func splitAttrs(s string) (string, map[string]struct{}) {
+	tag, attrs, ok := strings.Cut(s, "@")
+	if ok {
+		m := make(map[string]struct{})
+		for _, attr := range strings.Split(attrs, "@") {
+			m[attr] = struct{}{}
+		}
+		return tag, m
+	}
+	return s, nil
+}
+
+// filterAttrs filter entries that do not have any of given attrs.
+// If no attr was given, filterAttrs returns in.
+func filterAttrs(in []*v2data.Domain, attrs map[string]struct{}) []*v2data.Domain {
+	if len(attrs) == 0 {
+		return in
+	}
+	out := make([]*v2data.Domain, 0)
+	for _, d := range in {
+		hasAttr := false
+		for _, attr := range d.Attribute {
+			if _, ok := attrs[attr.Key]; ok {
+				hasAttr = true
+				break
+			}
+		}
+		if !hasAttr {
+			continue
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
 func UnpackDomainDAT(in, outDir string) error {
-	filePath, wantTags := splitTags(in)
+	filePath, suffixes := splitTags(in)
 	b, err := os.ReadFile(filePath)
 	if err != nil {
 		return err
@@ -89,35 +122,38 @@ func UnpackDomainDAT(in, outDir string) error {
 		return err
 	}
 
-	entries := make(map[string]*v2data.GeoSite)
-	var wantEntries map[string]*v2data.GeoSite
+	entries := make(map[string][]*v2data.Domain)
 	for _, geoSite := range geoSiteList.GetEntry() {
 		tag := strings.ToLower(geoSite.GetCountryCode())
-		entries[tag] = geoSite
+		entries[tag] = geoSite.GetDomain()
 	}
 
-	if len(wantTags) > 0 {
-		wantEntries = make(map[string]*v2data.GeoSite)
-		for _, tag := range wantTags {
+	save := func(suffix string, data []*v2data.Domain) error {
+		file := fmt.Sprintf("%s_%s.txt", fileName(in), suffix)
+		if len(outDir) > 0 {
+			file = filepath.Join(outDir, file)
+		}
+		mlog.S().Infof("writing data %s to %s", suffix, file)
+		return convertV2DomainToTextFile(data, file)
+	}
+
+	if len(suffixes) > 0 {
+		for _, suffix := range suffixes {
+			tag, attrs := splitAttrs(suffix)
 			entry, ok := entries[tag]
 			if !ok {
 				return fmt.Errorf("cannot find entry %s", tag)
 			}
-			wantEntries[tag] = entry
+			entry = filterAttrs(entry, attrs)
+			if err := save(suffix, entry); err != nil {
+				return fmt.Errorf("failed to save %s, %w", suffix, err)
+			}
 		}
-	} else {
-		wantEntries = entries
-	}
-
-	for tag, geoSite := range wantEntries {
-		file := fmt.Sprintf("%s_%s.txt", fileName(in), tag)
-		if len(outDir) > 0 {
-			file = filepath.Join(outDir, file)
-		}
-		mlog.S().Infof("saving %s domain to %s", tag, file)
-		err := convertV2DomainToTextFile(geoSite.GetDomain(), file)
-		if err != nil {
-			return err
+	} else { // If tag is omitted, unpack all tags.
+		for tag, domains := range entries {
+			if err := save(tag, domains); err != nil {
+				return fmt.Errorf("failed to save %s, %w", tag, err)
+			}
 		}
 	}
 	return nil
@@ -143,6 +179,7 @@ func convertV2DomainToTextFile(domain []*v2data.Domain, file string) error {
 }
 
 func convertV2DomainToText(domain []*v2data.Domain, w io.Writer) error {
+	bw := bufio.NewWriter(w)
 	for _, r := range domain {
 		var prefix string
 		switch r.Type {
@@ -157,12 +194,17 @@ func convertV2DomainToText(domain []*v2data.Domain, w io.Writer) error {
 		default:
 			return fmt.Errorf("invalid domain type %d", r.Type)
 		}
-		_, err := w.Write([]byte(prefix + r.Value + "\n"))
-		if err != nil {
+		if _, err := bw.WriteString(prefix); err != nil {
+			return err
+		}
+		if _, err := bw.WriteString(r.Value); err != nil {
+			return err
+		}
+		if _, err := bw.WriteRune('\n'); err != nil {
 			return err
 		}
 	}
-	return nil
+	return bw.Flush()
 }
 
 func UnpackIPDAT(in, ourDir string) error {
@@ -222,20 +264,23 @@ func convertV2CidrToTextFile(cidr []*v2data.CIDR, file string) error {
 }
 
 func convertV2CidrToText(cidr []*v2data.CIDR, w io.Writer) error {
-	for _, record := range cidr {
-		n := net.IPNet{
-			IP: record.Ip,
+	bw := bufio.NewWriter(w)
+	for i, record := range cidr {
+		ip, ok := netip.AddrFromSlice(record.Ip)
+		if !ok {
+			return fmt.Errorf("invalid ip at index #%d, %s", i, record.Ip)
 		}
-		switch len(record.Ip) {
-		case 4:
-			n.Mask = net.CIDRMask(int(record.Prefix), 32)
-		case 16:
-			n.Mask = net.CIDRMask(int(record.Prefix), 128)
+		prefix, err := ip.Prefix(int(record.Prefix))
+		if !ok {
+			return fmt.Errorf("invalid prefix at index #%d, %w", i, err)
 		}
-		_, err := w.Write([]byte(n.String() + "\n"))
-		if err != nil {
+
+		if _, err := bw.WriteString(prefix.String()); err != nil {
+			return err
+		}
+		if _, err := bw.WriteRune('\n'); err != nil {
 			return err
 		}
 	}
-	return nil
+	return bw.Flush()
 }
