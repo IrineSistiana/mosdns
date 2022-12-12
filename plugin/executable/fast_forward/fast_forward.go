@@ -47,8 +47,8 @@ const (
 )
 
 type Args struct {
-	Upstreams  []*UpstreamConfig `yaml:"upstreams"`
-	Concurrent int               `yaml:"concurrent"`
+	Upstreams  []UpstreamConfig `yaml:"upstreams"`
+	Concurrent int              `yaml:"concurrent"`
 }
 
 type UpstreamConfig struct {
@@ -77,8 +77,8 @@ type fastForward struct {
 	*coremain.BP
 	args *Args
 
-	us           map[*upstream.Upstream]struct{}
-	tag2Upstream map[string]*upstream.Upstream // for fast tag lookup only.
+	us           map[*upstreamWrapper]struct{}
+	tag2Upstream map[string]*upstreamWrapper // for fast tag lookup only.
 }
 
 func newFastForward(bp *coremain.BP, args *Args) (*fastForward, error) {
@@ -89,8 +89,8 @@ func newFastForward(bp *coremain.BP, args *Args) (*fastForward, error) {
 	f := &fastForward{
 		BP:           bp,
 		args:         args,
-		us:           make(map[*upstream.Upstream]struct{}),
-		tag2Upstream: make(map[string]*upstream.Upstream),
+		us:           make(map[*upstreamWrapper]struct{}),
+		tag2Upstream: make(map[string]*upstreamWrapper),
 	}
 
 	for i, c := range args.Upstreams {
@@ -120,9 +120,13 @@ func newFastForward(bp *coremain.BP, args *Args) (*fastForward, error) {
 			_ = f.Close()
 			return nil, fmt.Errorf("failed to init upstream #%d: %w", i, err)
 		}
-		f.us[&u] = struct{}{}
+		uw := &upstreamWrapper{
+			Upstream: u,
+			cfg:      c,
+		}
+		f.us[uw] = struct{}{}
 		if len(c.Tag) > 0 {
-			f.tag2Upstream[c.Tag] = &u
+			f.tag2Upstream[c.Tag] = uw
 		}
 	}
 
@@ -140,11 +144,11 @@ func (f *fastForward) Exec(ctx context.Context, qCtx *query_context.Context) (er
 
 // QuickConfigure format: [upstream_tag]...
 func (f *fastForward) QuickConfigure(args string) (any, error) {
-	var us map[*upstream.Upstream]struct{}
+	var us map[*upstreamWrapper]struct{}
 	if len(args) == 0 { // No args, use all upstreams.
 		us = f.us
 	} else { // Pick up upstreams by tags.
-		us = make(map[*upstream.Upstream]struct{})
+		us = make(map[*upstreamWrapper]struct{})
 		for _, tag := range strings.Fields(args) {
 			u := f.tag2Upstream[tag]
 			if u == nil {
@@ -173,17 +177,7 @@ func (f *fastForward) Close() error {
 
 var ErrAllFailed = errors.New("all upstreams failed")
 
-func (f *fastForward) exchange(ctx context.Context, qCtx *query_context.Context, us map[*upstream.Upstream]struct{}) (*dns.Msg, error) {
-	if len(us) == 1 {
-		var u *upstream.Upstream
-		for u = range us {
-			break
-		}
-		return (*u).ExchangeContext(ctx, qCtx.Q())
-	}
-
-	q := qCtx.Q().Copy() // qCtx is not safe for concurrent use.
-
+func (f *fastForward) exchange(ctx context.Context, qCtx *query_context.Context, us map[*upstreamWrapper]struct{}) (*dns.Msg, error) {
 	tn := f.args.Concurrent
 	if tn <= 0 {
 		tn = 1
@@ -194,12 +188,22 @@ func (f *fastForward) exchange(ctx context.Context, qCtx *query_context.Context,
 	if tn > maxConcurrentQueries {
 		tn = maxConcurrentQueries
 	}
+
+	if tn == 1 { // No concurrent queries.
+		var u *upstreamWrapper
+		for u = range us {
+			break
+		}
+		return u.ExchangeContext(ctx, qCtx.Q())
+	}
+
 	c := make(chan *dns.Msg, 1) // Channel for responses.
 	idleDo := safe_close.IdleDo{Do: func() {
 		close(c)
 	}}
 	idleDo.Add(tn)
 
+	qc := qCtx.Copy() // qCtx is not safe for concurrent use.
 	i := 0
 	for u := range us {
 		i++
@@ -207,16 +211,17 @@ func (f *fastForward) exchange(ctx context.Context, qCtx *query_context.Context,
 			break
 		}
 
-		u := *u
+		u := u
 		go func() {
 			defer idleDo.Done()
+			qCtx := qc
 
-			// Give each upstream a fixed time to finsh the query.
+			// Give each upstream a fixed timeout to finsh the query.
 			ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
 			defer cancel()
-			r, err := u.ExchangeContext(ctx, q)
+			r, err := u.ExchangeContext(ctx, qCtx.Q())
 			if err != nil {
-				f.L().Warn("upstream error", zap.Error(err))
+				f.L().Warn("upstream error", qCtx.InfoField(), zap.String("upstream", u.name()), zap.Error(err))
 			}
 			if r != nil {
 				select {
