@@ -17,23 +17,22 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package client_addr
+package query_context
 
 import (
-	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"net/netip"
 )
 
-type key struct{}
+type clientAddrKey struct{}
 
-func SetClientAddr(qCtx *query_context.Context, addr netip.Addr) {
-	qCtx.SetKey((*key)(nil), addr)
+func SetClientAddr(qCtx *Context, addr *netip.Addr) {
+	qCtx.SetKey((*clientAddrKey)(nil), addr)
 }
 
-func GetClientAddr(qCtx *query_context.Context) (netip.Addr, bool) {
-	v, ok := qCtx.GetValue((*key)(nil))
+func GetClientAddr(qCtx *Context) (*netip.Addr, bool) {
+	v, ok := qCtx.GetValue((*clientAddrKey)(nil))
 	if !ok {
-		return netip.Addr{}, false
+		return nil, false
 	}
-	return v.(netip.Addr), true
+	return v.(*netip.Addr), true
 }

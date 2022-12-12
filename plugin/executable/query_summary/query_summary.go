@@ -22,11 +22,9 @@ package query_summary
 import (
 	"context"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
-	"github.com/IrineSistiana/mosdns/v5/pkg/query_context/client_addr"
 	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"time"
 )
 
 const (
@@ -68,26 +66,7 @@ type qCtxLogger struct {
 
 func (ql *qCtxLogger) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
 	qCtx := ql.qCtx
-
-	encoder.AddUint32("uqid", qCtx.Id())
-
-	if addr, _ := client_addr.GetClientAddr(qCtx); addr.IsValid() {
-		zap.Stringer("client", addr).AddTo(encoder)
-	}
-
-	q := qCtx.Q()
-	if len(q.Question) != 1 {
-		encoder.AddBool("odd_question", true)
-	} else {
-		question := q.Question[0]
-		encoder.AddString("qname", question.Name)
-		encoder.AddUint16("qtype", question.Qtype)
-		encoder.AddUint16("qclass", question.Qclass)
-	}
-	if r := qCtx.R(); r != nil {
-		encoder.AddInt("rcode", r.Rcode)
-	}
-	encoder.AddDuration("elapsed", time.Now().Sub(qCtx.StartTime()))
+	zap.Inline(qCtx).AddTo(encoder)
 	if ql.err != nil {
 		zap.Error(ql.err).AddTo(encoder)
 	}

@@ -22,6 +22,7 @@ package query_context
 import (
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"sync/atomic"
 	"time"
 )
@@ -93,7 +94,7 @@ func (ctx *Context) StartTime() time.Time {
 // InfoField returns a zap.Field.
 // Just for convenience.
 func (ctx *Context) InfoField() zap.Field {
-	return zap.Uint32("qid", ctx.id)
+	return zap.Object("query", ctx)
 }
 
 // Copy deep copies this Context.
@@ -141,6 +142,29 @@ func (ctx *Context) SetMark(m uint32) {
 func (ctx *Context) HasMark(m uint32) bool {
 	_, ok := ctx.marks[m]
 	return ok
+}
+
+func (ctx *Context) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
+	encoder.AddUint32("uqid", ctx.id)
+
+	if addr, _ := GetClientAddr(ctx); addr.IsValid() {
+		zap.Stringer("client", addr).AddTo(encoder)
+	}
+
+	q := ctx.Q()
+	if len(q.Question) != 1 {
+		encoder.AddBool("odd_question", true)
+	} else {
+		question := q.Question[0]
+		encoder.AddString("qname", question.Name)
+		encoder.AddUint16("qtype", question.Qtype)
+		encoder.AddUint16("qclass", question.Qclass)
+	}
+	if r := ctx.R(); r != nil {
+		encoder.AddInt("rcode", r.Rcode)
+	}
+	encoder.AddDuration("elapsed", time.Now().Sub(ctx.StartTime()))
+	return nil
 }
 
 func copyMap[K comparable, V any](m map[K]V) map[K]V {

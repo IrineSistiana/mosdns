@@ -27,7 +27,6 @@ import (
 	"github.com/IrineSistiana/mosdns/v5/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
-	"github.com/IrineSistiana/mosdns/v5/pkg/query_context/client_addr"
 	"github.com/IrineSistiana/mosdns/v5/pkg/server/dns_handler"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
@@ -101,7 +100,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	qCtx := query_context.NewContext(q)
-	client_addr.SetClientAddr(qCtx, clientAddr)
+	query_context.SetClientAddr(qCtx, &clientAddr)
 	if err := h.opts.DNSHandler.ServeDNS(req.Context(), qCtx); err != nil {
 		panic(err.Error()) // Force http server to close connection.
 	}

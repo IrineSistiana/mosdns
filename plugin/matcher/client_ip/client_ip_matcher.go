@@ -21,7 +21,6 @@ package client_ip
 
 import (
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
-	"github.com/IrineSistiana/mosdns/v5/pkg/query_context/client_addr"
 	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
 	"github.com/IrineSistiana/mosdns/v5/plugin/matcher/base_ip"
 )
@@ -39,9 +38,9 @@ func QuickSetup(bq sequence.BQ, s string) (any, error) {
 }
 
 func matchClientAddr(qCtx *query_context.Context, m base_ip.AddrMatcher) (bool, error) {
-	addr, _ := client_addr.GetClientAddr(qCtx)
+	addr, _ := query_context.GetClientAddr(qCtx)
 	if !addr.IsValid() {
 		return false, nil
 	}
-	return m.Match(addr), nil
+	return m.Match(*addr), nil
 }

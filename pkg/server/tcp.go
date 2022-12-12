@@ -26,7 +26,6 @@ import (
 	"github.com/IrineSistiana/mosdns/v5/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
-	"github.com/IrineSistiana/mosdns/v5/pkg/query_context/client_addr"
 	"github.com/IrineSistiana/mosdns/v5/pkg/server/dns_handler"
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 	"go.uber.org/zap"
@@ -104,7 +103,7 @@ func (s *TCPServer) ServeTCP(l net.Listener) error {
 				// handle query
 				go func() {
 					qCtx := query_context.NewContext(req)
-					client_addr.SetClientAddr(qCtx, clientAddr)
+					query_context.SetClientAddr(qCtx, &clientAddr)
 					if err := s.opts.DNSHandler.ServeDNS(tcpConnCtx, qCtx); err != nil {
 						s.opts.Logger.Warn("handler err", zap.Error(err))
 						c.Close()

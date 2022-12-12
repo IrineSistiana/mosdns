@@ -25,7 +25,6 @@ import (
 	"github.com/IrineSistiana/mosdns/v5/mlog"
 	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
-	"github.com/IrineSistiana/mosdns/v5/pkg/query_context/client_addr"
 	"github.com/IrineSistiana/mosdns/v5/pkg/server/dns_handler"
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 	"github.com/miekg/dns"
@@ -97,7 +96,7 @@ func (s *UDPServer) ServeUDP(c net.PacketConn) error {
 		// handle query
 		go func() {
 			qCtx := query_context.NewContext(q)
-			client_addr.SetClientAddr(qCtx, clientAddr)
+			query_context.SetClientAddr(qCtx, &clientAddr)
 			if err := s.opts.DNSHandler.ServeDNS(listenerCtx, qCtx); err != nil {
 				s.opts.Logger.Warn("handler err", zap.Error(err))
 				return
