@@ -40,7 +40,7 @@ type Context struct {
 	id uint32
 
 	r     *dns.Msg
-	kv    map[any]any
+	kv    map[uint32]any
 	marks map[uint32]struct{}
 }
 
@@ -113,21 +113,22 @@ func (ctx *Context) CopyTo(d *Context) *Context {
 	if r := ctx.r; r != nil {
 		d.r = r.Copy()
 	}
-	d.kv = copyMapAny(ctx.kv)
+	d.kv = copyMap(ctx.kv)
 	d.marks = copyMap(ctx.marks)
 	return d
 }
 
-// SetKey stores any v in to this Context
-// k should be an interface that has type but has a nil value.
-func (ctx *Context) SetKey(k, v any) {
+// StoreValue stores any v in to this Context
+// k MUST from RegKey.
+func (ctx *Context) StoreValue(k uint32, v any) {
 	if ctx.kv == nil {
-		ctx.kv = make(map[any]any)
+		ctx.kv = make(map[uint32]any)
 	}
 	ctx.kv[k] = v
 }
 
-func (ctx *Context) GetValue(k any) (any, bool) {
+// GetValue returns the value stored by StoreValue.
+func (ctx *Context) GetValue(k uint32) (any, bool) {
 	v, ok := ctx.kv[k]
 	return v, ok
 }
@@ -172,17 +173,6 @@ func copyMap[K comparable, V any](m map[K]V) map[K]V {
 		return nil
 	}
 	cm := make(map[K]V, len(m))
-	for k, v := range m {
-		cm[k] = v
-	}
-	return cm
-}
-
-func copyMapAny[V any](m map[any]V) map[any]V {
-	if m == nil {
-		return nil
-	}
-	cm := make(map[any]V, len(m))
 	for k, v := range m {
 		cm[k] = v
 	}

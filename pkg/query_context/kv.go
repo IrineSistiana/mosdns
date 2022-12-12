@@ -19,20 +19,17 @@
 
 package query_context
 
-import (
-	"net/netip"
-)
+import "sync/atomic"
 
-var clientAddrKey = RegKey()
+var kId atomic.Uint32
 
-func SetClientAddr(qCtx *Context, addr *netip.Addr) {
-	qCtx.StoreValue(clientAddrKey, addr)
-}
-
-func GetClientAddr(qCtx *Context) (*netip.Addr, bool) {
-	v, ok := qCtx.GetValue(clientAddrKey)
-	if !ok {
-		return nil, false
+// RegKey returns a unique uint32 for the key used in
+// Context.StoreValue, Context.GetValue.
+// It should only be called during initialization.
+func RegKey() uint32 {
+	i := kId.Add(1)
+	if i == 0 {
+		panic("key id overflowed")
 	}
-	return v.(*netip.Addr), true
+	return i
 }
