@@ -36,35 +36,23 @@ type LogConfig struct {
 
 	// Production enables json output.
 	Production bool `yaml:"production"`
-
-	// OmitTime omits the time in log.
-	OmitTime bool `yaml:"omit_time"`
-
-	// parsed level
-	lvl zapcore.Level
 }
 
 var (
 	stderr = zapcore.Lock(os.Stderr)
-
-	lvl = zap.NewAtomicLevelAt(zap.InfoLevel)
-	l   = newLogger(zapcore.NewConsoleEncoder, defaultEncoderConfig(), lvl, stderr)
-	s   = l.Sugar()
+	lvl    = zap.NewAtomicLevelAt(zap.InfoLevel)
+	l      = zap.New(zapcore.NewCore(zapcore.NewConsoleEncoder(zap.NewDevelopmentEncoderConfig()), stderr, lvl))
+	s      = l.Sugar()
 
 	nop = zap.NewNop()
 )
 
-func NewLogger(lc *LogConfig) (*zap.Logger, error) {
+func NewLogger(lc LogConfig) (*zap.Logger, error) {
 	lvl, err := zapcore.ParseLevel(lc.Level)
 	if err != nil {
 		return nil, fmt.Errorf("invalid log level: %w", err)
 	}
-	lc.lvl = lvl
 
-	return newLoggerFromCfg(lc)
-}
-
-func newLoggerFromCfg(lc *LogConfig) (*zap.Logger, error) {
 	var out zapcore.WriteSyncer
 	if lf := lc.File; len(lf) > 0 {
 		f, _, err := zap.Open(lf)
@@ -76,53 +64,28 @@ func newLoggerFromCfg(lc *LogConfig) (*zap.Logger, error) {
 		out = stderr
 	}
 
-	ec := defaultEncoderConfig()
-	if lc.OmitTime {
-		ec.TimeKey = ""
-	}
-
 	if lc.Production {
-		return newLogger(zapcore.NewJSONEncoder, ec, lc.lvl, out), nil
+		return zap.New(zapcore.NewCore(zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()), out, lvl)), nil
 	}
-	return newLogger(zapcore.NewConsoleEncoder, ec, lc.lvl, out), nil
+	return zap.New(zapcore.NewCore(zapcore.NewConsoleEncoder(zap.NewDevelopmentEncoderConfig()), out, lvl)), nil
 }
 
-func newLogger(
-	encoderFactory func(config zapcore.EncoderConfig) zapcore.Encoder,
-	encoderCfg zapcore.EncoderConfig,
-	lvl zapcore.LevelEnabler,
-	out zapcore.WriteSyncer,
-) *zap.Logger {
-	core := zapcore.NewCore(encoderFactory(encoderCfg), out, lvl)
-	return zap.New(core)
-}
-
+// L is a global logger.
 func L() *zap.Logger {
 	return l
 }
 
+// SetLevel sets the log level for the global logger.
 func SetLevel(l zapcore.Level) {
 	lvl.SetLevel(l)
 }
 
+// S is a global logger.
 func S() *zap.SugaredLogger {
 	return s
 }
 
+// Nop is a logger that never writes out logs.
 func Nop() *zap.Logger {
 	return nop
-}
-
-func defaultEncoderConfig() zapcore.EncoderConfig {
-	return zapcore.EncoderConfig{
-		TimeKey:        "time",
-		MessageKey:     "msg",
-		LevelKey:       "level",
-		NameKey:        "logger",
-		CallerKey:      "caller",
-		EncodeLevel:    zapcore.LowercaseLevelEncoder,
-		EncodeTime:     zapcore.ISO8601TimeEncoder,
-		EncodeDuration: zapcore.StringDurationEncoder,
-		EncodeCaller:   zapcore.ShortCallerEncoder,
-	}
 }
