@@ -17,31 +17,17 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package client_ip
+package data_provider
 
 import (
+	"github.com/IrineSistiana/mosdns/v5/pkg/matcher/domain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/matcher/netlist"
-	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
-	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
-	"github.com/IrineSistiana/mosdns/v5/plugin/matcher/base_ip"
 )
 
-const PluginType = "client_ip"
-
-func init() {
-	sequence.MustRegMatchQuickSetup(PluginType, QuickSetup)
+type DomainMatcherProvider interface {
+	GetDomainMatcher() domain.Matcher[struct{}]
 }
 
-type Args = base_ip.Args
-
-func QuickSetup(bq sequence.BQ, s string) (sequence.Matcher, error) {
-	return base_ip.NewMatcher(bq, base_ip.ParseQuickSetupArgs(s), matchClientAddr)
-}
-
-func matchClientAddr(qCtx *query_context.Context, m netlist.Matcher) (bool, error) {
-	addr, _ := query_context.GetClientAddr(qCtx)
-	if !addr.IsValid() {
-		return false, nil
-	}
-	return m.Match(*addr), nil
+type IPMatcherProvider interface {
+	GetIPMatcher() netlist.Matcher
 }

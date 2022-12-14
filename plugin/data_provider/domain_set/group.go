@@ -21,9 +21,9 @@ package domain_set
 
 import "github.com/IrineSistiana/mosdns/v5/pkg/matcher/domain"
 
-type matcherGroup []domain.Matcher[struct{}]
+type MatcherGroup []domain.Matcher[struct{}]
 
-func (mg matcherGroup) Match(s string) (struct{}, bool) {
+func (mg MatcherGroup) Match(s string) (struct{}, bool) {
 	for _, m := range mg {
 		if _, ok := m.Match(s); ok {
 			return struct{}{}, true
@@ -32,7 +32,7 @@ func (mg matcherGroup) Match(s string) (struct{}, bool) {
 	return struct{}{}, false
 }
 
-func (mg matcherGroup) Len() int {
+func (mg MatcherGroup) Len() int {
 	s := 0
 	for _, m := range mg {
 		s += m.Len()

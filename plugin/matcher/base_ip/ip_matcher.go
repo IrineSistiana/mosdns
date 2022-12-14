@@ -24,9 +24,9 @@ import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v5/pkg/matcher/netlist"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v5/plugin/data_provider"
 	"github.com/IrineSistiana/mosdns/v5/plugin/data_provider/ip_set"
 	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
-	"net/netip"
 	"strings"
 )
 
@@ -38,51 +38,51 @@ type Args struct {
 	Files  []string `yaml:"files"`
 }
 
-type MatchFunc func(qCtx *query_context.Context, m AddrMatcher) (bool, error)
+type MatchFunc func(qCtx *query_context.Context, m netlist.Matcher) (bool, error)
 
 type Matcher struct {
-	sequence.BQ
 	match MatchFunc
 
 	mg []netlist.Matcher
 }
 
 func (m *Matcher) Match(_ context.Context, qCtx *query_context.Context) (matched bool, err error) {
-	return m.match(qCtx, m.mg)
+	return m.match(qCtx, ip_set.MatcherGroup(m.mg))
 }
 
 func NewMatcher(bq sequence.BQ, args *Args, f MatchFunc) (m *Matcher, err error) {
 	m = &Matcher{
-		BQ:    bq,
 		match: f,
 	}
 
 	// Acquire lists from other plugins or files.
 	for _, tag := range args.IPSets {
 		p := bq.M().GetPlugins(tag)
-		provider, _ := p.(ip_set.IPSetProvider)
+		provider, _ := p.(data_provider.IPMatcherProvider)
 		if provider == nil {
 			return nil, fmt.Errorf("cannot find ipset %s", tag)
 		}
-		l := provider.GetIPSet()
+		l := provider.GetIPMatcher()
 		m.mg = append(m.mg, l)
 	}
 
 	// Anonymous set from plugin's args and files.
-	anonymousList := netlist.NewList()
-	if err := ip_set.LoadFromIPs(args.IPs, anonymousList); err != nil {
-		return nil, err
-	}
-	for _, path := range args.Files {
-		if err := ip_set.LoadFromFile(path, anonymousList); err != nil {
-			return nil, fmt.Errorf("failed to load ip list from file %s, %w", path, err)
+	if len(args.IPs)+len(args.Files) > 0 {
+		anonymousList := netlist.NewList()
+		if err := ip_set.LoadFromIPs(args.IPs, anonymousList); err != nil {
+			return nil, err
+		}
+		for _, path := range args.Files {
+			if err := ip_set.LoadFromFile(path, anonymousList); err != nil {
+				return nil, fmt.Errorf("failed to load ip list from file %s, %w", path, err)
+			}
+		}
+		anonymousList.Sort()
+		if anonymousList.Len() > 0 {
+			m.mg = append(m.mg, anonymousList)
 		}
 	}
-	anonymousList.Sort()
 
-	if anonymousList.Len() > 0 {
-		m.mg = append(m.mg, anonymousList)
-	}
 	return m, nil
 }
 
@@ -107,15 +107,4 @@ func ParseQuickSetupArgs(s string) *Args {
 		}
 	}
 	return args
-}
-
-type AddrMatcher []netlist.Matcher
-
-func (m AddrMatcher) Match(addr netip.Addr) bool {
-	for _, m := range m {
-		if m.Match(addr) {
-			return true
-		}
-	}
-	return false
 }

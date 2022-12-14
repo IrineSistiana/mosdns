@@ -20,6 +20,7 @@
 package qname
 
 import (
+	"github.com/IrineSistiana/mosdns/v5/pkg/matcher/domain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
 	base "github.com/IrineSistiana/mosdns/v5/plugin/matcher/base_domain"
@@ -37,9 +38,9 @@ func QuickSetup(bq sequence.BQ, s string) (sequence.Matcher, error) {
 	return base.NewMatcher(bq, base.ParseQuickSetupArgs(s), matchQName)
 }
 
-func matchQName(qCtx *query_context.Context, m base.DomainMatcher) (bool, error) {
+func matchQName(qCtx *query_context.Context, m domain.Matcher[struct{}]) (bool, error) {
 	for _, question := range qCtx.Q().Question {
-		if m.Match(question.Name) {
+		if _, ok := m.Match(question.Name); ok {
 			return true, nil
 		}
 	}

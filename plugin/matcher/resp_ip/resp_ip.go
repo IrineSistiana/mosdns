@@ -20,6 +20,7 @@
 package resp_ip
 
 import (
+	"github.com/IrineSistiana/mosdns/v5/pkg/matcher/netlist"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
 	"github.com/IrineSistiana/mosdns/v5/plugin/matcher/base_ip"
@@ -40,7 +41,7 @@ func QuickSetup(bq sequence.BQ, s string) (sequence.Matcher, error) {
 	return base_ip.NewMatcher(bq, base_ip.ParseQuickSetupArgs(s), matchRespAddr)
 }
 
-func matchRespAddr(qCtx *query_context.Context, m base_ip.AddrMatcher) (bool, error) {
+func matchRespAddr(qCtx *query_context.Context, m netlist.Matcher) (bool, error) {
 	r := qCtx.R()
 	if r == nil {
 		return false, nil

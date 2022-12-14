@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/matcher/domain"
+	"github.com/IrineSistiana/mosdns/v5/plugin/data_provider"
 	"go.uber.org/zap"
 	"os"
 )
@@ -44,11 +45,7 @@ type Args struct {
 	Files []string `yaml:"files"`
 }
 
-type DomainSetProvider interface {
-	GetDomainSet() domain.Matcher[struct{}]
-}
-
-var _ DomainSetProvider = (*DomainSet)(nil)
+var _ data_provider.DomainMatcherProvider = (*DomainSet)(nil)
 
 type DomainSet struct {
 	*coremain.BP
@@ -56,8 +53,8 @@ type DomainSet struct {
 	mg []domain.Matcher[struct{}]
 }
 
-func (d *DomainSet) GetDomainSet() domain.Matcher[struct{}] {
-	return matcherGroup(d.mg)
+func (d *DomainSet) GetDomainMatcher() domain.Matcher[struct{}] {
+	return MatcherGroup(d.mg)
 }
 
 func NewDomainSet(bp *coremain.BP, args *Args) (*DomainSet, error) {
@@ -72,14 +69,14 @@ func NewDomainSet(bp *coremain.BP, args *Args) (*DomainSet, error) {
 	}
 
 	for _, tag := range args.Sets {
-		provider, _ := bp.M().GetPlugins(tag).(DomainSetProvider)
+		provider, _ := bp.M().GetPlugins(tag).(data_provider.DomainMatcherProvider)
 		if provider == nil {
-			return nil, fmt.Errorf("%s is not a DomainSetProvider", tag)
+			return nil, fmt.Errorf("%s is not a DomainMatcherProvider", tag)
 		}
-		m := provider.GetDomainSet()
+		m := provider.GetDomainMatcher()
 		ds.mg = append(ds.mg, m)
 	}
-	bp.L().Info("domain set loaded", zap.Int("length", matcherGroup(ds.mg).Len()))
+	bp.L().Info("domain set loaded", zap.Int("length", MatcherGroup(ds.mg).Len()))
 	return ds, nil
 }
 

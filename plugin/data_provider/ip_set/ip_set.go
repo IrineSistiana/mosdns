@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/matcher/netlist"
+	"github.com/IrineSistiana/mosdns/v5/plugin/data_provider"
 	"go.uber.org/zap"
 	"net/netip"
 	"os"
@@ -46,11 +47,7 @@ type Args struct {
 	Files []string `yaml:"files"`
 }
 
-type IPSetProvider interface {
-	GetIPSet() netlist.Matcher
-}
-
-var _ IPSetProvider = (*IPSet)(nil)
+var _ data_provider.IPMatcherProvider = (*IPSet)(nil)
 
 type IPSet struct {
 	*coremain.BP
@@ -58,8 +55,8 @@ type IPSet struct {
 	mg []netlist.Matcher
 }
 
-func (d *IPSet) GetIPSet() netlist.Matcher {
-	return matcherGroup(d.mg)
+func (d *IPSet) GetIPMatcher() netlist.Matcher {
+	return MatcherGroup(d.mg)
 }
 
 func NewIPSet(bp *coremain.BP, args *Args) (*IPSet, error) {
@@ -74,13 +71,13 @@ func NewIPSet(bp *coremain.BP, args *Args) (*IPSet, error) {
 		p.mg = append(p.mg, l)
 	}
 	for _, tag := range args.Sets {
-		provider, _ := bp.M().GetPlugins(tag).(IPSetProvider)
+		provider, _ := bp.M().GetPlugins(tag).(data_provider.IPMatcherProvider)
 		if provider == nil {
-			return nil, fmt.Errorf("%s is not an IPSetProvider", tag)
+			return nil, fmt.Errorf("%s is not an IPMatcherProvider", tag)
 		}
-		p.mg = append(p.mg, provider.GetIPSet())
+		p.mg = append(p.mg, provider.GetIPMatcher())
 	}
-	bp.L().Info("ip set loaded", zap.Int("length", matcherGroup(p.mg).Len()))
+	bp.L().Info("ip set loaded", zap.Int("length", MatcherGroup(p.mg).Len()))
 	return p, nil
 }
 
@@ -138,9 +135,9 @@ func LoadFromFile(f string, l *netlist.List) error {
 	return nil
 }
 
-type matcherGroup []netlist.Matcher
+type MatcherGroup []netlist.Matcher
 
-func (mg matcherGroup) Match(addr netip.Addr) bool {
+func (mg MatcherGroup) Match(addr netip.Addr) bool {
 	for _, m := range mg {
 		if m.Match(addr) {
 			return true
@@ -149,7 +146,7 @@ func (mg matcherGroup) Match(addr netip.Addr) bool {
 	return false
 }
 
-func (mg matcherGroup) Len() int {
+func (mg MatcherGroup) Len() int {
 	s := 0
 	for _, m := range mg {
 		s += m.Len()

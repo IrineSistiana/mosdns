@@ -20,6 +20,7 @@
 package qname_matcher
 
 import (
+	"github.com/IrineSistiana/mosdns/v5/pkg/matcher/domain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
 	"github.com/IrineSistiana/mosdns/v5/plugin/matcher/base_domain"
@@ -38,14 +39,14 @@ func QuickSetup(bq sequence.BQ, s string) (sequence.Matcher, error) {
 	return base_domain.NewMatcher(bq, base_domain.ParseQuickSetupArgs(s), matchCName)
 }
 
-func matchCName(qCtx *query_context.Context, m base_domain.DomainMatcher) (bool, error) {
+func matchCName(qCtx *query_context.Context, m domain.Matcher[struct{}]) (bool, error) {
 	r := qCtx.R()
 	if r == nil {
 		return false, nil
 	}
 	for _, rr := range r.Answer {
 		if cname, ok := rr.(*dns.CNAME); ok {
-			if m.Match(cname.Target) {
+			if _, ok := m.Match(cname.Target); ok {
 				return true, nil
 			}
 		}
