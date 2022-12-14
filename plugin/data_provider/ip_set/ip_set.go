@@ -41,15 +41,9 @@ func Init(bp *coremain.BP, args interface{}) (coremain.Plugin, error) {
 }
 
 type Args struct {
-	IPs   []string   `yaml:"ips"`
-	Sets  []string   `yaml:"sets"`
-	Files []FileArgs `yaml:"files"`
-}
-
-type FileArgs struct {
-	Path string `yaml:"path"`
-	Type string `yaml:"type"`
-	Args string `yaml:"args"`
+	IPs   []string `yaml:"ips"`
+	Sets  []string `yaml:"sets"`
+	Files []string `yaml:"files"`
 }
 
 type IPSetProvider interface {
@@ -101,7 +95,7 @@ func parseNetipPrefix(s string) (netip.Prefix, error) {
 	return addr.Prefix(addr.BitLen())
 }
 
-func LoadFromIPsAndFiles(ips []string, fs []FileArgs, l *netlist.List) error {
+func LoadFromIPsAndFiles(ips []string, fs []string, l *netlist.List) error {
 	if err := LoadFromIPs(ips, l); err != nil {
 		return err
 	}
@@ -122,34 +116,23 @@ func LoadFromIPs(ips []string, l *netlist.List) error {
 	return nil
 }
 
-func LoadFromFiles(fs []FileArgs, l *netlist.List) error {
+func LoadFromFiles(fs []string, l *netlist.List) error {
 	for i, f := range fs {
 		if err := LoadFromFile(f, l); err != nil {
-			return fmt.Errorf("failed to load file #%d %s, %w", i, f.Path, err)
+			return fmt.Errorf("failed to load file #%d %s, %w", i, f, err)
 		}
 	}
 	return nil
 }
 
-func LoadFromFile(f FileArgs, l *netlist.List) error {
-	if len(f.Path) > 0 {
-		b, err := os.ReadFile(f.Path)
+func LoadFromFile(f string, l *netlist.List) error {
+	if len(f) > 0 {
+		b, err := os.ReadFile(f)
 		if err != nil {
 			return err
 		}
-		switch f.Type {
-		case "", "list":
-			if err := netlist.LoadFromReader(l, bytes.NewReader(b)); err != nil {
-				return err
-			}
-		case "geoip":
-			v, err := netlist.LoadGeoIPListFromDAT(b)
-			if err != nil {
-				return err
-			}
-			if err := netlist.LoadIPDat(l, v, f.Args); err != nil {
-				return err
-			}
+		if err := netlist.LoadFromReader(l, bytes.NewReader(b)); err != nil {
+			return err
 		}
 	}
 	return nil

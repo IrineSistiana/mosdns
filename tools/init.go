@@ -36,16 +36,6 @@ func init() {
 	)
 	coremain.AddSubCmd(probeCmd)
 
-	v2datCmd := &cobra.Command{
-		Use:   "v2dat",
-		Short: "Tools that can unpack v2ray data file to text files.",
-	}
-	v2datCmd.AddCommand(
-		newUnpackDomainCmd(),
-		newUnpackIPCmd(),
-	)
-	coremain.AddSubCmd(v2datCmd)
-
 	configCmd := &cobra.Command{
 		Use:   "config",
 		Short: "Tools that can generate/convert mosdns config file.",

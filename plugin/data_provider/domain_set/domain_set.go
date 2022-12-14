@@ -39,15 +39,9 @@ func Init(bp *coremain.BP, args interface{}) (coremain.Plugin, error) {
 }
 
 type Args struct {
-	Exps  []string   `yaml:"exps"`
-	Sets  []string   `yaml:"sets"`
-	Files []FileArgs `yaml:"files"`
-}
-
-type FileArgs struct {
-	Path string `yaml:"path"`
-	Type string `yaml:"type"`
-	Args string `yaml:"args"`
+	Exps  []string `yaml:"exps"`
+	Sets  []string `yaml:"sets"`
+	Files []string `yaml:"files"`
 }
 
 type DomainSetProvider interface {
@@ -89,7 +83,7 @@ func NewDomainSet(bp *coremain.BP, args *Args) (*DomainSet, error) {
 	return ds, nil
 }
 
-func LoadExpsAndFiles(exps []string, fs []FileArgs, m *domain.MixMatcher[struct{}]) error {
+func LoadExpsAndFiles(exps []string, fs []string, m *domain.MixMatcher[struct{}]) error {
 	if err := LoadExps(exps, m); err != nil {
 		return err
 	}
@@ -108,33 +102,24 @@ func LoadExps(exps []string, m *domain.MixMatcher[struct{}]) error {
 	return nil
 }
 
-func LoadFiles(args []FileArgs, m *domain.MixMatcher[struct{}]) error {
-	for i, f := range args {
+func LoadFiles(fs []string, m *domain.MixMatcher[struct{}]) error {
+	for i, f := range fs {
 		if err := LoadFile(f, m); err != nil {
-			return fmt.Errorf("failed to load file #%d %s, %w", i, f.Path, err)
+			return fmt.Errorf("failed to load file #%d %s, %w", i, f, err)
 		}
 	}
 	return nil
 }
 
-func LoadFile(r FileArgs, m *domain.MixMatcher[struct{}]) error {
-	if len(r.Path) > 0 {
-		b, err := os.ReadFile(r.Path)
+func LoadFile(f string, m *domain.MixMatcher[struct{}]) error {
+	if len(f) > 0 {
+		b, err := os.ReadFile(f)
 		if err != nil {
 			return err
 		}
-		switch r.Type {
-		case "", "list":
-			if err := domain.LoadFromTextReader[struct{}](m, bytes.NewReader(b), nil); err != nil {
-				return err
-			}
-		case "geosite":
-			v, err := domain.LoadGeoSiteList(b)
-			if err != nil {
-				return err
-			}
-			pickers := domain.ParseV2Suffix(r.Args)
-			return domain.LoadFromGeoSite(m, v, pickers...)
+
+		if err := domain.LoadFromTextReader[struct{}](m, bytes.NewReader(b), nil); err != nil {
+			return err
 		}
 	}
 	return nil

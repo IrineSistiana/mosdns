@@ -32,7 +32,6 @@ import (
 
 var _ sequence.Matcher = (*Matcher)(nil)
 
-type FileArgs = ip_set.FileArgs
 type Args struct {
 	IPs    []string `yaml:"ips"`
 	IPSets []string `yaml:"ip_sets"`
@@ -75,7 +74,7 @@ func NewMatcher(bq sequence.BQ, args *Args, f MatchFunc) (m *Matcher, err error)
 		return nil, err
 	}
 	for _, path := range args.Files {
-		if err := ip_set.LoadFromFile(ip_set.FileArgs{Path: path}, anonymousList); err != nil {
+		if err := ip_set.LoadFromFile(path, anonymousList); err != nil {
 			return nil, fmt.Errorf("failed to load ip list from file %s, %w", path, err)
 		}
 	}

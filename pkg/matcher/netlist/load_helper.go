@@ -22,9 +22,7 @@ package netlist
 import (
 	"bufio"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v5/pkg/matcher/v2data"
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
-	"google.golang.org/protobuf/proto"
 	"io"
 	"net/netip"
 	"strings"
@@ -76,52 +74,4 @@ func LoadFromText(l *List, s string) error {
 	}
 	l.Append(netip.PrefixFrom(addr, bits))
 	return nil
-}
-
-// LoadIPDat builds a List from given v and args.
-// The format of args is "tag1,tag2,...".
-// Only lists that are matched by given tags will be loaded to l.
-func LoadIPDat(l *List, v *v2data.GeoIPList, args string) error {
-	m := make(map[string][]*v2data.CIDR)
-	for _, gs := range v.GetEntry() {
-		m[strings.ToLower(gs.GetCountryCode())] = gs.GetCidr()
-	}
-
-	for _, tag := range strings.Split(args, ",") {
-		cidr := m[tag]
-		if cidr == nil {
-			return fmt.Errorf("tag %s does not exist", tag)
-		}
-		if err := LoadFromV2CIDR(l, cidr); err != nil {
-			return fmt.Errorf("failed to parse v2 cidr data, %w", err)
-		}
-
-	}
-	return nil
-}
-
-// LoadFromV2CIDR loads ip from v2ray CIDR.
-// It might modify the List and causes List unsorted.
-func LoadFromV2CIDR(l *List, cidr []*v2data.CIDR) error {
-	for i, e := range cidr {
-		ip, ok := netip.AddrFromSlice(e.Ip)
-		if !ok {
-			return fmt.Errorf("invalid ip data at index #%d: %s", i, e.Ip)
-		}
-
-		prefix := netip.PrefixFrom(ip, int(e.Prefix))
-		if !prefix.IsValid() {
-			return fmt.Errorf("invalid cidr data at index #%d: %s", i, e.String())
-		}
-		l.Append(prefix)
-	}
-	return nil
-}
-
-func LoadGeoIPListFromDAT(b []byte) (*v2data.GeoIPList, error) {
-	geoIP := new(v2data.GeoIPList)
-	if err := proto.Unmarshal(b, geoIP); err != nil {
-		return nil, err
-	}
-	return geoIP, nil
 }

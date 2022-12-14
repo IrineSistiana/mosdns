@@ -31,7 +31,6 @@ import (
 
 var _ sequence.Matcher = (*Matcher)(nil)
 
-type FileArgs = domain_set.FileArgs
 type Args struct {
 	Exps       []string `yaml:"exps"`
 	DomainSets []string `yaml:"domain_sets"`
@@ -74,7 +73,7 @@ func NewMatcher(bq sequence.BQ, args *Args, f MatchFunc) (m *Matcher, err error)
 		return nil, err
 	}
 	for _, path := range args.Files {
-		if err := domain_set.LoadFile(domain_set.FileArgs{Path: path}, anonymousSet); err != nil {
+		if err := domain_set.LoadFile(path, anonymousSet); err != nil {
 			return nil, fmt.Errorf("failed to load domain from file %s, %w", path, err)
 		}
 	}
