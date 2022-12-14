@@ -143,8 +143,16 @@ func (s *sequence) newMatcher(mc MatchConfig, ri, mi int) (Matcher, error) {
 		if m == nil {
 			return nil, fmt.Errorf("can not find matcher %s", mc.Tag)
 		}
+		if qc, ok := m.(QuickConfigurableMatch); ok {
+			v, err := qc.QuickConfigureMatch(mc.Args)
+			if err != nil {
+				return nil, fmt.Errorf("fail to configure plugin %s, %w", mc.Tag, err)
+			}
+			m = v
+		}
+
 	case len(mc.Type) > 0:
-		f := GetQuickSetup(mc.Type)
+		f := GetMatchQuickSetup(mc.Type)
 		if f == nil {
 			return nil, fmt.Errorf("invalid matcher type %s", mc.Type)
 		}
@@ -158,11 +166,7 @@ func (s *sequence) newMatcher(mc MatchConfig, ri, mi int) (Matcher, error) {
 			return nil, fmt.Errorf("failed to init matcher, %w", err)
 		}
 		s.anonymousPlugins = append(s.anonymousPlugins, p)
-
-		m, _ = p.(Matcher)
-		if m == nil {
-			return nil, fmt.Errorf("plugin type %s is not a matcher", mc.Type)
-		}
+		m = p
 	}
 	if m == nil {
 		return nil, errors.New("missing args")
@@ -181,8 +185,8 @@ func (s *sequence) newExec(rc RuleConfig, ri int) (Executable, RecursiveExecutab
 		if p == nil {
 			return nil, nil, fmt.Errorf("can not find executable %s", rc.Tag)
 		}
-		if qc, ok := p.(QuickConfigurable); ok {
-			v, err := qc.QuickConfigure(rc.Args)
+		if qc, ok := p.(QuickConfigurableExec); ok {
+			v, err := qc.QuickConfigureExec(rc.Args)
 			if err != nil {
 				return nil, nil, fmt.Errorf("fail to configure plugin %s, %w", rc.Tag, err)
 			}
@@ -192,7 +196,7 @@ func (s *sequence) newExec(rc RuleConfig, ri int) (Executable, RecursiveExecutab
 		}
 
 	case len(rc.Type) > 0:
-		f := GetQuickSetup(rc.Type)
+		f := GetExecQuickSetup(rc.Type)
 		if f == nil {
 			return nil, nil, fmt.Errorf("invalid executable type %s", rc.Type)
 		}

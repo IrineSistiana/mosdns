@@ -44,7 +44,7 @@ func init() {
 
 	// You can register a quick setup func for sequence. So that users can
 	// init your plugin in the sequence directly in one string.
-	sequence.MustRegQuickSetup(PluginType, QuickSetup)
+	sequence.MustRegExecQuickSetup(PluginType, QuickSetup)
 }
 
 // Args is the arguments of plugin. It will be decoded from yaml.

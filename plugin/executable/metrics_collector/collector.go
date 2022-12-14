@@ -30,7 +30,7 @@ import (
 const PluginType = "metrics_collector"
 
 func init() {
-	sequence.MustRegQuickSetup(PluginType, QuickSetup)
+	sequence.MustRegExecQuickSetup(PluginType, QuickSetup)
 }
 
 var _ sequence.RecursiveExecutable = (*Collector)(nil)

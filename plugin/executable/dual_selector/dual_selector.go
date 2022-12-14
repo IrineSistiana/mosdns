@@ -36,10 +36,10 @@ const (
 )
 
 func init() {
-	sequence.MustRegQuickSetup("prefer_ipv4", func(bq sequence.BQ, _ string) (any, error) {
+	sequence.MustRegExecQuickSetup("prefer_ipv4", func(bq sequence.BQ, _ string) (any, error) {
 		return NewPreferIpv4(bq), nil
 	})
-	sequence.MustRegQuickSetup("prefer_ipv6", func(bq sequence.BQ, _ string) (any, error) {
+	sequence.MustRegExecQuickSetup("prefer_ipv6", func(bq sequence.BQ, _ string) (any, error) {
 		return NewPreferIpv6(bq), nil
 	})
 }

@@ -30,11 +30,11 @@ const PluginType = "sequence"
 func init() {
 	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
 
-	MustRegQuickSetup("accept", setupAccept)
-	MustRegQuickSetup("reject", setupReject)
-	MustRegQuickSetup("return", setupReturn)
-	MustRegQuickSetup("goto", setupGoto)
-	MustRegQuickSetup("jump", setupJump)
+	MustRegExecQuickSetup("accept", setupAccept)
+	MustRegExecQuickSetup("reject", setupReject)
+	MustRegExecQuickSetup("return", setupReturn)
+	MustRegExecQuickSetup("goto", setupGoto)
+	MustRegExecQuickSetup("jump", setupJump)
 }
 
 type sequence struct {

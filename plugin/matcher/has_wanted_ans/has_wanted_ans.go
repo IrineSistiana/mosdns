@@ -28,14 +28,12 @@ import (
 const PluginType = "has_wanted_ans"
 
 func init() {
-	sequence.MustRegQuickSetup(PluginType, QuickSetup)
+	sequence.MustRegMatchQuickSetup(PluginType, QuickSetup)
 }
 
 type hasQuestionAns struct{}
 
-var _ sequence.Matcher = (*hasQuestionAns)(nil)
-
-func (h *hasQuestionAns) Match(_ context.Context, qCtx *query_context.Context) (bool, error) {
+func (h hasQuestionAns) Match(_ context.Context, qCtx *query_context.Context) (bool, error) {
 	q := qCtx.Q()
 	if len(q.Question) == 0 {
 		return false, nil
@@ -56,6 +54,6 @@ func (h *hasQuestionAns) Match(_ context.Context, qCtx *query_context.Context) (
 	return false, nil
 }
 
-func QuickSetup(_ sequence.BQ, _ string) (any, error) {
-	return &hasQuestionAns{}, nil
+func QuickSetup(_ sequence.BQ, _ string) (sequence.Matcher, error) {
+	return hasQuestionAns{}, nil
 }

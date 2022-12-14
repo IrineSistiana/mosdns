@@ -19,8 +19,13 @@
 
 package sequence
 
-// QuickConfigurable can configure an exiting plugin with additional args.
-// Expecting return is an Executable or RecursiveExecutable or Matcher.
-type QuickConfigurable interface {
-	QuickConfigure(args string) (any, error)
+// QuickConfigurableExec can configure an exiting plugin with additional args.
+// Expecting return is an Executable or RecursiveExecutable.
+type QuickConfigurableExec interface {
+	QuickConfigureExec(args string) (any, error)
+}
+
+// QuickConfigurableMatch can configure an exiting plugin with additional args.
+type QuickConfigurableMatch interface {
+	QuickConfigureMatch(args string) (Matcher, error)
 }

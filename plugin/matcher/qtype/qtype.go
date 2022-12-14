@@ -28,7 +28,7 @@ import (
 const PluginType = "qtype"
 
 func init() {
-	sequence.MustRegQuickSetup(PluginType, base_int.QuickSetup(matchQType))
+	sequence.MustRegMatchQuickSetup(PluginType, base_int.QuickSetup(matchQType))
 }
 
 func matchQType(qCtx *query_context.Context, m base_int.IntMatcher) (bool, error) {

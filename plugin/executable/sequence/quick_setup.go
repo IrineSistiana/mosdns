@@ -48,38 +48,73 @@ func NewBQ(m *coremain.Mosdns, l *zap.Logger) BQ {
 	return &bq{m: m, l: l}
 }
 
-// QuickSetupFunc configures an Executable or RecursiveExecutable or Matcher.
-// with a simple string args.
-type QuickSetupFunc func(bq BQ, args string) (any, error)
+// ExecQuickSetupFunc configures an Executable or
+// RecursiveExecutable with a simple string args.
+type ExecQuickSetupFunc func(bq BQ, args string) (any, error)
 
-var quickSetupReg struct {
+// MatchQuickSetupFunc configures a Matcher with a simple string args.
+type MatchQuickSetupFunc func(bq BQ, args string) (Matcher, error)
+
+var execQuickSetupReg struct {
 	sync.RWMutex
-	m map[string]QuickSetupFunc
+	m map[string]ExecQuickSetupFunc
 }
 
-func RegQuickSetup(typ string, f QuickSetupFunc) error {
-	quickSetupReg.Lock()
-	defer quickSetupReg.Unlock()
+var matchQuickSetupReg struct {
+	sync.RWMutex
+	m map[string]MatchQuickSetupFunc
+}
 
-	_, ok := quickSetupReg.m[typ]
+func RegExecQuickSetup(typ string, f ExecQuickSetupFunc) error {
+	execQuickSetupReg.Lock()
+	defer execQuickSetupReg.Unlock()
+
+	_, ok := execQuickSetupReg.m[typ]
 	if ok {
 		return fmt.Errorf("type %s has already been registered", typ)
 	}
-	if quickSetupReg.m == nil {
-		quickSetupReg.m = make(map[string]QuickSetupFunc)
+	if execQuickSetupReg.m == nil {
+		execQuickSetupReg.m = make(map[string]ExecQuickSetupFunc)
 	}
-	quickSetupReg.m[typ] = f
+	execQuickSetupReg.m[typ] = f
 	return nil
 }
 
-func MustRegQuickSetup(typ string, f QuickSetupFunc) {
-	if err := RegQuickSetup(typ, f); err != nil {
+func MustRegExecQuickSetup(typ string, f ExecQuickSetupFunc) {
+	if err := RegExecQuickSetup(typ, f); err != nil {
 		panic(err.Error())
 	}
 }
 
-func GetQuickSetup(typ string) QuickSetupFunc {
-	quickSetupReg.RLock()
-	defer quickSetupReg.RUnlock()
-	return quickSetupReg.m[typ]
+func GetExecQuickSetup(typ string) ExecQuickSetupFunc {
+	execQuickSetupReg.RLock()
+	defer execQuickSetupReg.RUnlock()
+	return execQuickSetupReg.m[typ]
+}
+
+func RegMatchQuickSetup(typ string, f MatchQuickSetupFunc) error {
+	matchQuickSetupReg.Lock()
+	defer matchQuickSetupReg.Unlock()
+
+	_, ok := matchQuickSetupReg.m[typ]
+	if ok {
+		return fmt.Errorf("type %s has already been registered", typ)
+	}
+	if matchQuickSetupReg.m == nil {
+		matchQuickSetupReg.m = make(map[string]MatchQuickSetupFunc)
+	}
+	matchQuickSetupReg.m[typ] = f
+	return nil
+}
+
+func MustRegMatchQuickSetup(typ string, f MatchQuickSetupFunc) {
+	if err := RegMatchQuickSetup(typ, f); err != nil {
+		panic(err.Error())
+	}
+}
+
+func GetMatchQuickSetup(typ string) MatchQuickSetupFunc {
+	matchQuickSetupReg.RLock()
+	defer matchQuickSetupReg.RUnlock()
+	return matchQuickSetupReg.m[typ]
 }

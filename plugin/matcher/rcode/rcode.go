@@ -28,7 +28,7 @@ import (
 const PluginType = "rcode"
 
 func init() {
-	sequence.MustRegQuickSetup(PluginType, base_int.QuickSetup(matchRcode))
+	sequence.MustRegMatchQuickSetup(PluginType, base_int.QuickSetup(matchRcode))
 }
 
 func matchRcode(qCtx *query_context.Context, m base_int.IntMatcher) (bool, error) {

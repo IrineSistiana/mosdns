@@ -28,12 +28,12 @@ import (
 const PluginType = "qname"
 
 func init() {
-	sequence.MustRegQuickSetup(PluginType, QuickSetup)
+	sequence.MustRegMatchQuickSetup(PluginType, QuickSetup)
 }
 
 type Args = base.Args
 
-func QuickSetup(bq sequence.BQ, s string) (any, error) {
+func QuickSetup(bq sequence.BQ, s string) (sequence.Matcher, error) {
 	return base.NewMatcher(bq, base.ParseQuickSetupArgs(s), matchQName)
 }
 

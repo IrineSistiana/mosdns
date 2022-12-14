@@ -28,17 +28,15 @@ import (
 const PluginType = "has_resp"
 
 func init() {
-	sequence.MustRegQuickSetup(PluginType, QuickSetup)
+	sequence.MustRegMatchQuickSetup(PluginType, QuickSetup)
 }
 
 type haveResp struct{}
 
-var _ sequence.Matcher = (*haveResp)(nil)
-
-func (h *haveResp) Match(_ context.Context, qCtx *query_context.Context) (bool, error) {
+func (h haveResp) Match(_ context.Context, qCtx *query_context.Context) (bool, error) {
 	return qCtx.R() != nil, nil
 }
 
-func QuickSetup(_ sequence.BQ, _ string) (any, error) {
-	return &haveResp{}, nil
+func QuickSetup(_ sequence.BQ, _ string) (sequence.Matcher, error) {
+	return haveResp{}, nil
 }

@@ -29,7 +29,7 @@ import (
 const PluginType = "ipset"
 
 func init() {
-	sequence.MustRegQuickSetup(PluginType, QuickSetup)
+	sequence.MustRegExecQuickSetup(PluginType, QuickSetup)
 }
 
 type Args struct {

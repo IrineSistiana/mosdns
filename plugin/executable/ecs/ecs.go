@@ -32,7 +32,7 @@ import (
 const PluginType = "ecs"
 
 func init() {
-	sequence.MustRegQuickSetup(PluginType, QuickSetup)
+	sequence.MustRegExecQuickSetup(PluginType, QuickSetup)
 }
 
 var _ sequence.RecursiveExecutable = (*addECS)(nil)

@@ -29,12 +29,12 @@ import (
 const PluginType = "cname"
 
 func init() {
-	sequence.MustRegQuickSetup(PluginType, QuickSetup)
+	sequence.MustRegMatchQuickSetup(PluginType, QuickSetup)
 }
 
 type Args = base_domain.Args
 
-func QuickSetup(bq sequence.BQ, s string) (any, error) {
+func QuickSetup(bq sequence.BQ, s string) (sequence.Matcher, error) {
 	return base_domain.NewMatcher(bq, base_domain.ParseQuickSetupArgs(s), matchCName)
 }
 

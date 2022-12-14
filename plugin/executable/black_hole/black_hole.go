@@ -32,7 +32,7 @@ import (
 const PluginType = "black_hole"
 
 func init() {
-	sequence.MustRegQuickSetup(PluginType, QuickSetup)
+	sequence.MustRegExecQuickSetup(PluginType, QuickSetup)
 }
 
 var _ sequence.Executable = (*blackHole)(nil)

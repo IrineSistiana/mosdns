@@ -30,7 +30,12 @@ import (
 const PluginType = "mark"
 
 func init() {
-	sequence.MustRegQuickSetup(PluginType, QuickSetup)
+	sequence.MustRegExecQuickSetup(PluginType, func(_ sequence.BQ, args string) (any, error) {
+		return newMarker(args)
+	})
+	sequence.MustRegMatchQuickSetup(PluginType, func(_ sequence.BQ, args string) (sequence.Matcher, error) {
+		return newMarker(args)
+	})
 }
 
 var _ sequence.Executable = (*mark)(nil)
@@ -56,11 +61,11 @@ func (m *mark) Exec(_ context.Context, qCtx *query_context.Context) error {
 	return nil
 }
 
-// QuickSetup format: [uint32_mark]...
+// newMarker format: [uint32_mark]...
 // "uint32_mark" is an uint32 defined as Go syntax for integer literals.
 // e.g. "111", "0b111", "0o111", "0xfff".
-func QuickSetup(_ sequence.BQ, s string) (any, error) {
-	m := make([]uint32, 0)
+func newMarker(s string) (*mark, error) {
+	var m []uint32
 	for _, ms := range strings.Fields(s) {
 		n, err := strconv.ParseUint(ms, 10, 32)
 		if err != nil {

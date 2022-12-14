@@ -28,12 +28,12 @@ import (
 const PluginType = "client_ip"
 
 func init() {
-	sequence.MustRegQuickSetup(PluginType, QuickSetup)
+	sequence.MustRegMatchQuickSetup(PluginType, QuickSetup)
 }
 
 type Args = base_ip.Args
 
-func QuickSetup(bq sequence.BQ, s string) (any, error) {
+func QuickSetup(bq sequence.BQ, s string) (sequence.Matcher, error) {
 	return base_ip.NewMatcher(bq, base_ip.ParseQuickSetupArgs(s), matchClientAddr)
 }
 

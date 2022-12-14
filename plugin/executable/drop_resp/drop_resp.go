@@ -28,7 +28,7 @@ import (
 const PluginType = "drop_resp"
 
 func init() {
-	sequence.MustRegQuickSetup(PluginType, QuickSetup)
+	sequence.MustRegExecQuickSetup(PluginType, QuickSetup)
 }
 
 var _ sequence.Executable = (*dropResp)(nil)

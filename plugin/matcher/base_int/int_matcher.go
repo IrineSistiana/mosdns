@@ -66,9 +66,9 @@ func ParseQuickSetupArgs(s string) ([]int, error) {
 	return args, nil
 }
 
-// QuickSetup returns a sequence.QuickSetupFunc.
-func QuickSetup(f MatchFunc) func(_ sequence.BQ, s string) (any, error) {
-	return func(_ sequence.BQ, s string) (any, error) {
+// QuickSetup returns a sequence.ExecQuickSetupFunc.
+func QuickSetup(f MatchFunc) func(_ sequence.BQ, s string) (sequence.Matcher, error) {
+	return func(_ sequence.BQ, s string) (sequence.Matcher, error) {
 		args, err := ParseQuickSetupArgs(s)
 		if err != nil {
 			return nil, fmt.Errorf("invalid args, %w", err)
