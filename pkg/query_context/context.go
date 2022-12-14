@@ -32,30 +32,31 @@ import (
 // Context MUST be created using NewContext.
 // All Context funcs are not safe for concurrent use.
 type Context struct {
-	// init at beginning
-	startTime time.Time // when this Context was created
+	startTime time.Time // when was this Context created
 	q         *dns.Msg
 
 	// id for this Context. Not for the dns query. This id is mainly for logging.
 	id uint32
 
-	r     *dns.Msg
+	// Response. Might be nil.
+	r *dns.Msg
+
+	// lazy init.
 	kv    map[uint32]any
 	marks map[uint32]struct{}
 }
 
-var contextUid uint32
+var contextUid atomic.Uint32
 
 // NewContext creates a new query Context.
 // q is the query dns msg. It cannot be nil, or NewContext will panic.
-// meta can be nil.
 func NewContext(q *dns.Msg) *Context {
 	if q == nil {
 		panic("handler: query msg is nil")
 	}
 	ctx := &Context{
 		q:         q,
-		id:        atomic.AddUint32(&contextUid, 1),
+		id:        contextUid.Add(1),
 		startTime: time.Now(),
 	}
 
@@ -74,7 +75,7 @@ func (ctx *Context) R() *dns.Msg {
 
 // SetResponse stores the response r to the context.
 // Note: It just stores the pointer of r. So the caller
-// shouldn't modify or read r after the call.
+// MUST NOT modify or read r after the call.
 func (ctx *Context) SetResponse(r *dns.Msg) {
 	ctx.r = r
 }
@@ -91,13 +92,14 @@ func (ctx *Context) StartTime() time.Time {
 	return ctx.startTime
 }
 
-// InfoField returns a zap.Field.
-// Just for convenience.
+// InfoField returns a zap.Field contains a brief summary of this Context.
+// Useful in log.
 func (ctx *Context) InfoField() zap.Field {
 	return zap.Object("query", ctx)
 }
 
 // Copy deep copies this Context.
+// See CopyTo.
 func (ctx *Context) Copy() *Context {
 	newCtx := new(Context)
 	ctx.CopyTo(newCtx)
@@ -105,6 +107,7 @@ func (ctx *Context) Copy() *Context {
 }
 
 // CopyTo deep copies this Context to d.
+// Note that values that stored by StoreValue is not deep-copied.
 func (ctx *Context) CopyTo(d *Context) *Context {
 	d.startTime = ctx.startTime
 	d.q = ctx.q.Copy()
@@ -133,6 +136,7 @@ func (ctx *Context) GetValue(k uint32) (any, bool) {
 	return v, ok
 }
 
+// SetMark marks this Context with given mark.
 func (ctx *Context) SetMark(m uint32) {
 	if ctx.marks == nil {
 		ctx.marks = make(map[uint32]struct{})
@@ -140,11 +144,13 @@ func (ctx *Context) SetMark(m uint32) {
 	ctx.marks[m] = struct{}{}
 }
 
+// HasMark reports whether this mark m was marked by SetMark.
 func (ctx *Context) HasMark(m uint32) bool {
 	_, ok := ctx.marks[m]
 	return ok
 }
 
+// MarshalLogObject implements zapcore.ObjectMarshaler.
 func (ctx *Context) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
 	encoder.AddUint32("uqid", ctx.id)
 
