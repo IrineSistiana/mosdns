@@ -22,7 +22,10 @@ package cache
 import (
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 	"github.com/miekg/dns"
+	"golang.org/x/exp/constraints"
 	"hash/maphash"
+	"math/rand"
+	"time"
 )
 
 type key string
@@ -31,26 +34,6 @@ var seed = maphash.MakeSeed()
 
 func (k key) Sum() uint64 {
 	return maphash.String(seed, string(k))
-}
-
-func marshalKey(k key) (string, error) {
-	return string(k), nil
-}
-
-func marshalValue(m *dns.Msg) ([]byte, error) {
-	return m.Pack()
-}
-
-func unmarshalKey(s string) (key, error) {
-	return key(s), nil
-}
-
-func unmarshalValue(b []byte) (*dns.Msg, error) {
-	m := new(dns.Msg)
-	if err := m.Unpack(b); err != nil {
-		return nil, err
-	}
-	return m, nil
 }
 
 // getMsgKey returns a string key for the query msg, or an empty
@@ -87,4 +70,83 @@ func getMsgKey(q *dns.Msg) string {
 	buf[3] = byte(len(question.Name))
 	copy(buf[4:], question.Name)
 	return utils.BytesToStringUnsafe(buf)
+}
+
+type item struct {
+	resp           *dns.Msg
+	storedTime     time.Time
+	expirationTime time.Time
+}
+
+func copyNoOpt(m *dns.Msg) *dns.Msg {
+	if m == nil {
+		return nil
+	}
+
+	m2 := new(dns.Msg)
+	m2.MsgHdr = m.MsgHdr
+	m2.Compress = m.Compress
+
+	if len(m.Question) > 0 {
+		m2.Question = make([]dns.Question, len(m.Question))
+		copy(m2.Question, m.Question)
+	}
+
+	lenExtra := len(m.Extra)
+	for _, r := range m.Extra {
+		if r.Header().Rrtype == dns.TypeOPT {
+			lenExtra--
+		}
+	}
+
+	s := make([]dns.RR, len(m.Answer)+len(m.Ns)+lenExtra)
+	m2.Answer, s = s[:0:len(m.Answer)], s[len(m.Answer):]
+	m2.Ns, s = s[:0:len(m.Ns)], s[len(m.Ns):]
+	m2.Extra = s[:0:lenExtra]
+
+	for _, r := range m.Answer {
+		m2.Answer = append(m2.Answer, dns.Copy(r))
+	}
+	for _, r := range m.Ns {
+		m2.Ns = append(m2.Ns, dns.Copy(r))
+	}
+
+	for _, r := range m.Extra {
+		if r.Header().Rrtype == dns.TypeOPT {
+			continue
+		}
+		m2.Extra = append(m2.Extra, dns.Copy(r))
+	}
+	return m2
+}
+
+// shuffle A/AAAA records in m.
+func shuffleIP(m *dns.Msg) {
+	ans := m.Answer
+
+	// Find out where the a/aaaa records start. Usually is at the suffix.
+	ipStart := len(ans) - 1
+	for i := len(ans) - 1; i >= 0; i-- {
+		switch ans[i].Header().Rrtype {
+		case dns.TypeA, dns.TypeAAAA:
+			ipStart = i
+			continue
+		}
+		break
+	}
+
+	// Shuffle the ip suffix.
+	if ipStart >= 0 {
+		ips := ans[ipStart:]
+		rand.Shuffle(len(ips), func(i, j int) {
+			ips[i], ips[j] = ips[j], ips[i]
+		})
+	}
+}
+
+func min[T constraints.Ordered](a, b T) T {
+	if a < b {
+		return a
+	}
+	return b
 }

@@ -117,7 +117,7 @@ func (p *reverseLookup) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 func (p *reverseLookup) lookup(n netip.Addr) string {
-	v, _, _, _ := p.c.Get(key(as16(n)))
+	v, _, _ := p.c.Get(key(as16(n)))
 	return v
 }
 
@@ -178,7 +178,7 @@ func (p *reverseLookup) saveIPs(q, r *dns.Msg) {
 		if len(q.Question) == 1 {
 			name = q.Question[0].Name
 		}
-		p.c.Store(key(as16(addr)), name, now, now.Add(time.Duration(p.args.TTL)*time.Second))
+		p.c.Store(key(as16(addr)), name, now.Add(time.Duration(p.args.TTL)*time.Second))
 	}
 }
 

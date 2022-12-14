@@ -37,8 +37,8 @@ func Test_Cache(t *testing.T) {
 	})
 	for i := 0; i < 128; i++ {
 		key := testKey(i)
-		c.Store(key, i, time.Now(), time.Now().Add(time.Millisecond*200))
-		v, _, _, ok := c.Get(key)
+		c.Store(key, i, time.Now().Add(time.Millisecond*200))
+		v, _, ok := c.Get(key)
 
 		if v != i {
 			t.Fatal("cache kv mismatched")
@@ -50,7 +50,7 @@ func Test_Cache(t *testing.T) {
 
 	for i := 0; i < 1024*4; i++ {
 		key := testKey(i)
-		c.Store(key, i, time.Now(), time.Now().Add(time.Millisecond*200))
+		c.Store(key, i, time.Now().Add(time.Millisecond*200))
 	}
 
 	if l := c.Len(); l > 1024 {
@@ -66,7 +66,7 @@ func Test_memCache_cleaner(t *testing.T) {
 	defer c.Close()
 	for i := 0; i < 64; i++ {
 		key := testKey(i)
-		c.Store(key, i, time.Now(), time.Now().Add(time.Millisecond*10))
+		c.Store(key, i, time.Now().Add(time.Millisecond*10))
 	}
 
 	time.Sleep(time.Millisecond * 100)
@@ -88,8 +88,8 @@ func Test_memCache_race(t *testing.T) {
 			defer wg.Done()
 			for i := 0; i < 256; i++ {
 				key := testKey(i)
-				c.Store(key, i, time.Now(), time.Now().Add(time.Minute))
-				_, _, _, _ = c.Get(key)
+				c.Store(key, i, time.Now().Add(time.Minute))
+				_, _, _ = c.Get(key)
 				c.gc(time.Now())
 			}
 		}()

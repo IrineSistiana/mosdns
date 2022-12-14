@@ -7,6 +7,7 @@ require (
 	github.com/go-chi/chi/v5 v5.0.7
 	github.com/google/nftables v0.0.0-20221107190433-130caa4c31c9
 	github.com/kardianos/service v1.2.2
+	github.com/klauspost/compress v1.15.13
 	github.com/lucas-clemente/quic-go v0.31.0
 	github.com/miekg/dns v1.1.50
 	github.com/mitchellh/mapstructure v1.5.0

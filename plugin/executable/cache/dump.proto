@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package cache;
+
+option go_package = "plugin/executable/cache";
+
+message CachedEntry {
+  string key = 1;
+  bytes msg = 2;
+  int64 cache_expiration_time = 3;
+  int64 msg_expiration_time = 4;
+  int64 msg_stored_time = 5;
+}
+
+message CacheDumpBlock {
+  repeated CachedEntry entries = 1;
+}

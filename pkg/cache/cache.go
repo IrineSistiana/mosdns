@@ -23,7 +23,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v5/pkg/concurrent_lru"
 	"github.com/IrineSistiana/mosdns/v5/pkg/concurrent_map"
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
-	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -39,12 +39,12 @@ type Value interface {
 	any
 }
 
-// Cache is a simple LRU cache that stores values in memory.
+// Cache is a simple map cache that stores values in memory.
 // It is safe for concurrent use.
 type Cache[K Key, V Value] struct {
 	opts Opts
 
-	closeOnce   sync.Once
+	closed      atomic.Bool
 	closeNotify chan struct{}
 	m           *concurrent_map.Map[K, *elem[V]]
 }
@@ -61,7 +61,6 @@ func (opts *Opts) init() {
 
 type elem[V Value] struct {
 	v              V
-	storedTime     time.Time
 	expirationTime time.Time
 }
 
@@ -80,44 +79,44 @@ func New[K Key, V Value](opts Opts) *Cache[K, V] {
 	return c
 }
 
+// Close closes the inner cleaner of this cache.
 func (c *Cache[K, V]) Close() error {
-	c.closeOnce.Do(func() {
+	if ok := c.closed.CompareAndSwap(false, true); ok {
 		close(c.closeNotify)
-	})
+	}
 	return nil
 }
 
-func (c *Cache[K, V]) Get(key K) (v V, storedTime, expirationTime time.Time, ok bool) {
+func (c *Cache[K, V]) Get(key K) (v V, expirationTime time.Time, ok bool) {
 	if e, hasEntry := c.m.Get(key); hasEntry {
 		if e.expirationTime.Before(time.Now()) {
 			c.m.Del(key)
 			return
 		}
-		return e.v, e.storedTime, e.expirationTime, true
+		return e.v, e.expirationTime, true
 	}
 	return
 }
 
-func (c *Cache[K, V]) Range(f func(key K, v V, storedTime, expirationTime time.Time)) {
-	cf := func(key K, v *elem[V]) (newV *elem[V], setV bool, delV bool) {
-		f(key, v.v, v.storedTime, v.expirationTime)
-		return
+// Range calls f through all entries. If f returns an error, the same error will be returned
+// by Range.
+func (c *Cache[K, V]) Range(f func(key K, v V, expirationTime time.Time) error) error {
+	cf := func(key K, v *elem[V]) (newV *elem[V], setV bool, delV bool, err error) {
+		return nil, false, false, f(key, v.v, v.expirationTime)
 	}
-	c.m.RangeDo(cf)
+	return c.m.RangeDo(cf)
 }
 
-func (c *Cache[K, V]) Store(key K, v V, storedTime, expirationTime time.Time) {
+// Store stores this kv in cache. If expirationTime is before time.Now(),
+// Store is an noop.
+func (c *Cache[K, V]) Store(key K, v V, expirationTime time.Time) {
 	now := time.Now()
 	if now.After(expirationTime) {
 		return
 	}
-	if storedTime.IsZero() {
-		storedTime = now
-	}
 
 	e := &elem[V]{
 		v:              v,
-		storedTime:     storedTime,
 		expirationTime: expirationTime,
 	}
 	c.m.Set(key, e)
@@ -141,16 +140,18 @@ func (c *Cache[K, V]) gcLoop(interval time.Duration) {
 }
 
 func (c *Cache[K, V]) gc(now time.Time) {
-	f := func(key K, v *elem[V]) (newV *elem[V], setV bool, delV bool) {
-		return nil, false, now.After(v.expirationTime)
+	f := func(key K, v *elem[V]) (newV *elem[V], setV, delV bool, err error) {
+		return nil, false, now.After(v.expirationTime), nil
 	}
-	c.m.RangeDo(f)
+	_ = c.m.RangeDo(f)
 }
 
+// Len returns the current size of this cache.
 func (c *Cache[K, V]) Len() int {
 	return c.m.Len()
 }
 
+// Flush removes all stored entries from this cache.
 func (c *Cache[K, V]) Flush() {
 	c.m.Flush()
 }

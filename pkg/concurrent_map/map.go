@@ -78,10 +78,13 @@ func (m *Map[K, V]) TestAndSet(key K, f func(v V, ok bool) (newV V, setV, delV b
 	m.getShard(key).testAndSet(key, f)
 }
 
-func (m *Map[K, V]) RangeDo(f func(k K, v V) (newV V, setV, delV bool)) {
+func (m *Map[K, V]) RangeDo(f func(k K, v V) (newV V, setV, delV bool, err error)) error {
 	for i := range m.shards {
-		m.shards[i].rangeDo(f)
+		if err := m.shards[i].rangeDo(f); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func (m *Map[K, V]) Len() int {
@@ -163,11 +166,14 @@ func (m *shard[K, V]) flush() {
 	m.m = make(map[K]V)
 }
 
-func (m *shard[K, V]) rangeDo(f func(k K, v V) (newV V, setV, delV bool)) {
+func (m *shard[K, V]) rangeDo(f func(k K, v V) (newV V, setV, delV bool, err error)) error {
 	m.l.Lock()
 	defer m.l.Unlock()
 	for k, v := range m.m {
-		newV, setV, deleteV := f(k, v)
+		newV, setV, deleteV, err := f(k, v)
+		if err != nil {
+			return err
+		}
 		switch {
 		case setV:
 			m.m[k] = newV
@@ -175,4 +181,5 @@ func (m *shard[K, V]) rangeDo(f func(k K, v V) (newV V, setV, delV bool)) {
 			delete(m.m, k)
 		}
 	}
+	return nil
 }
