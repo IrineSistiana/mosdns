@@ -20,6 +20,7 @@
 package concurrent_map
 
 import (
+	"errors"
 	"sync"
 	"testing"
 )
@@ -46,12 +47,20 @@ func Test_Map(t *testing.T) {
 	wg.Wait()
 
 	// test range
-	cc := make([]bool, 512)
-	f := func(key testMapHashable, v int) (newV int, setV bool, deleteV bool) {
-		cc[key] = true
-		return 0, false, false
+	wantErr := errors.New("")
+	f := func(key testMapHashable, v int) (newV int, setV bool, deleteV bool, err error) {
+		return 0, false, false, wantErr
 	}
-	m.RangeDo(f)
+	if wantErr != m.RangeDo(f) {
+		t.Fatal("range should return a error")
+	}
+
+	cc := make([]bool, 512)
+	f = func(key testMapHashable, v int) (newV int, setV bool, deleteV bool, err error) {
+		cc[key] = true
+		return 0, false, false, nil
+	}
+	_ = m.RangeDo(f)
 	for _, ok := range cc {
 		if !ok {
 			t.Fatal("test or range failed")
