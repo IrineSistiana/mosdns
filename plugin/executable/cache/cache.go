@@ -59,8 +59,8 @@ const (
 
 	minimumChangesToDump   = 1024
 	dumpHeader             = "mosdns_cache_v1"
-	dumpBlockSize          = 4096
-	dumpMaximumBlockLength = 1 << 20
+	dumpBlockSize          = 128
+	dumpMaximumBlockLength = 1 << 20 // 1M block. 8kb pre entry. Should be enough.
 )
 
 var _ sequence.RecursiveExecutable = (*cachePlugin)(nil)
