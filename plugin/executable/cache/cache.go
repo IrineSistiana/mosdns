@@ -26,7 +26,6 @@ import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/cache"
-	"github.com/IrineSistiana/mosdns/v5/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
@@ -52,6 +51,7 @@ const (
 
 func init() {
 	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
+	sequence.MustRegExecQuickSetup(PluginType, quickSetupCache)
 }
 
 const (
@@ -148,7 +148,7 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, nex
 		return next.ExecNext(ctx, qCtx)
 	}
 
-	cachedResp, lazyHit := c.lookupCache(msgKey)
+	cachedResp, lazyHit := getRespFromCache(msgKey, c.backend, c.args.LazyCacheTTL > 0, c.args.LazyCacheReplyTTL)
 	if lazyHit {
 		c.lazyHitTotal.Inc()
 		c.doLazyUpdate(msgKey, qCtx, next)
@@ -162,9 +162,9 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, nex
 
 	err := next.ExecNext(ctx, qCtx)
 
-	// This response is not from cache. Cache it.
-	if r := qCtx.R(); cachedResp == nil && r != nil {
-		c.tryStoreMsg(msgKey, r)
+	if r := qCtx.R(); r != nil && cachedResp != r { // pointer compare. r is not cachedResp
+		saveRespToCache(msgKey, r, c.backend, c.args.LazyCacheTTL)
+		c.updatedKey.Add(1)
 	}
 	return err
 }
@@ -188,88 +188,13 @@ func (c *cachePlugin) doLazyUpdate(msgKey string, qCtx *query_context.Context, n
 
 		r := qCtx.R()
 		if r != nil {
-			c.tryStoreMsg(msgKey, r)
+			saveRespToCache(msgKey, r, c.backend, c.args.LazyCacheTTL)
+			c.updatedKey.Add(1)
 		}
 		c.L().Debug("lazy cache updated", qCtx.InfoField())
 		return nil, nil
 	}
 	c.lazyUpdateSF.DoChan(msgKey, lazyUpdateFunc) // DoChan won't block this goroutine
-}
-
-// lookupCache returns the cached response. The ttl of returned msg will be changed properly.
-// Returned bool indicates whether this response is hit by lazy cache.
-// Note: Caller SHOULD change the msg id because it's not same as query's.
-func (c *cachePlugin) lookupCache(msgKey string) (*dns.Msg, bool) {
-	// Lookup cache
-	v, _, _ := c.backend.Get(key(msgKey))
-
-	// Cache hit
-	if v != nil {
-		now := time.Now()
-
-		// Not expired.
-		if now.After(v.expirationTime) {
-			r := v.resp.Copy()
-			dnsutils.SubtractTTL(r, uint32(now.Sub(v.storedTime).Seconds()))
-			return r, false
-		}
-
-		// Msg expired but cache isn't. This is a lazy cache enabled entry.
-		// If lazy cache is enabled in this plugin, return the response.
-		if c.args.LazyCacheTTL > 0 {
-			r := v.resp.Copy()
-			dnsutils.SetTTL(r, uint32(c.args.LazyCacheReplyTTL))
-			return r, true
-		}
-	}
-
-	// cache miss
-	return nil, false
-}
-
-// tryStoreMsg tries to store r to cache. If r should be cached.
-func (c *cachePlugin) tryStoreMsg(msgKey string, r *dns.Msg) {
-	if r.Truncated != false {
-		return
-	}
-
-	// Set different ttl for different responses.
-	var msgTtl time.Duration
-	var cacheTtl time.Duration
-	switch r.Rcode {
-	case dns.RcodeNameError:
-		msgTtl = time.Second * 30
-		cacheTtl = msgTtl
-	case dns.RcodeServerFailure:
-		msgTtl = time.Second * 5
-		cacheTtl = msgTtl
-	case dns.RcodeSuccess:
-		minTTL := dnsutils.GetMinimalTTL(r)
-		if len(r.Answer) == 0 { // Empty answer. Set ttl between 0~300.
-			const maxEmtpyAnswerTtl = 300
-			msgTtl = time.Duration(min(minTTL, maxEmtpyAnswerTtl)) * time.Second
-			cacheTtl = msgTtl
-			break
-		}
-		msgTtl = time.Duration(minTTL) * time.Second
-		if c.args.LazyCacheTTL > 0 {
-			cacheTtl = time.Duration(c.args.LazyCacheTTL) * time.Second
-		} else {
-			cacheTtl = msgTtl
-		}
-	default:
-		return
-	}
-
-	now := time.Now()
-	v := &item{
-		// RFC 6891 6.2.1. Cache Behaviour.
-		// The OPT record MUST NOT be cached.
-		resp:           copyNoOpt(r),
-		expirationTime: now.Add(msgTtl),
-	}
-	c.updatedKey.Add(1)
-	c.backend.Store(key(msgKey), v, now.Add(cacheTtl))
 }
 
 func (c *cachePlugin) Close() error {
