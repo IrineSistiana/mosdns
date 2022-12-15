@@ -68,13 +68,8 @@ func NewMatcher(bq sequence.BQ, args *Args, f MatchFunc) (m *Matcher, err error)
 	// Anonymous set from plugin's args and files.
 	if len(args.Exps)+len(args.Files) > 0 {
 		anonymousSet := domain.NewDomainMixMatcher()
-		if err := domain_set.LoadExps(args.Exps, anonymousSet); err != nil {
+		if err := domain_set.LoadExpsAndFiles(args.Exps, args.Files, anonymousSet); err != nil {
 			return nil, err
-		}
-		for _, path := range args.Files {
-			if err := domain_set.LoadFile(path, anonymousSet); err != nil {
-				return nil, fmt.Errorf("failed to load domain from file %s, %w", path, err)
-			}
 		}
 		if anonymousSet.Len() > 0 {
 			m.mg = append(m.mg, anonymousSet)

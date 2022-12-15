@@ -69,13 +69,8 @@ func NewMatcher(bq sequence.BQ, args *Args, f MatchFunc) (m *Matcher, err error)
 	// Anonymous set from plugin's args and files.
 	if len(args.IPs)+len(args.Files) > 0 {
 		anonymousList := netlist.NewList()
-		if err := ip_set.LoadFromIPs(args.IPs, anonymousList); err != nil {
+		if err := ip_set.LoadFromIPsAndFiles(args.IPs, args.Files, anonymousList); err != nil {
 			return nil, err
-		}
-		for _, path := range args.Files {
-			if err := ip_set.LoadFromFile(path, anonymousList); err != nil {
-				return nil, fmt.Errorf("failed to load ip list from file %s, %w", path, err)
-			}
 		}
 		anonymousList.Sort()
 		if anonymousList.Len() > 0 {
