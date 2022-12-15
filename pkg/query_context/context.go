@@ -154,7 +154,7 @@ func (ctx *Context) HasMark(m uint32) bool {
 func (ctx *Context) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
 	encoder.AddUint32("uqid", ctx.id)
 
-	if addr, _ := GetClientAddr(ctx); addr.IsValid() {
+	if addr, ok := GetClientAddr(ctx); ok && addr.IsValid() {
 		zap.Stringer("client", addr).AddTo(encoder)
 	}
 
