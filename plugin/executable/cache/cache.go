@@ -201,6 +201,9 @@ func (c *cachePlugin) Close() error {
 	if err := c.dumpCache(); err != nil {
 		c.L().Error("failed to dump cache", zap.Error(err))
 	}
+	c.closeOnce.Do(func() {
+		close(c.closeNotify)
+	})
 	return c.backend.Close()
 }
 
