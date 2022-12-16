@@ -23,6 +23,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"github.com/IrineSistiana/mosdns/v5/mlog"
 	"github.com/IrineSistiana/mosdns/v5/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v5/pkg/upstream/bootstrap"
 	"github.com/IrineSistiana/mosdns/v5/pkg/upstream/doh"
@@ -105,9 +106,9 @@ type Opt struct {
 	Logger *zap.Logger
 }
 
-func NewUpstream(addr string, opt *Opt) (Upstream, error) {
-	if opt == nil {
-		opt = new(Opt)
+func NewUpstream(addr string, opt Opt) (Upstream, error) {
+	if opt.Logger == nil {
+		opt.Logger = mlog.Nop()
 	}
 
 	// parse protocol and server addr

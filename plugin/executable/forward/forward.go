@@ -28,6 +28,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v5/pkg/safe_close"
 	"github.com/IrineSistiana/mosdns/v5/pkg/upstream"
+	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
@@ -49,22 +50,28 @@ const (
 type Args struct {
 	Upstreams  []UpstreamConfig `yaml:"upstreams"`
 	Concurrent int              `yaml:"concurrent"`
-}
 
-type UpstreamConfig struct {
-	Tag          string `yaml:"tag"`
-	Addr         string `yaml:"addr"` // Required.
-	DialAddr     string `yaml:"dial_addr"`
+	// Global options.
 	Socks5       string `yaml:"socks5"`
 	SoMark       int    `yaml:"so_mark"`
 	BindToDevice string `yaml:"bind_to_device"`
+	Bootstrap    string `yaml:"bootstrap"`
+}
 
+type UpstreamConfig struct {
+	Tag                string `yaml:"tag"`
+	Addr               string `yaml:"addr"` // Required.
+	DialAddr           string `yaml:"dial_addr"`
 	IdleTimeout        int    `yaml:"idle_timeout"`
 	MaxConns           int    `yaml:"max_conns"`
 	EnablePipeline     bool   `yaml:"enable_pipeline"`
 	EnableHTTP3        bool   `yaml:"enable_http3"`
-	Bootstrap          string `yaml:"bootstrap"`
 	InsecureSkipVerify bool   `yaml:"insecure_skip_verify"`
+
+	Socks5       string `yaml:"socks5"`
+	SoMark       int    `yaml:"so_mark"`
+	BindToDevice string `yaml:"bind_to_device"`
+	Bootstrap    string `yaml:"bootstrap"`
 }
 
 func Init(bp *coremain.BP, args interface{}) (coremain.Plugin, error) {
@@ -93,12 +100,20 @@ func newFastForward(bp *coremain.BP, args *Args) (*fastForward, error) {
 		tag2Upstream: make(map[string]*upstreamWrapper),
 	}
 
+	applyGlobal := func(c *UpstreamConfig) {
+		utils.SetDefaultString(&c.Socks5, args.Socks5)
+		utils.SetDefaultUnsignNum(&c.SoMark, args.SoMark)
+		utils.SetDefaultString(&c.BindToDevice, args.BindToDevice)
+		utils.SetDefaultString(&c.Bootstrap, args.Bootstrap)
+	}
+
 	for i, c := range args.Upstreams {
 		if len(c.Addr) == 0 {
 			return nil, fmt.Errorf("#%d upstream invalid args, addr is required", i)
 		}
+		applyGlobal(&c)
 
-		opt := &upstream.Opt{
+		opt := upstream.Opt{
 			DialAddr:       c.DialAddr,
 			Socks5:         c.Socks5,
 			SoMark:         c.SoMark,
@@ -125,7 +140,12 @@ func newFastForward(bp *coremain.BP, args *Args) (*fastForward, error) {
 			cfg:      c,
 		}
 		f.us[uw] = struct{}{}
+
 		if len(c.Tag) > 0 {
+			if _, dup := f.tag2Upstream[c.Tag]; dup {
+				_ = f.Close()
+				return nil, fmt.Errorf("duplicated upstream tag %s", c.Tag)
+			}
 			f.tag2Upstream[c.Tag] = uw
 		}
 	}

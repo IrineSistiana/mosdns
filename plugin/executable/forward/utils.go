@@ -19,7 +19,9 @@
 
 package fastforward
 
-import "github.com/IrineSistiana/mosdns/v5/pkg/upstream"
+import (
+	"github.com/IrineSistiana/mosdns/v5/pkg/upstream"
+)
 
 type upstreamWrapper struct {
 	upstream.Upstream

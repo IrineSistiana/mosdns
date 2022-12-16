@@ -125,7 +125,7 @@ func Test_fastUpstream(t *testing.T) {
 						defer shutdownServer()
 						u, err := NewUpstream(
 							scheme+"://"+addr,
-							&Opt{
+							Opt{
 								IdleTimeout: time.Second,
 								MaxConns:    5,
 								TLSConfig:   &tls.Config{InsecureSkipVerify: true},
