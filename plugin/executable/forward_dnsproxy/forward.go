@@ -34,6 +34,10 @@ import (
 
 const PluginType = "forward_dnsproxy"
 
+const (
+	queryTimeout = time.Second * 5
+)
+
 func init() {
 	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
 }
@@ -49,7 +53,6 @@ type forwardPlugin struct {
 type Args struct {
 	// options for dnsproxy upstream
 	Upstreams          []UpstreamConfig `yaml:"upstreams"`
-	Timeout            int              `yaml:"timeout"`
 	InsecureSkipVerify bool             `yaml:"insecure_skip_verify"`
 	Bootstrap          []string         `yaml:"bootstrap"`
 }
@@ -81,17 +84,12 @@ func newForwarder(bp *coremain.BP, args *Args) (*forwardPlugin, error) {
 			serverIPAddrs = append(serverIPAddrs, ip)
 		}
 
-		opt := &upstream.Options{}
-		opt.Bootstrap = args.Bootstrap
-		opt.ServerIPAddrs = serverIPAddrs
-
-		opt.Timeout = time.Second * 10
-		if args.Timeout > 0 {
-			opt.Timeout = time.Second * time.Duration(args.Timeout)
+		opt := &upstream.Options{
+			Bootstrap:          args.Bootstrap,
+			Timeout:            queryTimeout,
+			ServerIPAddrs:      serverIPAddrs,
+			InsecureSkipVerify: args.InsecureSkipVerify,
 		}
-
-		opt.InsecureSkipVerify = args.InsecureSkipVerify
-
 		u, err := upstream.AddressToUpstream(conf.Addr, opt)
 		if err != nil {
 			return nil, fmt.Errorf("failed to init upsteam #%d: %w", i, err)
