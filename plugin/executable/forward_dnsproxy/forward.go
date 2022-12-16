@@ -79,6 +79,7 @@ func newForwarder(bp *coremain.BP, args *Args) (*forwardPlugin, error) {
 		for _, s := range conf.IPAddrs {
 			ip := net.ParseIP(s)
 			if ip == nil {
+				_ = f.Close()
 				return nil, fmt.Errorf("invalid ip addr %s", s)
 			}
 			serverIPAddrs = append(serverIPAddrs, ip)
@@ -92,6 +93,7 @@ func newForwarder(bp *coremain.BP, args *Args) (*forwardPlugin, error) {
 		}
 		u, err := upstream.AddressToUpstream(conf.Addr, opt)
 		if err != nil {
+			_ = f.Close()
 			return nil, fmt.Errorf("failed to init upsteam #%d: %w", i, err)
 		}
 		f.upstreams = append(f.upstreams, u)
@@ -134,7 +136,7 @@ func (f *forwardPlugin) exec(ctx context.Context, qCtx *query_context.Context) e
 
 func (f *forwardPlugin) Close() error {
 	for _, u := range f.upstreams {
-		u.Close()
+		_ = u.Close()
 	}
 	return nil
 }
