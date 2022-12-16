@@ -105,7 +105,7 @@ func (m *Mosdns) NewPlugin(c PluginConfig) error {
 			return fmt.Errorf("unable to decode plugin args: %w", err)
 		}
 	}
-	p, err := typeInfo.NewPlugin(NewBP(c.Tag, m), c.Args)
+	p, err := typeInfo.NewPlugin(NewBP(c.Tag, m), args)
 	if err != nil {
 		return fmt.Errorf("failed to init plugin: %w", err)
 	}
