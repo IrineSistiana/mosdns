@@ -40,6 +40,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -95,16 +96,32 @@ type Cache struct {
 }
 
 func Init(bp *coremain.BP, args any) (any, error) {
-	return NewCache(bp, args.(*Args)), nil
+	c := NewCache(bp, args.(*Args))
+	MustRegPlugin(c, bp)
+	return c, nil
 }
 
-func NewCache(bp *coremain.BP, args *Args) *Cache {
+// QuickSetup format: [size]
+// default is 1024. If size is < 1024, 1024 will be used.
+func quickSetupCache(bq sequence.BQ, s string) (any, error) {
+	size := 0
+	if len(s) > 0 {
+		i, err := strconv.Atoi(s)
+		if err != nil {
+			return nil, fmt.Errorf("invalid size, %w", err)
+		}
+		size = i
+	}
+	return NewCache(bq, &Args{Size: size}), nil
+}
+
+func NewCache(bq sequence.BQ, args *Args) *Cache {
 	args.init()
 
 	backend := cache.New[key, *item](cache.Opts{Size: args.Size})
 	p := &Cache{
 		args:    args,
-		logger:  bp.L(),
+		logger:  bq.L(),
 		backend: backend,
 
 		queryTotal: prometheus.NewCounter(prometheus.CounterOpts{
@@ -126,15 +143,19 @@ func NewCache(bp *coremain.BP, args *Args) *Cache {
 			return float64(backend.Len())
 		}),
 	}
-	bp.GetMetricsReg().MustRegister(p.queryTotal, p.hitTotal, p.lazyHitTotal, p.size)
 
 	if err := p.loadDump(); err != nil {
 		p.logger.Error("failed to load cache dump", zap.Error(err))
 	}
 	p.startDumpLoop()
 
-	bp.RegAPI(p.api())
 	return p
+}
+
+// MustRegPlugin registers metrics and api.
+func MustRegPlugin(c *Cache, to *coremain.BP) {
+	to.GetMetricsReg().MustRegister(c.queryTotal, c.hitTotal, c.lazyHitTotal, c.size)
+	to.RegAPI(c.api())
 }
 
 func (c *Cache) Exec(ctx context.Context, qCtx *query_context.Context, next sequence.ChainWalker) error {
