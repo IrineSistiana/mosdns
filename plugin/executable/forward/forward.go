@@ -80,6 +80,7 @@ func Init(bp *coremain.BP, args any) (any, error) {
 }
 
 var _ sequence.Executable = (*Forward)(nil)
+var _ sequence.QuickConfigurableExec = (*Forward)(nil)
 
 type Forward struct {
 	args *Args
@@ -169,8 +170,8 @@ func (f *Forward) Exec(ctx context.Context, qCtx *query_context.Context) (err er
 	return nil
 }
 
-// QuickConfigure format: [upstream_tag]...
-func (f *Forward) QuickConfigure(args string) (any, error) {
+// QuickConfigureExec format: [upstream_tag]...
+func (f *Forward) QuickConfigureExec(args string) (any, error) {
 	var us map[*upstreamWrapper]struct{}
 	if len(args) == 0 { // No args, use all upstreams.
 		us = f.us
