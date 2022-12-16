@@ -56,6 +56,7 @@ func init() {
 
 const (
 	defaultLazyUpdateTimeout = time.Second * 5
+	expiredMsgTtl            = 5
 
 	minimumChangesToDump   = 1024
 	dumpHeader             = "mosdns_cache_v1"
@@ -66,16 +67,14 @@ const (
 var _ sequence.RecursiveExecutable = (*cachePlugin)(nil)
 
 type Args struct {
-	Size              int    `yaml:"size"`
-	LazyCacheTTL      int    `yaml:"lazy_cache_ttl"`
-	LazyCacheReplyTTL int    `yaml:"lazy_cache_reply_ttl"`
-	DumpFile          string `yaml:"dump_file"`
-	DumpInterval      int    `yaml:"dump_interval"`
+	Size         int    `yaml:"size"`
+	LazyCacheTTL int    `yaml:"lazy_cache_ttl"`
+	DumpFile     string `yaml:"dump_file"`
+	DumpInterval int    `yaml:"dump_interval"`
 }
 
 func (a *Args) init() {
 	utils.SetDefaultUnsignNum(&a.Size, 1024)
-	utils.SetDefaultUnsignNum(&a.LazyCacheReplyTTL, 5)
 	utils.SetDefaultUnsignNum(&a.DumpInterval, 600)
 }
 
@@ -148,7 +147,7 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, nex
 		return next.ExecNext(ctx, qCtx)
 	}
 
-	cachedResp, lazyHit := getRespFromCache(msgKey, c.backend, c.args.LazyCacheTTL > 0, c.args.LazyCacheReplyTTL)
+	cachedResp, lazyHit := getRespFromCache(msgKey, c.backend, c.args.LazyCacheTTL > 0, expiredMsgTtl)
 	if lazyHit {
 		c.lazyHitTotal.Inc()
 		c.doLazyUpdate(msgKey, qCtx, next)
