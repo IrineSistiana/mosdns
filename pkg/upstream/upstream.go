@@ -131,7 +131,6 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 	switch addrURL.Scheme {
 	case "", "udp":
 		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 53)
-
 		uto := transport.Opts{
 			Logger: opt.Logger,
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
@@ -145,10 +144,6 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 			MaxConns:       opt.MaxConns,
 			IdleTimeout:    time.Second * 60,
 		}
-		ut, err := transport.NewTransport(uto)
-		if err != nil {
-			return nil, fmt.Errorf("cannot init udp transport, %w", err)
-		}
 		tto := transport.Opts{
 			Logger: opt.Logger,
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
@@ -157,13 +152,9 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 			WriteFunc: dnsutils.WriteMsgToTCP,
 			ReadFunc:  dnsutils.ReadMsgFromTCP,
 		}
-		tt, err := transport.NewTransport(tto)
-		if err != nil {
-			return nil, fmt.Errorf("cannot init tcp transport, %w", err)
-		}
 		return &udpWithFallback{
-			u: ut,
-			t: tt,
+			u: transport.NewTransport(uto),
+			t: transport.NewTransport(tto),
 		}, nil
 	case "tcp":
 		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 53)
@@ -178,7 +169,7 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 			EnablePipeline: opt.EnablePipeline,
 			MaxConns:       opt.MaxConns,
 		}
-		return transport.NewTransport(to)
+		return transport.NewTransport(to), nil
 	case "tls":
 		var tlsConfig *tls.Config
 		if opt.TLSConfig != nil {
@@ -211,7 +202,7 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 			EnablePipeline: opt.EnablePipeline,
 			MaxConns:       opt.MaxConns,
 		}
-		return transport.NewTransport(to)
+		return transport.NewTransport(to), nil
 	case "https":
 		idleConnTimeout := time.Second * 30
 		if opt.IdleTimeout > 0 {

@@ -51,18 +51,20 @@ const (
 
 // Opts for Transport,
 type Opts struct {
-	// Nil logger disables logging.
-	Logger *zap.Logger
-
-	// The following funcs cannot be nil.
 	// DialFunc specifies the method to dial a connection to the server.
+	// DialFunc MUST NOT be nil.
 	DialFunc func(ctx context.Context) (net.Conn, error)
 	// WriteFunc specifies the method to write a wire dns msg to the connection
 	// opened by the DialFunc.
+	// WriteFunc MUST NOT be nil.
 	WriteFunc func(c io.Writer, m *dns.Msg) (int, error)
 	// ReadFunc specifies the method to read a wire dns msg from the connection
 	// opened by the DialFunc.
+	// ReadFunc MUST NOT be nil.
 	ReadFunc func(c io.Reader) (*dns.Msg, int, error)
+
+	// Logger for inner log. Nil logger disables logging.
+	Logger *zap.Logger
 
 	// DialTimeout specifies the timeout for DialFunc.
 	// Default is defaultDialTimeout.
@@ -91,28 +93,22 @@ type Opts struct {
 }
 
 // init check and set defaults for this Opts.
-func (opts *Opts) init() error {
+func (opts *Opts) init() {
 	if opts.Logger == nil {
 		opts.Logger = nopLogger
 	}
-	if opts.DialFunc == nil || opts.WriteFunc == nil || opts.ReadFunc == nil {
-		return errors.New("opts missing required func(s)")
-	}
-
 	utils.SetDefaultNum(&opts.DialTimeout, defaultDialTimeout)
 	utils.SetDefaultNum(&opts.IdleTimeout, defaultIdleTimeout)
 	utils.SetDefaultNum(&opts.MaxConns, defaultMaxConns)
 	utils.SetDefaultNum(&opts.MaxQueryPerConn, defaultMaxQueryPerConn)
-	return nil
+
 }
 
-func NewTransport(opts Opts) (*Transport, error) {
-	if err := opts.init(); err != nil {
-		return nil, err
-	}
+func NewTransport(opts Opts) *Transport {
+	opts.init()
 	return &Transport{
 		opts: opts,
-	}, nil
+	}
 }
 
 // Transport is a DNS msg transport that supposes DNS over UDP,TCP,TLS.

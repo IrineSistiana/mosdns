@@ -289,10 +289,7 @@ func TestTransport_Exchange(t *testing.T) {
 				EnablePipeline:  tt.fields.EnablePipeline,
 				MaxQueryPerConn: 2,
 			}
-			transport, err := NewTransport(opts)
-			if err != nil {
-				t.Fatal(err)
-			}
+			transport := NewTransport(opts)
 			ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*100)
 			defer cancel()
 
