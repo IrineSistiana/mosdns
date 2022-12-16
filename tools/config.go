@@ -84,7 +84,7 @@ log:
 
 plugins:
   - tag: forward_google
-    type: fast_forward
+    type: forward
     args:
       upstream:
         - addr: https://8.8.8.8/dns-query
