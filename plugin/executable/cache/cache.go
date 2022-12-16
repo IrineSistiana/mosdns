@@ -50,7 +50,7 @@ const (
 )
 
 func init() {
-	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
+	coremain.RegNewPluginFunc(PluginType, Init, func() any { return new(Args) })
 	sequence.MustRegExecQuickSetup(PluginType, quickSetupCache)
 }
 
@@ -79,9 +79,9 @@ func (a *Args) init() {
 }
 
 type cachePlugin struct {
-	*coremain.BP
 	args *Args
 
+	logger       *zap.Logger
 	backend      *cache.Cache[key, *item]
 	lazyUpdateSF singleflight.Group
 	closeOnce    sync.Once
@@ -94,7 +94,7 @@ type cachePlugin struct {
 	size         prometheus.GaugeFunc
 }
 
-func Init(bp *coremain.BP, args interface{}) (coremain.Plugin, error) {
+func Init(bp *coremain.BP, args any) (any, error) {
 	return newCachePlugin(bp, args.(*Args)), nil
 }
 
@@ -102,10 +102,9 @@ func newCachePlugin(bp *coremain.BP, args *Args) *cachePlugin {
 	args.init()
 
 	backend := cache.New[key, *item](cache.Opts{Size: args.Size})
-
 	p := &cachePlugin{
-		BP:      bp,
 		args:    args,
+		logger:  bp.L(),
 		backend: backend,
 
 		queryTotal: prometheus.NewCounter(prometheus.CounterOpts{
@@ -130,7 +129,7 @@ func newCachePlugin(bp *coremain.BP, args *Args) *cachePlugin {
 	bp.GetMetricsReg().MustRegister(p.queryTotal, p.hitTotal, p.lazyHitTotal, p.size)
 
 	if err := p.loadDump(); err != nil {
-		p.L().Error("failed to load cache dump", zap.Error(err))
+		p.logger.Error("failed to load cache dump", zap.Error(err))
 	}
 	p.startDumpLoop()
 
@@ -172,17 +171,17 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, nex
 // It has an inner singleflight.Group to de-duplicate same msgKey.
 func (c *cachePlugin) doLazyUpdate(msgKey string, qCtx *query_context.Context, next sequence.ChainWalker) {
 	qCtxCopy := qCtx.Copy()
-	lazyUpdateFunc := func() (interface{}, error) {
+	lazyUpdateFunc := func() (any, error) {
 		defer c.lazyUpdateSF.Forget(msgKey)
 		qCtx := qCtxCopy
 
-		c.L().Debug("start lazy cache update", qCtx.InfoField())
+		c.logger.Debug("start lazy cache update", qCtx.InfoField())
 		ctx, cancel := context.WithTimeout(context.Background(), defaultLazyUpdateTimeout)
 		defer cancel()
 
 		err := next.ExecNext(ctx, qCtx)
 		if err != nil {
-			c.L().Warn("failed to update lazy cache", qCtx.InfoField(), zap.Error(err))
+			c.logger.Warn("failed to update lazy cache", qCtx.InfoField(), zap.Error(err))
 		}
 
 		r := qCtx.R()
@@ -190,7 +189,7 @@ func (c *cachePlugin) doLazyUpdate(msgKey string, qCtx *query_context.Context, n
 			saveRespToCache(msgKey, r, c.backend, c.args.LazyCacheTTL)
 			c.updatedKey.Add(1)
 		}
-		c.L().Debug("lazy cache updated", qCtx.InfoField())
+		c.logger.Debug("lazy cache updated", qCtx.InfoField())
 		return nil, nil
 	}
 	c.lazyUpdateSF.DoChan(msgKey, lazyUpdateFunc) // DoChan won't block this goroutine
@@ -198,7 +197,7 @@ func (c *cachePlugin) doLazyUpdate(msgKey string, qCtx *query_context.Context, n
 
 func (c *cachePlugin) Close() error {
 	if err := c.dumpCache(); err != nil {
-		c.L().Error("failed to dump cache", zap.Error(err))
+		c.logger.Error("failed to dump cache", zap.Error(err))
 	}
 	c.closeOnce.Do(func() {
 		close(c.closeNotify)
@@ -219,7 +218,7 @@ func (c *cachePlugin) loadDump() error {
 	if err != nil {
 		return err
 	}
-	c.L().Info("cache dump loaded", zap.Int("entries", en))
+	c.logger.Info("cache dump loaded", zap.Int("entries", en))
 	return nil
 }
 
@@ -242,7 +241,7 @@ func (c *cachePlugin) startDumpLoop() {
 				}
 
 				if err := c.dumpCache(); err != nil {
-					c.L().Error("dump cache", zap.Error(err))
+					c.logger.Error("dump cache", zap.Error(err))
 				}
 			case <-c.closeNotify:
 				return
@@ -266,7 +265,7 @@ func (c *cachePlugin) dumpCache() error {
 	if err != nil {
 		return fmt.Errorf("failed to write dump, %w", err)
 	}
-	c.L().Info("cache dumped", zap.Int("entries", en))
+	c.logger.Info("cache dumped", zap.Int("entries", en))
 	return nil
 }
 

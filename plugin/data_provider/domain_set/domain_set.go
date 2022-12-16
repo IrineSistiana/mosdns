@@ -32,11 +32,16 @@ import (
 const PluginType = "domain_set"
 
 func init() {
-	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
+	coremain.RegNewPluginFunc(PluginType, Init, func() any { return new(Args) })
 }
 
-func Init(bp *coremain.BP, args interface{}) (coremain.Plugin, error) {
-	return NewDomainSet(bp, args.(*Args))
+func Init(bp *coremain.BP, args any) (any, error) {
+	m, err := NewDomainSet(bp, args.(*Args))
+	if err != nil {
+		return nil, err
+	}
+	bp.L().Info("domain set loaded", zap.Int("length", m.GetDomainMatcher().Len()))
+	return m, nil
 }
 
 type Args struct {
@@ -48,8 +53,6 @@ type Args struct {
 var _ data_provider.DomainMatcherProvider = (*DomainSet)(nil)
 
 type DomainSet struct {
-	*coremain.BP
-
 	mg []domain.Matcher[struct{}]
 }
 
@@ -57,8 +60,9 @@ func (d *DomainSet) GetDomainMatcher() domain.Matcher[struct{}] {
 	return MatcherGroup(d.mg)
 }
 
+// NewDomainSet inits a DomainSet from given args.
 func NewDomainSet(bp *coremain.BP, args *Args) (*DomainSet, error) {
-	ds := &DomainSet{BP: bp}
+	ds := &DomainSet{}
 
 	m := domain.NewDomainMixMatcher()
 	if err := LoadExpsAndFiles(args.Exps, args.Files, m); err != nil {
@@ -69,14 +73,13 @@ func NewDomainSet(bp *coremain.BP, args *Args) (*DomainSet, error) {
 	}
 
 	for _, tag := range args.Sets {
-		provider, _ := bp.M().GetPlugins(tag).(data_provider.DomainMatcherProvider)
+		provider, _ := bp.M().GetPlugin(tag).(data_provider.DomainMatcherProvider)
 		if provider == nil {
 			return nil, fmt.Errorf("%s is not a DomainMatcherProvider", tag)
 		}
 		m := provider.GetDomainMatcher()
 		ds.mg = append(ds.mg, m)
 	}
-	bp.L().Info("domain set loaded", zap.Int("length", MatcherGroup(ds.mg).Len()))
 	return ds, nil
 }
 

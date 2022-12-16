@@ -34,7 +34,7 @@ import (
 const PluginType = "arbitrary"
 
 func init() {
-	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
+	coremain.RegNewPluginFunc(PluginType, Init, func() any { return new(Args) })
 }
 
 type Args struct {
@@ -45,7 +45,6 @@ type Args struct {
 var _ sequence.Executable = (*arbitraryPlugin)(nil)
 
 type arbitraryPlugin struct {
-	*coremain.BP
 	m *zone_file.Matcher
 }
 
@@ -56,7 +55,7 @@ func (p *arbitraryPlugin) Exec(_ context.Context, qCtx *query_context.Context) e
 	return nil
 }
 
-func Init(bp *coremain.BP, v interface{}) (coremain.Plugin, error) {
+func Init(_ *coremain.BP, v any) (any, error) {
 	args := v.(*Args)
 	m := new(zone_file.Matcher)
 
@@ -75,7 +74,6 @@ func Init(bp *coremain.BP, v interface{}) (coremain.Plugin, error) {
 		}
 	}
 	return &arbitraryPlugin{
-		BP: bp,
-		m:  m,
+		m: m,
 	}, nil
 }

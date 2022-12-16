@@ -94,7 +94,7 @@ type TestArgsStruct struct {
 
 func Test_WeakDecode(t *testing.T) {
 	testObj := new(TestArgsStruct)
-	testArgs := map[string]interface{}{
+	testArgs := map[string]any{
 		"1": "test",
 		"2": []int{1, 2, 3},
 	}

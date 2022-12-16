@@ -39,14 +39,12 @@ const (
 )
 
 func init() {
-	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
+	coremain.RegNewPluginFunc(PluginType, Init, func() any { return new(Args) })
 }
 
 var _ sequence.Executable = (*forwardPlugin)(nil)
 
 type forwardPlugin struct {
-	*coremain.BP
-
 	upstreams []upstream.Upstream
 }
 
@@ -62,18 +60,16 @@ type UpstreamConfig struct {
 	IPAddrs []string `yaml:"ip_addrs"`
 }
 
-func Init(bp *coremain.BP, args interface{}) (coremain.Plugin, error) {
-	return newForwarder(bp, args.(*Args))
+func Init(_ *coremain.BP, args any) (any, error) {
+	return newForwarder(args.(*Args))
 }
 
-func newForwarder(bp *coremain.BP, args *Args) (*forwardPlugin, error) {
+func newForwarder(args *Args) (*forwardPlugin, error) {
 	if len(args.Upstreams) == 0 {
 		return nil, errors.New("no upstream is configured")
 	}
 
 	f := new(forwardPlugin)
-	f.BP = bp
-
 	for i, conf := range args.Upstreams {
 		serverIPAddrs := make([]net.IP, 0, len(conf.IPAddrs))
 		for _, s := range conf.IPAddrs {

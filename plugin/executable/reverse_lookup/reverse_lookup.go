@@ -40,7 +40,7 @@ const (
 )
 
 func init() {
-	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
+	coremain.RegNewPluginFunc(PluginType, Init, func() any { return new(Args) })
 }
 
 var _ sequence.RecursiveExecutable = (*reverseLookup)(nil)
@@ -57,20 +57,18 @@ func (a *Args) init() {
 }
 
 type reverseLookup struct {
-	*coremain.BP
 	args *Args
 	c    *cache.Cache[key, string]
 }
 
-func Init(bp *coremain.BP, args interface{}) (coremain.Plugin, error) {
+func Init(bp *coremain.BP, args any) (any, error) {
 	return newReverseLookup(bp, args.(*Args))
 }
 
-func newReverseLookup(bp *coremain.BP, args *Args) (coremain.Plugin, error) {
+func newReverseLookup(bp *coremain.BP, args *Args) (any, error) {
 	args.init()
 	c := cache.New[key, string](cache.Opts{Size: args.Size})
 	p := &reverseLookup{
-		BP:   bp,
 		args: args,
 		c:    c,
 	}

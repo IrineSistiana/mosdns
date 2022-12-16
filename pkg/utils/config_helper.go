@@ -51,7 +51,7 @@ func CheckNumRange[K constraints.Integer | constraints.Float](v, min, max K) boo
 }
 
 // WeakDecode decodes args from config to output.
-func WeakDecode(in any, output interface{}) error {
+func WeakDecode(in any, output any) error {
 	config := &mapstructure.DecoderConfig{
 		ErrorUnused:      true,
 		Result:           output,

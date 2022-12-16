@@ -59,7 +59,7 @@ func NewAllocator() *Allocator {
 		} else {
 			bufSize = 1 << i
 		}
-		alloc.buffers[i].New = func() interface{} {
+		alloc.buffers[i].New = func() any {
 			b := make([]byte, bufSize)
 			return &b
 		}

@@ -34,10 +34,10 @@ import (
 const PluginType = "ip_set"
 
 func init() {
-	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
+	coremain.RegNewPluginFunc(PluginType, Init, func() any { return new(Args) })
 }
 
-func Init(bp *coremain.BP, args interface{}) (coremain.Plugin, error) {
+func Init(bp *coremain.BP, args any) (any, error) {
 	return NewIPSet(bp, args.(*Args))
 }
 
@@ -50,8 +50,6 @@ type Args struct {
 var _ data_provider.IPMatcherProvider = (*IPSet)(nil)
 
 type IPSet struct {
-	*coremain.BP
-
 	mg []netlist.Matcher
 }
 
@@ -60,7 +58,7 @@ func (d *IPSet) GetIPMatcher() netlist.Matcher {
 }
 
 func NewIPSet(bp *coremain.BP, args *Args) (*IPSet, error) {
-	p := &IPSet{BP: bp}
+	p := &IPSet{}
 
 	l := netlist.NewList()
 	if err := LoadFromIPsAndFiles(args.IPs, args.Files, l); err != nil {
@@ -71,7 +69,7 @@ func NewIPSet(bp *coremain.BP, args *Args) (*IPSet, error) {
 		p.mg = append(p.mg, l)
 	}
 	for _, tag := range args.Sets {
-		provider, _ := bp.M().GetPlugins(tag).(data_provider.IPMatcherProvider)
+		provider, _ := bp.M().GetPlugin(tag).(data_provider.IPMatcherProvider)
 		if provider == nil {
 			return nil, fmt.Errorf("%s is not an IPMatcherProvider", tag)
 		}

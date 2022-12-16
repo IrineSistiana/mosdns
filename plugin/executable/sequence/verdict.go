@@ -84,7 +84,7 @@ func (a *actionJump) Exec(ctx context.Context, qCtx *query_context.Context, next
 }
 
 func setupJump(bq BQ, s string) (any, error) {
-	jumpTo, _ := bq.M().GetPlugins(s).(*sequence)
+	jumpTo, _ := bq.M().GetPlugin(s).(*sequence)
 	if jumpTo == nil {
 		return nil, fmt.Errorf("can not find jump target %s", s)
 	}
@@ -101,7 +101,7 @@ func (a actionGoto) Exec(ctx context.Context, qCtx *query_context.Context, _ Cha
 }
 
 func setupGoto(bq BQ, s string) (any, error) {
-	gt, _ := bq.M().GetPlugins(s).(*sequence)
+	gt, _ := bq.M().GetPlugin(s).(*sequence)
 	if gt == nil {
 		return nil, fmt.Errorf("can not find goto target %s", s)
 	}

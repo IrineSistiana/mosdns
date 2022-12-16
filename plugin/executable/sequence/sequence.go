@@ -28,7 +28,7 @@ import (
 const PluginType = "sequence"
 
 func init() {
-	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
+	coremain.RegNewPluginFunc(PluginType, Init, func() any { return new(Args) })
 
 	MustRegExecQuickSetup("accept", setupAccept)
 	MustRegExecQuickSetup("reject", setupReject)
@@ -38,8 +38,6 @@ func init() {
 }
 
 type sequence struct {
-	*coremain.BP
-
 	chain            []*chainNode
 	anonymousPlugins []any
 }
@@ -53,20 +51,18 @@ func (s *sequence) Close() error {
 
 type Args = []RuleArgs
 
-func Init(bp *coremain.BP, args interface{}) (coremain.Plugin, error) {
+func Init(bp *coremain.BP, args any) (any, error) {
 	return newSequencePlugin(bp, *args.(*Args))
 }
 
-func newSequencePlugin(bp *coremain.BP, ra []RuleArgs) (*sequence, error) {
-	s := &sequence{
-		BP: bp,
-	}
+func newSequencePlugin(bq BQ, ra []RuleArgs) (*sequence, error) {
+	s := &sequence{}
 
 	var rc []RuleConfig
 	for _, ra := range ra {
 		rc = append(rc, parseArgs(ra))
 	}
-	if err := s.buildChain(rc); err != nil {
+	if err := s.buildChain(bq, rc); err != nil {
 		_ = s.Close()
 		return nil, err
 	}

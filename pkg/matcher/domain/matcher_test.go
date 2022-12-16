@@ -24,8 +24,8 @@ import (
 	"testing"
 )
 
-func assertFunc[T any](t *testing.T, m Matcher[T]) func(domain string, wantBool bool, wantV interface{}) {
-	return func(domain string, wantBool bool, wantV interface{}) {
+func assertFunc[T any](t *testing.T, m Matcher[T]) func(domain string, wantBool bool, wantV any) {
+	return func(domain string, wantBool bool, wantV any) {
 		t.Helper()
 		v, ok := m.Match(domain)
 		if ok != wantBool {
@@ -46,7 +46,7 @@ func s(str string) *aStr {
 	return &aStr{s: str}
 }
 
-func (a *aStr) Append(v interface{}) {
+func (a *aStr) Append(v any) {
 	a.s = a.s + v.(*aStr).s
 }
 
@@ -102,7 +102,7 @@ func assertInt(t testing.TB, want, got int) {
 func Test_FullMatcher(t *testing.T) {
 	m := NewFullMatcher[any]()
 	assert := assertFunc[any](t, m)
-	add := func(domain string, v interface{}) {
+	add := func(domain string, v any) {
 		m.Add(domain, v)
 	}
 
@@ -130,7 +130,7 @@ func Test_FullMatcher(t *testing.T) {
 
 func Test_KeywordMatcher(t *testing.T) {
 	m := NewKeywordMatcher[any]()
-	add := func(domain string, v interface{}) {
+	add := func(domain string, v any) {
 		m.Add(domain, v)
 	}
 
@@ -161,7 +161,7 @@ func Test_KeywordMatcher(t *testing.T) {
 
 func Test_RegexMatcher(t *testing.T) {
 	m := NewRegexMatcher[any]()
-	add := func(expr string, v interface{}, wantErr bool) {
+	add := func(expr string, v any, wantErr bool) {
 		err := m.Add(expr, v)
 		if (err != nil) != wantErr {
 			t.Fatalf("%s: want err %v, got %v", expr, wantErr, err != nil)

@@ -21,7 +21,6 @@ package coremain
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v5/mlog"
@@ -37,17 +36,14 @@ import (
 )
 
 type Mosdns struct {
-	ctx    context.Context
-	logger *zap.Logger
+	logger *zap.Logger // non-nil logger.
 
 	// Plugins
-	plugins map[string]Plugin
+	plugins map[string]*pluginWrapper
 
-	httpMux *chi.Mux
-
+	httpMux    *chi.Mux
 	metricsReg *prometheus.Registry
-
-	sc *safe_close.SafeClose
+	sc         *safe_close.SafeClose
 }
 
 // NewMosdns initializes a mosdns instance and its plugins.
@@ -60,7 +56,7 @@ func NewMosdns(cfg *Config) (*Mosdns, error) {
 
 	m := &Mosdns{
 		logger:     lg,
-		plugins:    make(map[string]Plugin),
+		plugins:    make(map[string]*pluginWrapper),
 		httpMux:    chi.NewRouter(),
 		metricsReg: newMetricsReg(),
 		sc:         safe_close.NewSafeClose(),
@@ -98,9 +94,9 @@ func NewMosdns(cfg *Config) (*Mosdns, error) {
 			defer done()
 			<-closeSignal
 			m.logger.Info("starting shutdown sequences")
-			for _, plugin := range m.plugins {
-				if closer, _ := plugin.(io.Closer); closer != nil {
-					m.logger.Info("closing plugin", zap.String("tag", plugin.Tag()))
+			for _, w := range m.plugins {
+				if closer, _ := w.p.(io.Closer); closer != nil {
+					m.logger.Info("closing plugin", zap.String("tag", w.tag))
 					_ = closer.Close()
 				}
 			}
@@ -110,16 +106,16 @@ func NewMosdns(cfg *Config) (*Mosdns, error) {
 
 	// Preset plugins
 	for tag, f := range LoadNewPersetPluginFuncs() {
-		bpOpts := BPOpts{
-			Logger: m.logger.Named(tag),
-			Mosdns: m,
-		}
-		p, err := f(NewBP(tag, "preset", bpOpts))
+		p, err := f(NewBP(tag, m))
 		if err != nil {
 			m.sc.SendCloseSignal(err)
 			return nil, fmt.Errorf("failed to init preset plugin %s, %w", tag, err)
 		}
-		m.plugins[tag] = p
+		m.plugins[tag] = &pluginWrapper{
+			tag: tag,
+			typ: "preset",
+			p:   p,
+		}
 	}
 
 	// Plugins from config.
@@ -132,13 +128,35 @@ func NewMosdns(cfg *Config) (*Mosdns, error) {
 	return m, nil
 }
 
-func NewTestMosdns(plugins map[string]Plugin) *Mosdns {
+// NewTestMosdns returns a mosdns instance for testing.
+func NewTestMosdns() *Mosdns {
 	return &Mosdns{
 		logger:     mlog.Nop(),
-		plugins:    plugins,
 		httpMux:    chi.NewRouter(),
+		plugins:    make(map[string]*pluginWrapper),
 		metricsReg: newMetricsReg(),
 		sc:         safe_close.NewSafeClose(),
+	}
+}
+
+// AddPlugin manually adds a plugin to mosdns. It returns an error if tag has
+// already been added.
+func (m *Mosdns) AddPlugin(tag, typ string, p any) error {
+	if _, dup := m.plugins[tag]; dup {
+		return fmt.Errorf("duplicated tag %s", tag)
+	}
+	m.plugins[tag] = &pluginWrapper{
+		tag: tag,
+		typ: typ,
+		p:   p,
+	}
+	return nil
+}
+
+// MustAddPlugin adds plugin to mosdns. It panics if tag is duplicated.
+func (m *Mosdns) MustAddPlugin(tag, typ string, p any) {
+	if err := m.AddPlugin(tag, typ, p); err != nil {
+		panic(err.Error())
 	}
 }
 
@@ -151,12 +169,18 @@ func (m *Mosdns) CloseWithErr(err error) {
 	m.sc.SendCloseSignal(err)
 }
 
+// Logger returns a non-nil logger.
 func (m *Mosdns) Logger() *zap.Logger {
 	return m.logger
 }
 
-func (m *Mosdns) GetPlugins(tag string) Plugin {
-	return m.plugins[tag]
+// GetPlugin returns a plugin.
+func (m *Mosdns) GetPlugin(tag string) any {
+	w, ok := m.plugins[tag]
+	if ok {
+		return w.p
+	}
+	return nil
 }
 
 // GetMetricsReg returns a prometheus.Registerer with a prefix of "mosdns_"
@@ -169,6 +193,10 @@ func (m *Mosdns) GetAPIRouter() *chi.Mux {
 }
 
 func (m *Mosdns) RegPluginAPI(tag string, mux *chi.Mux) {
+	m.httpMux.Mount("/plugins/"+tag, mux)
+}
+
+func (m *Mosdns) NewBP(tag string, mux *chi.Mux) {
 	m.httpMux.Mount("/plugins/"+tag, mux)
 }
 
@@ -235,17 +263,10 @@ func (m *Mosdns) loadPlugins(cfg *Config, includeDepth int) error {
 		if len(pc.Type) == 0 || len(pc.Tag) == 0 {
 			continue
 		}
-
-		if _, dup := m.plugins[pc.Tag]; dup {
-			return fmt.Errorf("duplicated plugin tag %s", pc.Tag)
-		}
-
 		m.logger.Info("loading plugin", zap.String("tag", pc.Tag), zap.String("type", pc.Type))
-		p, err := NewPlugin(&pc, m)
-		if err != nil {
+		if err := m.NewPlugin(pc); err != nil {
 			return fmt.Errorf("failed to init plugin #%d %s, %w", i, pc.Tag, err)
 		}
-		m.plugins[pc.Tag] = p
 	}
 	return nil
 }

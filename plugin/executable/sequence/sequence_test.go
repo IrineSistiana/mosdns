@@ -36,9 +36,6 @@ type dummy struct {
 	wantReturn bool
 }
 
-func (d *dummy) Tag() string  { return "" }
-func (d *dummy) Type() string { return "" }
-
 func (d *dummy) Match(ctx context.Context, qCtx *query_context.Context) (bool, error) {
 	if d.wantErr != nil {
 		return false, d.wantErr
@@ -62,14 +59,13 @@ func (d *dummy) Exec(ctx context.Context, qCtx *query_context.Context, next Chai
 	return next.ExecNext(ctx, qCtx)
 }
 
-func preparePlugins(m map[string]coremain.Plugin) map[string]coremain.Plugin {
-	m["target"] = &dummy{wantR: new(dns.Msg)}
-	m["err"] = &dummy{wantErr: errors.New("err")}
-	m["drop"] = &dummy{dropR: true}
-	m["nop"] = &dummy{}
-	m["true"] = &dummy{matched: true}
-	m["false"] = &dummy{matched: false}
-	return m
+func preparePlugins(m *coremain.Mosdns) {
+	m.MustAddPlugin("target", "", &dummy{wantR: new(dns.Msg)})
+	m.MustAddPlugin("err", "", &dummy{wantErr: errors.New("err")})
+	m.MustAddPlugin("drop", "", &dummy{dropR: true})
+	m.MustAddPlugin("nop", "", &dummy{})
+	m.MustAddPlugin("true", "", &dummy{matched: true})
+	m.MustAddPlugin("false", "", &dummy{matched: false})
 }
 
 func Test_sequence_Exec(t *testing.T) {
@@ -176,17 +172,16 @@ func Test_sequence_Exec(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			plugins := make(map[string]coremain.Plugin)
-			m := coremain.NewTestMosdns(plugins)
-			preparePlugins(plugins)
+			m := coremain.NewTestMosdns()
+			preparePlugins(m)
 			if len(tt.ra2) > 0 {
-				s, err := newSequencePlugin(coremain.NewBP("", "", coremain.BPOpts{Mosdns: m}), tt.ra2)
+				s, err := newSequencePlugin(coremain.NewBP("test", m), tt.ra2)
 				if err != nil {
 					t.Fatal(err)
 				}
-				plugins["seq2"] = s
+				m.MustAddPlugin("seq2", "", s)
 			}
-			s, err := newSequencePlugin(coremain.NewBP("", "", coremain.BPOpts{Mosdns: m}), tt.ra)
+			s, err := newSequencePlugin(coremain.NewBP("test", m), tt.ra)
 			if err != nil {
 				t.Fatal(err)
 			}

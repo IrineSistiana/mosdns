@@ -23,7 +23,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"io"
 )
@@ -100,10 +99,10 @@ func (w *ChainWalker) nop() bool {
 	return w.p >= len(w.chain)
 }
 
-func (s *sequence) buildChain(rs []RuleConfig) error {
+func (s *sequence) buildChain(bq BQ, rs []RuleConfig) error {
 	c := make([]*chainNode, 0, len(rs))
 	for ri, r := range rs {
-		n, err := s.newNode(r, ri)
+		n, err := s.newNode(bq, r, ri)
 		if err != nil {
 			return fmt.Errorf("failed to init rule #%d, %w", ri, err)
 		}
@@ -113,12 +112,12 @@ func (s *sequence) buildChain(rs []RuleConfig) error {
 	return nil
 }
 
-func (s *sequence) newNode(r RuleConfig, ri int) (*chainNode, error) {
+func (s *sequence) newNode(bq BQ, r RuleConfig, ri int) (*chainNode, error) {
 	n := new(chainNode)
 
 	// init matches
 	for mi, mc := range r.Matches {
-		m, err := s.newMatcher(mc, ri, mi)
+		m, err := s.newMatcher(bq, mc, ri, mi)
 		if err != nil {
 			return nil, fmt.Errorf("failed to init matcher #%d, %w", mi, err)
 		}
@@ -126,7 +125,7 @@ func (s *sequence) newNode(r RuleConfig, ri int) (*chainNode, error) {
 	}
 
 	// init exec
-	e, re, err := s.newExec(r, ri)
+	e, re, err := s.newExec(bq, r, ri)
 	if err != nil {
 		return nil, fmt.Errorf("failed to init exec, %w", err)
 	}
@@ -135,11 +134,11 @@ func (s *sequence) newNode(r RuleConfig, ri int) (*chainNode, error) {
 	return n, nil
 }
 
-func (s *sequence) newMatcher(mc MatchConfig, ri, mi int) (Matcher, error) {
+func (s *sequence) newMatcher(bq BQ, mc MatchConfig, ri, mi int) (Matcher, error) {
 	var m Matcher
 	switch {
 	case len(mc.Tag) > 0:
-		m, _ = s.BP.M().GetPlugins(mc.Tag).(Matcher)
+		m, _ = bq.M().GetPlugin(mc.Tag).(Matcher)
 		if m == nil {
 			return nil, fmt.Errorf("can not find matcher %s", mc.Tag)
 		}
@@ -156,12 +155,7 @@ func (s *sequence) newMatcher(mc MatchConfig, ri, mi int) (Matcher, error) {
 		if f == nil {
 			return nil, fmt.Errorf("invalid matcher type %s", mc.Type)
 		}
-		tag := fmt.Sprintf("%s.r%d.m%d", s.Tag(), ri, mi)
-		bp := coremain.NewBP(tag, mc.Type, coremain.BPOpts{
-			Mosdns: s.M(),
-			Logger: s.L().Named(fmt.Sprintf("r%d.m%d", ri, mi)),
-		})
-		p, err := f(bp, mc.Args)
+		p, err := f(NewBQ(bq.M(), bq.L().Named(fmt.Sprintf("r%d.m%d", ri, mi))), mc.Args)
 		if err != nil {
 			return nil, fmt.Errorf("failed to init matcher, %w", err)
 		}
@@ -177,11 +171,11 @@ func (s *sequence) newMatcher(mc MatchConfig, ri, mi int) (Matcher, error) {
 	return m, nil
 }
 
-func (s *sequence) newExec(rc RuleConfig, ri int) (Executable, RecursiveExecutable, error) {
+func (s *sequence) newExec(bq BQ, rc RuleConfig, ri int) (Executable, RecursiveExecutable, error) {
 	var exec any
 	switch {
 	case len(rc.Tag) > 0:
-		p := s.BP.M().GetPlugins(rc.Tag)
+		p := bq.M().GetPlugin(rc.Tag)
 		if p == nil {
 			return nil, nil, fmt.Errorf("can not find executable %s", rc.Tag)
 		}
@@ -200,8 +194,7 @@ func (s *sequence) newExec(rc RuleConfig, ri int) (Executable, RecursiveExecutab
 		if f == nil {
 			return nil, nil, fmt.Errorf("invalid executable type %s", rc.Type)
 		}
-		bq := NewBQ(s.M(), s.L().Named(fmt.Sprintf("r%d", ri)))
-		v, err := f(bq, rc.Args)
+		v, err := f(NewBQ(bq.M(), bq.L().Named(fmt.Sprintf("r%d", ri))), rc.Args)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to init executable, %w", err)
 		}

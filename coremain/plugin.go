@@ -29,18 +29,12 @@ import (
 	"sync"
 )
 
-// Plugin represents the basic plugin.
-type Plugin interface {
-	Tag() string
-	Type() string
-}
-
 // NewPluginArgsFunc represents a func that creates a new args object.
-type NewPluginArgsFunc func() interface{}
+type NewPluginArgsFunc func() any
 
 // NewPluginFunc represents a func that can init a Plugin.
 // args is the object created by NewPluginArgsFunc.
-type NewPluginFunc func(bp *BP, args interface{}) (p Plugin, err error)
+type NewPluginFunc func(bp *BP, args any) (p any, err error)
 
 type PluginTypeInfo struct {
 	NewPlugin NewPluginFunc
@@ -92,25 +86,36 @@ func GetPluginType(typ string) (PluginTypeInfo, bool) {
 	return info, ok
 }
 
-// NewPlugin initialize a Plugin from c.
-func NewPlugin(c *PluginConfig, m *Mosdns) (p Plugin, err error) {
-	typeInfo, ok := GetPluginType(c.Type)
-	if !ok {
-		return nil, fmt.Errorf("plugin type %s not defined", c.Type)
+// NewPlugin initializes a Plugin from c and adds it to mosdns.
+func (m *Mosdns) NewPlugin(c PluginConfig) error {
+	if _, dup := m.plugins[c.Tag]; dup {
+		return fmt.Errorf("duplicated plugin tag %s", c.Tag)
 	}
 
-	bp := NewBP(c.Tag, c.Type, BPOpts{Mosdns: m})
+	typeInfo, ok := GetPluginType(c.Type)
+	if !ok {
+		return fmt.Errorf("plugin type %s not defined", c.Type)
+	}
 
 	args := typeInfo.NewArgs()
 	if reflect.TypeOf(c.Args) == reflect.TypeOf(args) { // Same type, no need to parse.
-		return typeInfo.NewPlugin(bp, c.Args)
+		args = c.Args
+	} else {
+		if err := utils.WeakDecode(c.Args, args); err != nil {
+			return fmt.Errorf("unable to decode plugin args: %w", err)
+		}
+	}
+	p, err := typeInfo.NewPlugin(NewBP(c.Tag, m), c.Args)
+	if err != nil {
+		return fmt.Errorf("failed to init plugin: %w", err)
 	}
 
-	// parse args
-	if err = utils.WeakDecode(c.Args, args); err != nil {
-		return nil, fmt.Errorf("unable to decode plugin args: %w", err)
+	m.plugins[c.Tag] = &pluginWrapper{
+		tag: c.Tag,
+		typ: c.Type,
+		p:   p,
 	}
-	return typeInfo.NewPlugin(bp, args)
+	return nil
 }
 
 // GetAllPluginTypes returns all plugin types which are configurable.
@@ -125,7 +130,7 @@ func GetAllPluginTypes() []string {
 	return t
 }
 
-type NewPersetPluginFunc func(bp *BP) (Plugin, error)
+type NewPersetPluginFunc func(bp *BP) (any, error)
 
 var presetPluginFuncReg struct {
 	sync.Mutex
@@ -154,57 +159,38 @@ func LoadNewPersetPluginFuncs() map[string]NewPersetPluginFunc {
 	return m
 }
 
-// BP represents a basic plugin, which implements Plugin.
-// It also has an internal logger, for convenience.
 type BP struct {
-	tag, typ string
-	opts     BPOpts
-
-	apiRouter *chi.Mux
+	tag string
+	m   *Mosdns
+	l   *zap.Logger
 }
 
-type BPOpts struct {
-	Mosdns *Mosdns
-	Logger *zap.Logger
-}
-
-// NewBP creates a new BP and initials its logger.
-func NewBP(tag string, typ string, opts BPOpts) *BP {
-	if opts.Mosdns == nil {
-		opts.Mosdns = NewTestMosdns(nil)
-	}
-	if opts.Logger == nil {
-		opts.Logger = opts.Mosdns.logger.Named(tag)
-	}
+// NewBP creates a new BP. m MUST NOT nil.
+func NewBP(tag string, m *Mosdns) *BP {
 	return &BP{
-		tag:       tag,
-		typ:       typ,
-		opts:      opts,
-		apiRouter: chi.NewRouter(),
+		tag: tag,
+		l:   m.Logger().Named(tag),
+		m:   m,
 	}
 }
 
-func (p *BP) Tag() string {
-	return p.tag
-}
-
-func (p *BP) Type() string {
-	return p.typ
-}
-
+// L returns a non-nil logger.
 func (p *BP) L() *zap.Logger {
-	return p.opts.Logger
+	return p.l
 }
 
+// M returns a non-nil Mosdns.
 func (p *BP) M() *Mosdns {
-	return p.opts.Mosdns
+	return p.m
 }
 
 // GetMetricsReg return a prometheus.Registerer with a prefix of "mosdns_plugin_${plugin_tag}_]"
 func (p *BP) GetMetricsReg() prometheus.Registerer {
-	return prometheus.WrapRegistererWithPrefix(fmt.Sprintf("plugin_%s_", p.tag), p.opts.Mosdns.GetMetricsReg())
+	return prometheus.WrapRegistererWithPrefix(fmt.Sprintf("plugin_%s_", p.tag), p.m.GetMetricsReg())
 }
 
+// RegAPI mounts mux to mosdns api. Note: Plugins MUST NOT call RegAPI twice.
+// Since mounting same path to root chi.Mux causes runtime panic.
 func (p *BP) RegAPI(mux *chi.Mux) {
-	p.opts.Mosdns.RegPluginAPI(p.tag, mux)
+	p.m.RegPluginAPI(p.tag, mux)
 }

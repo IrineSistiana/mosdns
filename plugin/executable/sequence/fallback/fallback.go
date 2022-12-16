@@ -40,12 +40,11 @@ const (
 )
 
 func init() {
-	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
+	coremain.RegNewPluginFunc(PluginType, Init, func() any { return new(Args) })
 }
 
 type fallback struct {
-	*coremain.BP
-
+	logger               *zap.Logger
 	primary              sequence.Executable
 	secondary            sequence.Executable
 	fastFallbackDuration time.Duration
@@ -65,7 +64,7 @@ type Args struct {
 	AlwaysStandby bool `yaml:"always_standby"`
 }
 
-func Init(bp *coremain.BP, args interface{}) (coremain.Plugin, error) {
+func Init(bp *coremain.BP, args any) (any, error) {
 	return newFallbackPlugin(bp, args.(*Args))
 }
 
@@ -74,11 +73,11 @@ func newFallbackPlugin(bp *coremain.BP, args *Args) (*fallback, error) {
 		return nil, errors.New("args missing primary or secondary")
 	}
 
-	pe := sequence.ToExecutable(bp.M().GetPlugins(args.Primary))
+	pe := sequence.ToExecutable(bp.M().GetPlugin(args.Primary))
 	if pe == nil {
 		return nil, fmt.Errorf("can not find primary executable %s", args.Primary)
 	}
-	se := sequence.ToExecutable(bp.M().GetPlugins(args.Secondary))
+	se := sequence.ToExecutable(bp.M().GetPlugin(args.Secondary))
 	if se == nil {
 		return nil, fmt.Errorf("can not find secondary executable %s", args.Secondary)
 	}
@@ -88,7 +87,7 @@ func newFallbackPlugin(bp *coremain.BP, args *Args) (*fallback, error) {
 	}
 
 	s := &fallback{
-		BP:                   bp,
+		logger:               bp.L(),
 		primary:              pe,
 		secondary:            se,
 		fastFallbackDuration: threshold,
@@ -114,7 +113,7 @@ func (f *fallback) doFallback(ctx context.Context, qCtx *query_context.Context) 
 		defer cancel()
 		err := f.primary.Exec(ctx, qCtx)
 		if err != nil {
-			f.L().Warn("primary error", qCtx.InfoField(), zap.Error(err))
+			f.logger.Warn("primary error", qCtx.InfoField(), zap.Error(err))
 		}
 
 		r := qCtx.R()
@@ -146,7 +145,7 @@ func (f *fallback) doFallback(ctx context.Context, qCtx *query_context.Context) 
 		defer cancel()
 		err := f.secondary.Exec(ctx, qCtx)
 		if err != nil {
-			f.L().Warn("secondary error", qCtx.InfoField(), zap.Error(err))
+			f.logger.Warn("secondary error", qCtx.InfoField(), zap.Error(err))
 		}
 
 		r := qCtx.R()

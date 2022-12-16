@@ -23,13 +23,10 @@ package ipset
 
 import (
 	"context"
-	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 )
 
-type ipSetPlugin struct {
-	*coremain.BP
-}
+type ipSetPlugin struct{}
 
 func newIpSetPlugin(_ *Args) (*ipSetPlugin, error) {
 	return &ipSetPlugin{}, nil

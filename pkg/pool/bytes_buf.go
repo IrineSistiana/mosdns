@@ -35,7 +35,7 @@ func NewBytesBufPool(initSize int) *BytesBufPool {
 	}
 
 	return &BytesBufPool{
-		p: sync.Pool{New: func() interface{} {
+		p: sync.Pool{New: func() any {
 			b := new(bytes.Buffer)
 			b.Grow(initSize)
 			return b

@@ -33,7 +33,7 @@ import (
 const PluginType = "http_server"
 
 func init() {
-	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
+	coremain.RegNewPluginFunc(PluginType, Init, func() any { return new(Args) })
 }
 
 type Args struct {
@@ -53,7 +53,6 @@ func (a *Args) init() {
 }
 
 type HttpServer struct {
-	*coremain.BP
 	args *Args
 
 	server *http.Server
@@ -63,7 +62,7 @@ func (s *HttpServer) Close() error {
 	return s.server.Close()
 }
 
-func Init(bp *coremain.BP, args interface{}) (coremain.Plugin, error) {
+func Init(bp *coremain.BP, args any) (any, error) {
 	return StartServer(bp, args.(*Args))
 }
 
@@ -109,7 +108,6 @@ func StartServer(bp *coremain.BP, args *Args) (*HttpServer, error) {
 		bp.M().GetSafeClose().SendCloseSignal(err)
 	}()
 	return &HttpServer{
-		BP:     bp,
 		args:   args,
 		server: hs,
 	}, nil

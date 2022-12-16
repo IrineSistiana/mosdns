@@ -31,7 +31,7 @@ import (
 const PluginType = "udp_server"
 
 func init() {
-	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
+	coremain.RegNewPluginFunc(PluginType, Init, func() any { return new(Args) })
 }
 
 type Args struct {
@@ -44,7 +44,6 @@ func (a *Args) init() {
 }
 
 type UdpServer struct {
-	*coremain.BP
 	args *Args
 
 	c net.PacketConn
@@ -54,7 +53,7 @@ func (s *UdpServer) Close() error {
 	return s.c.Close()
 }
 
-func Init(bp *coremain.BP, args interface{}) (coremain.Plugin, error) {
+func Init(bp *coremain.BP, args any) (any, error) {
 	return StartServer(bp, args.(*Args))
 }
 
@@ -76,7 +75,6 @@ func StartServer(bp *coremain.BP, args *Args) (*UdpServer, error) {
 		bp.M().GetSafeClose().SendCloseSignal(err)
 	}()
 	return &UdpServer{
-		BP:   bp,
 		args: args,
 		c:    c,
 	}, nil

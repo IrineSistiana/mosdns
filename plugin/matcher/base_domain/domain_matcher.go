@@ -56,7 +56,7 @@ func NewMatcher(bq sequence.BQ, args *Args, f MatchFunc) (m *Matcher, err error)
 
 	// Acquire matchers from other plugins.
 	for _, tag := range args.DomainSets {
-		p := bq.M().GetPlugins(tag)
+		p := bq.M().GetPlugin(tag)
 		dsProvider, _ := p.(data_provider.DomainMatcherProvider)
 		if dsProvider == nil {
 			return nil, fmt.Errorf("cannot find domain set %s", tag)

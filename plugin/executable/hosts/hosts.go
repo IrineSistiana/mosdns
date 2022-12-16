@@ -34,7 +34,7 @@ import (
 const PluginType = "hosts"
 
 func init() {
-	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
+	coremain.RegNewPluginFunc(PluginType, Init, func() any { return new(Args) })
 }
 
 var _ sequence.Executable = (*hostsPlugin)(nil)
@@ -45,15 +45,14 @@ type Args struct {
 }
 
 type hostsPlugin struct {
-	*coremain.BP
 	h *hosts.Hosts
 }
 
-func Init(bp *coremain.BP, args interface{}) (coremain.Plugin, error) {
-	return newHostsContainer(bp, args.(*Args))
+func Init(_ *coremain.BP, args any) (any, error) {
+	return newHostsContainer(args.(*Args))
 }
 
-func newHostsContainer(bp *coremain.BP, args *Args) (*hostsPlugin, error) {
+func newHostsContainer(args *Args) (*hostsPlugin, error) {
 	m := domain.NewMixMatcher[*hosts.IPs]()
 	m.SetDefaultMatcher(domain.MatcherFull)
 
@@ -74,8 +73,7 @@ func newHostsContainer(bp *coremain.BP, args *Args) (*hostsPlugin, error) {
 	}
 
 	return &hostsPlugin{
-		BP: bp,
-		h:  hosts.NewHosts(m),
+		h: hosts.NewHosts(m),
 	}, nil
 }
 

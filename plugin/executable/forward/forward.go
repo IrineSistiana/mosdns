@@ -39,7 +39,7 @@ import (
 const PluginType = "forward"
 
 func init() {
-	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
+	coremain.RegNewPluginFunc(PluginType, Init, func() any { return new(Args) })
 }
 
 const (
@@ -74,16 +74,16 @@ type UpstreamConfig struct {
 	Bootstrap    string `yaml:"bootstrap"`
 }
 
-func Init(bp *coremain.BP, args interface{}) (coremain.Plugin, error) {
+func Init(bp *coremain.BP, args any) (any, error) {
 	return newFastForward(bp, args.(*Args))
 }
 
 var _ sequence.Executable = (*fastForward)(nil)
 
 type fastForward struct {
-	*coremain.BP
 	args *Args
 
+	logger       *zap.Logger
 	us           map[*upstreamWrapper]struct{}
 	tag2Upstream map[string]*upstreamWrapper // for fast tag lookup only.
 }
@@ -94,8 +94,8 @@ func newFastForward(bp *coremain.BP, args *Args) (*fastForward, error) {
 	}
 
 	f := &fastForward{
-		BP:           bp,
 		args:         args,
+		logger:       bp.L(),
 		us:           make(map[*upstreamWrapper]struct{}),
 		tag2Upstream: make(map[string]*upstreamWrapper),
 	}
@@ -241,7 +241,7 @@ func (f *fastForward) exchange(ctx context.Context, qCtx *query_context.Context,
 			defer cancel()
 			r, err := u.ExchangeContext(ctx, qCtx.Q())
 			if err != nil {
-				f.L().Warn("upstream error", qCtx.InfoField(), zap.String("upstream", u.name()), zap.Error(err))
+				f.logger.Warn("upstream error", qCtx.InfoField(), zap.String("upstream", u.name()), zap.Error(err))
 			}
 			if r != nil {
 				select {

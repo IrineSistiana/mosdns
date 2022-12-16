@@ -33,7 +33,7 @@ import (
 const PluginType = "tcp_server"
 
 func init() {
-	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
+	coremain.RegNewPluginFunc(PluginType, Init, func() any { return new(Args) })
 }
 
 type Args struct {
@@ -50,7 +50,6 @@ func (a *Args) init() {
 }
 
 type TcpServer struct {
-	*coremain.BP
 	args *Args
 
 	l net.Listener
@@ -60,7 +59,7 @@ func (s *TcpServer) Close() error {
 	return s.l.Close()
 }
 
-func Init(bp *coremain.BP, args interface{}) (coremain.Plugin, error) {
+func Init(bp *coremain.BP, args any) (any, error) {
 	return StartServer(bp, args.(*Args))
 }
 
@@ -96,7 +95,6 @@ func StartServer(bp *coremain.BP, args *Args) (*TcpServer, error) {
 		bp.M().GetSafeClose().SendCloseSignal(err)
 	}()
 	return &TcpServer{
-		BP:   bp,
 		args: args,
 		l:    l,
 	}, nil

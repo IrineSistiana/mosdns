@@ -36,7 +36,7 @@ import (
 const PluginType = "redirect"
 
 func init() {
-	coremain.RegNewPluginFunc(PluginType, Init, func() interface{} { return new(Args) })
+	coremain.RegNewPluginFunc(PluginType, Init, func() any { return new(Args) })
 }
 
 var _ sequence.RecursiveExecutable = (*RedirectPlugin)(nil)
@@ -51,7 +51,7 @@ type RedirectPlugin struct {
 	m *domain.MixMatcher[string]
 }
 
-func Init(bp *coremain.BP, args interface{}) (coremain.Plugin, error) {
+func Init(bp *coremain.BP, args any) (any, error) {
 	return NewRedirect(bp, args.(*Args))
 }
 
