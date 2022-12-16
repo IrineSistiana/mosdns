@@ -24,7 +24,6 @@ import (
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
 const (
@@ -35,40 +34,37 @@ func init() {
 	sequence.MustRegExecQuickSetup(PluginType, QuickSetup)
 }
 
-var _ sequence.RecursiveExecutable = (*summaryLogger)(nil)
+var _ sequence.RecursiveExecutable = (*SummaryLogger)(nil)
 
-type summaryLogger struct {
+type SummaryLogger struct {
 	l   *zap.Logger
 	msg string
 }
 
 // QuickSetup format: [msg_title]
 func QuickSetup(bq sequence.BQ, s string) (any, error) {
-	return &summaryLogger{
-		l:   bq.L(),
-		msg: s,
-	}, nil
+	return NewSummaryLogger(bq.L(), s), nil
 }
 
-func (l *summaryLogger) Exec(ctx context.Context, qCtx *query_context.Context, next sequence.ChainWalker) error {
+// NewSummaryLogger returns a SummaryLogger that logs query info into l.
+// l cannot be nil.
+// If msg is empty, "query summary" will be used.
+func NewSummaryLogger(l *zap.Logger, msg string) *SummaryLogger {
+	if len(msg) == 0 {
+		msg = "query summary"
+	}
+	return &SummaryLogger{
+		l:   l,
+		msg: msg,
+	}
+}
+
+func (l *SummaryLogger) Exec(ctx context.Context, qCtx *query_context.Context, next sequence.ChainWalker) error {
 	err := next.ExecNext(ctx, qCtx)
 	l.l.Info(
 		l.msg,
-		zap.Inline(&qCtxLogger{qCtx: qCtx, err: err}),
+		zap.Inline(qCtx),
+		zap.Error(err),
 	)
 	return err
-}
-
-type qCtxLogger struct {
-	qCtx *query_context.Context
-	err  error
-}
-
-func (ql *qCtxLogger) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
-	qCtx := ql.qCtx
-	zap.Inline(qCtx).AddTo(encoder)
-	if ql.err != nil {
-		zap.Error(ql.err).AddTo(encoder)
-	}
-	return nil
 }

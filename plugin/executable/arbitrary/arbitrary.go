@@ -42,23 +42,14 @@ type Args struct {
 	Files []string `yaml:"files"`
 }
 
-var _ sequence.Executable = (*arbitraryPlugin)(nil)
+var _ sequence.Executable = (*Arbitrary)(nil)
 
-type arbitraryPlugin struct {
+type Arbitrary struct {
 	m *zone_file.Matcher
 }
 
-func (p *arbitraryPlugin) Exec(_ context.Context, qCtx *query_context.Context) error {
-	if r := p.m.Reply(qCtx.Q()); r != nil {
-		qCtx.SetResponse(r)
-	}
-	return nil
-}
-
-func Init(_ *coremain.BP, v any) (any, error) {
-	args := v.(*Args)
+func NewArbitrary(args *Args) (*Arbitrary, error) {
 	m := new(zone_file.Matcher)
-
 	for i, s := range args.Rules {
 		if err := m.Load(strings.NewReader(s)); err != nil {
 			return nil, fmt.Errorf("failed to load rr #%d [%s], %w", i, s, err)
@@ -73,7 +64,19 @@ func Init(_ *coremain.BP, v any) (any, error) {
 			return nil, fmt.Errorf("failed to load rr file #%d [%s], %w", i, file, err)
 		}
 	}
-	return &arbitraryPlugin{
+	return &Arbitrary{
 		m: m,
 	}, nil
+}
+
+func (a *Arbitrary) Exec(_ context.Context, qCtx *query_context.Context) error {
+	if r := a.m.Reply(qCtx.Q()); r != nil {
+		qCtx.SetResponse(r)
+	}
+	return nil
+}
+
+func Init(_ *coremain.BP, v any) (any, error) {
+	args := v.(*Args)
+	return NewArbitrary(args)
 }

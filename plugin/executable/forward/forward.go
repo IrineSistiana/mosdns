@@ -40,6 +40,7 @@ const PluginType = "forward"
 
 func init() {
 	coremain.RegNewPluginFunc(PluginType, Init, func() any { return new(Args) })
+	sequence.MustRegExecQuickSetup(PluginType, quickSetup)
 }
 
 const (
@@ -75,12 +76,12 @@ type UpstreamConfig struct {
 }
 
 func Init(bp *coremain.BP, args any) (any, error) {
-	return newFastForward(bp, args.(*Args))
+	return NewForward(args.(*Args), bp.L())
 }
 
-var _ sequence.Executable = (*fastForward)(nil)
+var _ sequence.Executable = (*Forward)(nil)
 
-type fastForward struct {
+type Forward struct {
 	args *Args
 
 	logger       *zap.Logger
@@ -88,14 +89,20 @@ type fastForward struct {
 	tag2Upstream map[string]*upstreamWrapper // for fast tag lookup only.
 }
 
-func newFastForward(bp *coremain.BP, args *Args) (*fastForward, error) {
+// NewForward inits a Forward from given args.
+// args must contain at least one upstream.
+// If logger is nil, zap.NewNop() will be used.
+func NewForward(args *Args, logger *zap.Logger) (*Forward, error) {
 	if len(args.Upstreams) == 0 {
 		return nil, errors.New("no upstream is configured")
 	}
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 
-	f := &fastForward{
+	f := &Forward{
 		args:         args,
-		logger:       bp.L(),
+		logger:       logger,
 		us:           make(map[*upstreamWrapper]struct{}),
 		tag2Upstream: make(map[string]*upstreamWrapper),
 	}
@@ -127,7 +134,7 @@ func newFastForward(bp *coremain.BP, args *Args) (*fastForward, error) {
 				InsecureSkipVerify: c.InsecureSkipVerify,
 				ClientSessionCache: tls.NewLRUClientSessionCache(4),
 			},
-			Logger: bp.L(),
+			Logger: logger,
 		}
 
 		u, err := upstream.NewUpstream(c.Addr, opt)
@@ -153,7 +160,7 @@ func newFastForward(bp *coremain.BP, args *Args) (*fastForward, error) {
 	return f, nil
 }
 
-func (f *fastForward) Exec(ctx context.Context, qCtx *query_context.Context) (err error) {
+func (f *Forward) Exec(ctx context.Context, qCtx *query_context.Context) (err error) {
 	r, err := f.exchange(ctx, qCtx, f.us)
 	if err != nil {
 		return err
@@ -163,7 +170,7 @@ func (f *fastForward) Exec(ctx context.Context, qCtx *query_context.Context) (er
 }
 
 // QuickConfigure format: [upstream_tag]...
-func (f *fastForward) QuickConfigure(args string) (any, error) {
+func (f *Forward) QuickConfigure(args string) (any, error) {
 	var us map[*upstreamWrapper]struct{}
 	if len(args) == 0 { // No args, use all upstreams.
 		us = f.us
@@ -188,7 +195,7 @@ func (f *fastForward) QuickConfigure(args string) (any, error) {
 	return sequence.ExecutableFunc(execFunc), nil
 }
 
-func (f *fastForward) Close() error {
+func (f *Forward) Close() error {
 	for u := range f.us {
 		_ = (*u).Close()
 	}
@@ -197,7 +204,7 @@ func (f *fastForward) Close() error {
 
 var ErrAllFailed = errors.New("all upstreams failed")
 
-func (f *fastForward) exchange(ctx context.Context, qCtx *query_context.Context, us map[*upstreamWrapper]struct{}) (*dns.Msg, error) {
+func (f *Forward) exchange(ctx context.Context, qCtx *query_context.Context, us map[*upstreamWrapper]struct{}) (*dns.Msg, error) {
 	tn := f.args.Concurrent
 	if tn <= 0 {
 		tn = 1
@@ -265,4 +272,13 @@ readLoop:
 		}
 	}
 	return nil, ErrAllFailed
+}
+
+func quickSetup(bq sequence.BQ, s string) (any, error) {
+	args := new(Args)
+	args.Concurrent = maxConcurrentQueries
+	for _, u := range strings.Fields(s) {
+		args.Upstreams = append(args.Upstreams, UpstreamConfig{Addr: u})
+	}
+	return NewForward(args, bq.L())
 }

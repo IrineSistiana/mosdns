@@ -42,9 +42,9 @@ func init() {
 	coremain.RegNewPluginFunc(PluginType, Init, func() any { return new(Args) })
 }
 
-var _ sequence.Executable = (*forwardPlugin)(nil)
+var _ sequence.Executable = (*Forward)(nil)
 
-type forwardPlugin struct {
+type Forward struct {
 	upstreams []upstream.Upstream
 }
 
@@ -61,15 +61,17 @@ type UpstreamConfig struct {
 }
 
 func Init(_ *coremain.BP, args any) (any, error) {
-	return newForwarder(args.(*Args))
+	return NewForward(args.(*Args))
 }
 
-func newForwarder(args *Args) (*forwardPlugin, error) {
+// NewForward returns a Forward with given args.
+// args must contain at least one upstream.
+func NewForward(args *Args) (*Forward, error) {
 	if len(args.Upstreams) == 0 {
 		return nil, errors.New("no upstream is configured")
 	}
 
-	f := new(forwardPlugin)
+	f := new(Forward)
 	for i, conf := range args.Upstreams {
 		serverIPAddrs := make([]net.IP, 0, len(conf.IPAddrs))
 		for _, s := range conf.IPAddrs {
@@ -97,40 +99,45 @@ func newForwarder(args *Args) (*forwardPlugin, error) {
 	return f, nil
 }
 
-func (f *forwardPlugin) Exec(ctx context.Context, qCtx *query_context.Context) error {
-	return f.exec(ctx, qCtx)
+func (f *Forward) Exec(ctx context.Context, qCtx *query_context.Context) error {
+	r, _, err := f.Exchange(ctx, qCtx.Q())
+	if err != nil {
+		return err
+	}
+	if r != nil {
+		qCtx.SetResponse(r)
+	}
+	return nil
 }
 
-func (f *forwardPlugin) exec(ctx context.Context, qCtx *query_context.Context) error {
+func (f *Forward) Exchange(ctx context.Context, q *dns.Msg) (*dns.Msg, upstream.Upstream, error) {
 	type res struct {
 		r   *dns.Msg
+		u   upstream.Upstream
 		err error
 	}
 	// Remainder: Always makes a copy of q. dnsproxy/upstream may keep or even modify the q in their
 	// Exchange() calls.
-	q := qCtx.Q().Copy()
+	qc := q.Copy()
 	c := make(chan res, 1)
 	go func() {
-		r, _, err := upstream.ExchangeParallel(f.upstreams, q)
+		r, u, err := upstream.ExchangeParallel(f.upstreams, qc)
 		c <- res{
 			r:   r,
+			u:   u,
 			err: err,
 		}
 	}()
 
 	select {
 	case res := <-c:
-		if res.err != nil {
-			return res.err
-		}
-		qCtx.SetResponse(res.r)
-		return nil
+		return res.r, res.u, res.err
 	case <-ctx.Done():
-		return ctx.Err()
+		return nil, nil, ctx.Err()
 	}
 }
 
-func (f *forwardPlugin) Close() error {
+func (f *Forward) Close() error {
 	for _, u := range f.upstreams {
 		_ = u.Close()
 	}

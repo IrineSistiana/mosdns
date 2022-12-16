@@ -32,9 +32,9 @@ func init() {
 	sequence.MustRegExecQuickSetup(PluginType, QuickSetup)
 }
 
-var _ sequence.Executable = (*debugPrint)(nil)
+var _ sequence.Executable = (*DebugPrint)(nil)
 
-type debugPrint struct {
+type DebugPrint struct {
 	sequence.BQ
 	msg string
 }
@@ -44,10 +44,10 @@ func QuickSetup(bq sequence.BQ, s string) (any, error) {
 	if len(s) == 0 {
 		s = "debug print"
 	}
-	return &debugPrint{BQ: bq, msg: s}, nil
+	return &DebugPrint{BQ: bq, msg: s}, nil
 }
 
-func (b *debugPrint) Exec(_ context.Context, qCtx *query_context.Context) error {
+func (b *DebugPrint) Exec(_ context.Context, qCtx *query_context.Context) error {
 	b.BQ.L().Info(b.msg, zap.Stringer("query", qCtx.Q()))
 	if r := qCtx.R(); r != nil {
 		b.BQ.L().Info(b.msg, zap.Stringer("response", r))

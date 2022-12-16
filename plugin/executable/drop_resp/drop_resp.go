@@ -31,15 +31,15 @@ func init() {
 	sequence.MustRegExecQuickSetup(PluginType, QuickSetup)
 }
 
-var _ sequence.Executable = (*dropResp)(nil)
+var _ sequence.Executable = (*DropResp)(nil)
 
-type dropResp struct{}
+type DropResp struct{}
 
 func QuickSetup(_ sequence.BQ, _ string) (any, error) {
-	return &dropResp{}, nil
+	return &DropResp{}, nil
 }
 
-func (b *dropResp) Exec(_ context.Context, qCtx *query_context.Context) error {
+func (b *DropResp) Exec(_ context.Context, qCtx *query_context.Context) error {
 	qCtx.SetResponse(nil)
 	return nil
 }

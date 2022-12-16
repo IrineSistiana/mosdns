@@ -27,21 +27,22 @@ import (
 	"io"
 )
 
-type chainNode struct {
-	matches []Matcher // may be empty, indicates this node has no match specified.
+type ChainNode struct {
+	Matches []Matcher // Can be empty, indicates this node has no match specified.
 
-	// at least one of e or re is not nil.
-	e  Executable
-	re RecursiveExecutable
+	// At least one of E or RE must not nil.
+	// In case both are set. E is preferred.
+	E  Executable
+	RE RecursiveExecutable
 }
 
 type ChainWalker struct {
 	p        int
-	chain    []*chainNode
+	chain    []*ChainNode
 	jumpBack *ChainWalker
 }
 
-func newChainWalker(chain []*chainNode, jumpBack *ChainWalker) ChainWalker {
+func NewChainWalker(chain []*ChainNode, jumpBack *ChainWalker) ChainWalker {
 	return ChainWalker{
 		chain:    chain,
 		jumpBack: jumpBack,
@@ -55,7 +56,7 @@ checkMatchesLoop:
 	for p < len(w.chain) {
 		n := w.chain[p]
 
-		for _, match := range n.matches {
+		for _, match := range n.Matches {
 			ok, err := match.Match(ctx, qCtx)
 			if err != nil {
 				return err
@@ -69,19 +70,19 @@ checkMatchesLoop:
 
 		// Exec rules' executables in loop, or in stack if it is a recursive executable.
 		switch {
-		case n.e != nil:
-			if err := n.e.Exec(ctx, qCtx); err != nil {
+		case n.E != nil:
+			if err := n.E.Exec(ctx, qCtx); err != nil {
 				return err
 			}
 			p++
 			continue
-		case n.re != nil:
+		case n.RE != nil:
 			next := ChainWalker{
 				p:        p + 1,
 				chain:    w.chain,
 				jumpBack: w.jumpBack,
 			}
-			return n.re.Exec(ctx, qCtx, next)
+			return n.RE.Exec(ctx, qCtx, next)
 		default:
 			panic("n cannot be executed")
 		}
@@ -99,8 +100,8 @@ func (w *ChainWalker) nop() bool {
 	return w.p >= len(w.chain)
 }
 
-func (s *sequence) buildChain(bq BQ, rs []RuleConfig) error {
-	c := make([]*chainNode, 0, len(rs))
+func (s *Sequence) buildChain(bq BQ, rs []RuleConfig) error {
+	c := make([]*ChainNode, 0, len(rs))
 	for ri, r := range rs {
 		n, err := s.newNode(bq, r, ri)
 		if err != nil {
@@ -112,8 +113,8 @@ func (s *sequence) buildChain(bq BQ, rs []RuleConfig) error {
 	return nil
 }
 
-func (s *sequence) newNode(bq BQ, r RuleConfig, ri int) (*chainNode, error) {
-	n := new(chainNode)
+func (s *Sequence) newNode(bq BQ, r RuleConfig, ri int) (*ChainNode, error) {
+	n := new(ChainNode)
 
 	// init matches
 	for mi, mc := range r.Matches {
@@ -121,7 +122,7 @@ func (s *sequence) newNode(bq BQ, r RuleConfig, ri int) (*chainNode, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to init matcher #%d, %w", mi, err)
 		}
-		n.matches = append(n.matches, m)
+		n.Matches = append(n.Matches, m)
 	}
 
 	// init exec
@@ -129,12 +130,12 @@ func (s *sequence) newNode(bq BQ, r RuleConfig, ri int) (*chainNode, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to init exec, %w", err)
 	}
-	n.e = e
-	n.re = re
+	n.E = e
+	n.RE = re
 	return n, nil
 }
 
-func (s *sequence) newMatcher(bq BQ, mc MatchConfig, ri, mi int) (Matcher, error) {
+func (s *Sequence) newMatcher(bq BQ, mc MatchConfig, ri, mi int) (Matcher, error) {
 	var m Matcher
 	switch {
 	case len(mc.Tag) > 0:
@@ -171,7 +172,7 @@ func (s *sequence) newMatcher(bq BQ, mc MatchConfig, ri, mi int) (Matcher, error
 	return m, nil
 }
 
-func (s *sequence) newExec(bq BQ, rc RuleConfig, ri int) (Executable, RecursiveExecutable, error) {
+func (s *Sequence) newExec(bq BQ, rc RuleConfig, ri int) (Executable, RecursiveExecutable, error) {
 	var exec any
 	switch {
 	case len(rc.Tag) > 0:

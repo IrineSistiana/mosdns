@@ -35,31 +35,37 @@ func init() {
 	sequence.MustRegExecQuickSetup(PluginType, QuickSetup)
 }
 
-var _ sequence.RecursiveExecutable = (*addECS)(nil)
+var _ sequence.RecursiveExecutable = (*AddECS)(nil)
 
 // QuickSetup format: [ip/mask] [ip/mask]
 func QuickSetup(_ sequence.BQ, s string) (any, error) {
-	ecs := new(addECS)
+	var ipv4, ipv6 netip.Prefix
 	for _, prefixStr := range strings.Fields(s) {
 		prefix, err := netip.ParsePrefix(prefixStr)
 		if err != nil {
 			return nil, err
 		}
 		if prefix.Addr().Is4() {
-			ecs.ipv4 = prefix
+			ipv4 = prefix
 		} else {
-			ecs.ipv6 = prefix
+			ipv6 = prefix
 		}
 	}
-	return ecs, nil
+	return NewAddECS(ipv4, ipv6), nil
 }
 
-type addECS struct {
+type AddECS struct {
 	ipv4, ipv6 netip.Prefix
 }
 
+// NewAddECS returns a AddECS with given prefixes.
+// If prefix is zero/invalid, it will be ignored.
+func NewAddECS(ipv4, ipv6 netip.Prefix) *AddECS {
+	return &AddECS{ipv4: ipv4, ipv6: ipv6}
+}
+
 // Exec tries to append ECS to qCtx.Q().
-func (e *addECS) Exec(ctx context.Context, qCtx *query_context.Context, next sequence.ChainWalker) error {
+func (e *AddECS) Exec(ctx context.Context, qCtx *query_context.Context, next sequence.ChainWalker) error {
 	upgraded, newECS := e.addECS(qCtx)
 	err := next.ExecNext(ctx, qCtx)
 	if err != nil {
@@ -78,11 +84,11 @@ func (e *addECS) Exec(ctx context.Context, qCtx *query_context.Context, next seq
 	return nil
 }
 
-// addECS adds a *dns.EDNS0_SUBNET record to q.
-// upgraded: Whether the addECS upgraded the q to a EDNS0 enabled query.
-// newECS: Whether the addECS added a *dns.EDNS0_SUBNET to q that didn't
+// AddECS adds a *dns.EDNS0_SUBNET record to q.
+// upgraded: Whether the AddECS upgraded the q to a EDNS0 enabled query.
+// newECS: Whether the AddECS added a *dns.EDNS0_SUBNET to q that didn't
 // have a *dns.EDNS0_SUBNET before.
-func (e *addECS) addECS(qCtx *query_context.Context) (upgraded bool, newECS bool) {
+func (e *AddECS) addECS(qCtx *query_context.Context) (upgraded bool, newECS bool) {
 	q := qCtx.Q()
 	if len(q.Question) != 1 || q.Question[0].Qclass != dns.ClassINET {
 		return false, false

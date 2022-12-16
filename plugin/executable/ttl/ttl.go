@@ -37,12 +37,20 @@ func init() {
 	sequence.MustRegExecQuickSetup(PluginType, QuickSetup)
 }
 
-var _ sequence.Executable = (*ttl)(nil)
+var _ sequence.Executable = (*TTL)(nil)
 
-type ttl struct {
+type TTL struct {
 	fix uint32
-	max uint32
 	min uint32
+	max uint32
+}
+
+func NewTTL(fix, min, max uint32) *TTL {
+	return &TTL{
+		fix: fix,
+		min: min,
+		max: max,
+	}
 }
 
 // QuickSetup format: {[min-max]|[fix]}
@@ -69,23 +77,19 @@ func QuickSetup(_ sequence.BQ, s string) (any, error) {
 		f = uint32(n)
 	}
 
-	return &ttl{
-		fix: f,
-		max: u,
-		min: l,
-	}, nil
+	return NewTTL(f, l, u), nil
 }
 
-func (t *ttl) Exec(_ context.Context, qCtx *query_context.Context) error {
+func (t *TTL) Exec(_ context.Context, qCtx *query_context.Context) error {
 	if r := qCtx.R(); r != nil {
 		if t.fix > 0 {
 			dnsutils.SetTTL(r, t.fix)
 		} else {
-			if t.max > 0 {
-				dnsutils.ApplyMaximumTTL(r, t.max)
-			}
 			if t.min > 0 {
 				dnsutils.ApplyMinimalTTL(r, t.min)
+			}
+			if t.max > 0 {
+				dnsutils.ApplyMaximumTTL(r, t.max)
 			}
 		}
 	}

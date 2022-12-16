@@ -75,16 +75,16 @@ func setupReturn(_ BQ, _ string) (any, error) {
 }
 
 type actionJump struct {
-	to *sequence
+	to *Sequence
 }
 
 func (a *actionJump) Exec(ctx context.Context, qCtx *query_context.Context, next ChainWalker) error {
-	w := newChainWalker(a.to.chain, &next)
+	w := NewChainWalker(a.to.chain, &next)
 	return w.ExecNext(ctx, qCtx)
 }
 
 func setupJump(bq BQ, s string) (any, error) {
-	jumpTo, _ := bq.M().GetPlugin(s).(*sequence)
+	jumpTo, _ := bq.M().GetPlugin(s).(*Sequence)
 	if jumpTo == nil {
 		return nil, fmt.Errorf("can not find jump target %s", s)
 	}
@@ -92,16 +92,16 @@ func setupJump(bq BQ, s string) (any, error) {
 }
 
 type actionGoto struct {
-	to *sequence
+	to *Sequence
 }
 
 func (a actionGoto) Exec(ctx context.Context, qCtx *query_context.Context, _ ChainWalker) error {
-	w := newChainWalker(a.to.chain, nil)
+	w := NewChainWalker(a.to.chain, nil)
 	return w.ExecNext(ctx, qCtx)
 }
 
 func setupGoto(bq BQ, s string) (any, error) {
-	gt, _ := bq.M().GetPlugin(s).(*sequence)
+	gt, _ := bq.M().GetPlugin(s).(*Sequence)
 	if gt == nil {
 		return nil, fmt.Errorf("can not find goto target %s", s)
 	}

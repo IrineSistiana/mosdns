@@ -38,7 +38,7 @@ type dummyNext struct {
 	latencyAAAA time.Duration
 }
 
-func (d *dummyNext) Exec(_ context.Context, qCtx *query_context.Context, _ sequence.ChainWalker) error {
+func (d *dummyNext) Exec(_ context.Context, qCtx *query_context.Context) error {
 	q := qCtx.Q()
 	r := new(dns.Msg)
 	r.SetReply(q)
@@ -159,7 +159,7 @@ func TestSelector_Exec(t *testing.T) {
 			q := new(dns.Msg)
 			q.SetQuestion("example.", tt.qtype)
 			qCtx := query_context.NewContext(q)
-			cw := sequence.NewTestChainWalker(tt.next)
+			cw := sequence.NewChainWalker([]*sequence.ChainNode{{E: tt.next}}, nil)
 			if err := s.Exec(context.Background(), qCtx, cw); (err != nil) != tt.wantErr {
 				t.Errorf("Exec() error = %v, wantErr %v", err, tt.wantErr)
 			}

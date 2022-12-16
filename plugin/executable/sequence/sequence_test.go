@@ -175,13 +175,13 @@ func Test_sequence_Exec(t *testing.T) {
 			m := coremain.NewTestMosdns()
 			preparePlugins(m)
 			if len(tt.ra2) > 0 {
-				s, err := newSequencePlugin(coremain.NewBP("test", m), tt.ra2)
+				s, err := NewSequence(coremain.NewBP("test", m), tt.ra2)
 				if err != nil {
 					t.Fatal(err)
 				}
 				m.MustAddPlugin("seq2", "", s)
 			}
-			s, err := newSequencePlugin(coremain.NewBP("test", m), tt.ra)
+			s, err := NewSequence(coremain.NewBP("test", m), tt.ra)
 			if err != nil {
 				t.Fatal(err)
 			}

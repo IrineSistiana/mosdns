@@ -35,23 +35,23 @@ func init() {
 	sequence.MustRegExecQuickSetup(PluginType, QuickSetup)
 }
 
-var _ sequence.Executable = (*blackHole)(nil)
+var _ sequence.Executable = (*BlackHole)(nil)
 
-type blackHole struct {
+type BlackHole struct {
 	ipv4 []netip.Addr
 	ipv6 []netip.Addr
 }
 
 // QuickSetup format: [ipv4|ipv6] ...
-// Support both ipv4/a and ipv6/aaaa families. If one of family is not set, an
-// unspecified ip (0.0.0.0 and ::) will be used.
+// Support both ipv4/a and ipv6/aaaa families.
 func QuickSetup(_ sequence.BQ, s string) (any, error) {
-	return newBlackHole(strings.Fields(s))
+	return NewBlackHole(strings.Fields(s))
 }
 
-func newBlackHole(args []string) (*blackHole, error) {
-	b := &blackHole{}
-	for _, s := range args {
+// NewBlackHole creates a new BlackHole with given ips.
+func NewBlackHole(ips []string) (*BlackHole, error) {
+	b := &BlackHole{}
+	for _, s := range ips {
 		addr, err := netip.ParseAddr(s)
 		if err != nil {
 			return nil, fmt.Errorf("invalid ipv4 addr %s, %w", s, err)
@@ -62,25 +62,23 @@ func newBlackHole(args []string) (*blackHole, error) {
 			b.ipv6 = append(b.ipv6, addr)
 		}
 	}
-
-	if len(b.ipv4) == 0 {
-		b.ipv4 = append(b.ipv4, netip.IPv4Unspecified())
-	}
-	if len(b.ipv6) == 0 {
-		b.ipv6 = append(b.ipv6, netip.IPv6Unspecified())
-	}
 	return b, nil
 }
 
-func (b *blackHole) Exec(_ context.Context, qCtx *query_context.Context) error {
-	b.exec(qCtx)
+// Exec implements sequence.Executable. It set a response with given ips if
+// query has corresponding qtypes.
+func (b *BlackHole) Exec(_ context.Context, qCtx *query_context.Context) error {
+	if r := b.Response(qCtx.Q()); r != nil {
+		qCtx.SetResponse(r)
+	}
 	return nil
 }
 
-func (b *blackHole) exec(qCtx *query_context.Context) {
-	q := qCtx.Q()
+// Response returns a response with given ips if query has corresponding qtypes.
+// Otherwise, it returns nil.
+func (b *BlackHole) Response(q *dns.Msg) *dns.Msg {
 	if len(q.Question) != 1 {
-		return
+		return nil
 	}
 
 	qName := q.Question[0].Name
@@ -89,37 +87,37 @@ func (b *blackHole) exec(qCtx *query_context.Context) {
 	switch {
 	case qtype == dns.TypeA && len(b.ipv4) > 0:
 		r := new(dns.Msg)
-		r.SetRcode(q, dns.RcodeSuccess)
+		r.SetReply(q)
 		for _, addr := range b.ipv4 {
 			rr := &dns.A{
 				Hdr: dns.RR_Header{
 					Name:   qName,
 					Rrtype: dns.TypeA,
 					Class:  dns.ClassINET,
-					Ttl:    3600,
+					Ttl:    300,
 				},
 				A: addr.AsSlice(),
 			}
 			r.Answer = append(r.Answer, rr)
 		}
-		qCtx.SetResponse(r)
+		return r
 
 	case qtype == dns.TypeAAAA && len(b.ipv6) > 0:
 		r := new(dns.Msg)
-		r.SetRcode(q, dns.RcodeSuccess)
+		r.SetReply(q)
 		for _, addr := range b.ipv6 {
 			rr := &dns.AAAA{
 				Hdr: dns.RR_Header{
 					Name:   qName,
 					Rrtype: dns.TypeAAAA,
 					Class:  dns.ClassINET,
-					Ttl:    3600,
+					Ttl:    300,
 				},
 				AAAA: addr.AsSlice(),
 			}
 			r.Answer = append(r.Answer, rr)
 		}
-		qCtx.SetResponse(r)
+		return r
 	}
-	return
+	return nil
 }

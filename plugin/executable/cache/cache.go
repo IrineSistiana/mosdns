@@ -64,7 +64,7 @@ const (
 	dumpMaximumBlockLength = 1 << 20 // 1M block. 8kb pre entry. Should be enough.
 )
 
-var _ sequence.RecursiveExecutable = (*cachePlugin)(nil)
+var _ sequence.RecursiveExecutable = (*Cache)(nil)
 
 type Args struct {
 	Size         int    `yaml:"size"`
@@ -78,7 +78,7 @@ func (a *Args) init() {
 	utils.SetDefaultUnsignNum(&a.DumpInterval, 600)
 }
 
-type cachePlugin struct {
+type Cache struct {
 	args *Args
 
 	logger       *zap.Logger
@@ -95,14 +95,14 @@ type cachePlugin struct {
 }
 
 func Init(bp *coremain.BP, args any) (any, error) {
-	return newCachePlugin(bp, args.(*Args)), nil
+	return NewCache(bp, args.(*Args)), nil
 }
 
-func newCachePlugin(bp *coremain.BP, args *Args) *cachePlugin {
+func NewCache(bp *coremain.BP, args *Args) *Cache {
 	args.init()
 
 	backend := cache.New[key, *item](cache.Opts{Size: args.Size})
-	p := &cachePlugin{
+	p := &Cache{
 		args:    args,
 		logger:  bp.L(),
 		backend: backend,
@@ -137,7 +137,7 @@ func newCachePlugin(bp *coremain.BP, args *Args) *cachePlugin {
 	return p
 }
 
-func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, next sequence.ChainWalker) error {
+func (c *Cache) Exec(ctx context.Context, qCtx *query_context.Context, next sequence.ChainWalker) error {
 	c.queryTotal.Inc()
 	q := qCtx.Q()
 
@@ -169,7 +169,7 @@ func (c *cachePlugin) Exec(ctx context.Context, qCtx *query_context.Context, nex
 
 // doLazyUpdate starts a new goroutine to execute next node and update the cache in the background.
 // It has an inner singleflight.Group to de-duplicate same msgKey.
-func (c *cachePlugin) doLazyUpdate(msgKey string, qCtx *query_context.Context, next sequence.ChainWalker) {
+func (c *Cache) doLazyUpdate(msgKey string, qCtx *query_context.Context, next sequence.ChainWalker) {
 	qCtxCopy := qCtx.Copy()
 	lazyUpdateFunc := func() (any, error) {
 		defer c.lazyUpdateSF.Forget(msgKey)
@@ -195,7 +195,7 @@ func (c *cachePlugin) doLazyUpdate(msgKey string, qCtx *query_context.Context, n
 	c.lazyUpdateSF.DoChan(msgKey, lazyUpdateFunc) // DoChan won't block this goroutine
 }
 
-func (c *cachePlugin) Close() error {
+func (c *Cache) Close() error {
 	if err := c.dumpCache(); err != nil {
 		c.logger.Error("failed to dump cache", zap.Error(err))
 	}
@@ -205,7 +205,7 @@ func (c *cachePlugin) Close() error {
 	return c.backend.Close()
 }
 
-func (c *cachePlugin) loadDump() error {
+func (c *Cache) loadDump() error {
 	if len(c.args.DumpFile) == 0 {
 		return nil
 	}
@@ -223,7 +223,7 @@ func (c *cachePlugin) loadDump() error {
 }
 
 // startDumpLoop starts a dump loop in another goroutine. It does not block.
-func (c *cachePlugin) startDumpLoop() {
+func (c *Cache) startDumpLoop() {
 	if len(c.args.DumpFile) == 0 {
 		return
 	}
@@ -250,7 +250,7 @@ func (c *cachePlugin) startDumpLoop() {
 	}()
 }
 
-func (c *cachePlugin) dumpCache() error {
+func (c *Cache) dumpCache() error {
 	if len(c.args.DumpFile) == 0 {
 		return nil
 	}
@@ -269,7 +269,7 @@ func (c *cachePlugin) dumpCache() error {
 	return nil
 }
 
-func (c *cachePlugin) api() *chi.Mux {
+func (c *Cache) api() *chi.Mux {
 	r := chi.NewRouter()
 	r.Get("/flush", func(w http.ResponseWriter, req *http.Request) {
 		c.backend.Flush()
@@ -292,7 +292,7 @@ func (c *cachePlugin) api() *chi.Mux {
 	return r
 }
 
-func (c *cachePlugin) writeDump(w io.Writer) (int, error) {
+func (c *Cache) writeDump(w io.Writer) (int, error) {
 	en := 0
 
 	gw, _ := gzip.NewWriterLevel(w, gzip.BestSpeed)
@@ -358,7 +358,7 @@ func (c *cachePlugin) writeDump(w io.Writer) (int, error) {
 
 // readDump reads dumped data from r. It returns the number of bytes read,
 // number of entries read and any error encountered.
-func (c *cachePlugin) readDump(r io.Reader) (int, error) {
+func (c *Cache) readDump(r io.Reader) (int, error) {
 	en := 0
 	gr, err := gzip.NewReader(r)
 	if err != nil {

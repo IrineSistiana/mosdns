@@ -39,23 +39,27 @@ func init() {
 	coremain.RegNewPluginFunc(PluginType, Init, func() any { return new(Args) })
 }
 
-var _ sequence.RecursiveExecutable = (*RedirectPlugin)(nil)
+var _ sequence.RecursiveExecutable = (*Redirect)(nil)
 
 type Args struct {
 	Rules []string `yaml:"rules"`
 	Files []string `yaml:"files"`
 }
 
-type RedirectPlugin struct {
-	*coremain.BP
+type Redirect struct {
 	m *domain.MixMatcher[string]
 }
 
 func Init(bp *coremain.BP, args any) (any, error) {
-	return NewRedirect(bp, args.(*Args))
+	r, err := NewRedirect(args.(*Args))
+	if err != nil {
+		return nil, err
+	}
+	bp.L().Info("redirect rules loaded", zap.Int("length", r.Len()))
+	return nil, err
 }
 
-func NewRedirect(bp *coremain.BP, args *Args) (*RedirectPlugin, error) {
+func NewRedirect(args *Args) (*Redirect, error) {
 	parseFunc := func(s string) (p, v string, err error) {
 		f := strings.Fields(s)
 		if len(f) != 2 {
@@ -79,15 +83,10 @@ func NewRedirect(bp *coremain.BP, args *Args) (*RedirectPlugin, error) {
 			return nil, fmt.Errorf("failed to load file #%d %s, %w", i, file, err)
 		}
 	}
-
-	bp.L().Info("redirect rules loaded", zap.Int("length", m.Len()))
-	return &RedirectPlugin{
-		BP: bp,
-		m:  m,
-	}, nil
+	return &Redirect{m: m}, nil
 }
 
-func (r *RedirectPlugin) Exec(ctx context.Context, qCtx *query_context.Context, next sequence.ChainWalker) error {
+func (r *Redirect) Exec(ctx context.Context, qCtx *query_context.Context, next sequence.ChainWalker) error {
 	q := qCtx.Q()
 	if len(q.Question) != 1 || q.Question[0].Qclass != dns.ClassINET {
 		return next.ExecNext(ctx, qCtx)
@@ -124,4 +123,8 @@ func (r *RedirectPlugin) Exec(ctx context.Context, qCtx *query_context.Context, 
 		r.Answer = newAns
 	}
 	return err
+}
+
+func (r *Redirect) Len() int {
+	return r.m.Len()
 }

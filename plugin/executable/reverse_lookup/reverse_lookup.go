@@ -43,7 +43,7 @@ func init() {
 	coremain.RegNewPluginFunc(PluginType, Init, func() any { return new(Args) })
 }
 
-var _ sequence.RecursiveExecutable = (*reverseLookup)(nil)
+var _ sequence.RecursiveExecutable = (*ReverseLookup)(nil)
 
 type Args struct {
 	Size      int  `yaml:"size"` // Default is 64*1024
@@ -56,19 +56,19 @@ func (a *Args) init() {
 	utils.SetDefaultUnsignNum(&a.TTL, 7200)
 }
 
-type reverseLookup struct {
+type ReverseLookup struct {
 	args *Args
 	c    *cache.Cache[key, string]
 }
 
 func Init(bp *coremain.BP, args any) (any, error) {
-	return newReverseLookup(bp, args.(*Args))
+	return NewReverseLookup(bp, args.(*Args))
 }
 
-func newReverseLookup(bp *coremain.BP, args *Args) (any, error) {
+func NewReverseLookup(bp *coremain.BP, args *Args) (any, error) {
 	args.init()
 	c := cache.New[key, string](cache.Opts{Size: args.Size})
-	p := &reverseLookup{
+	p := &ReverseLookup{
 		args: args,
 		c:    c,
 	}
@@ -78,9 +78,9 @@ func newReverseLookup(bp *coremain.BP, args *Args) (any, error) {
 	return p, nil
 }
 
-func (p *reverseLookup) Exec(ctx context.Context, qCtx *query_context.Context, next sequence.ChainWalker) error {
+func (p *ReverseLookup) Exec(ctx context.Context, qCtx *query_context.Context, next sequence.ChainWalker) error {
 	q := qCtx.Q()
-	if r := p.handlePTRQuery(q); r != nil {
+	if r := p.ResponsePTR(q); r != nil {
 		qCtx.SetResponse(r)
 		return nil
 	}
@@ -92,11 +92,11 @@ func (p *reverseLookup) Exec(ctx context.Context, qCtx *query_context.Context, n
 	return nil
 }
 
-func (p *reverseLookup) Close() error {
+func (p *ReverseLookup) Close() error {
 	return p.c.Close()
 }
 
-func (p *reverseLookup) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+func (p *ReverseLookup) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	ipStr := req.URL.Query().Get("ip")
 	if len(ipStr) == 0 {
 		http.Error(w, "no 'ip' query parameter found", http.StatusBadRequest)
@@ -114,12 +114,12 @@ func (p *reverseLookup) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (p *reverseLookup) lookup(n netip.Addr) string {
+func (p *ReverseLookup) lookup(n netip.Addr) string {
 	v, _, _ := p.c.Get(key(as16(n)))
 	return v
 }
 
-func (p *reverseLookup) handlePTRQuery(q *dns.Msg) *dns.Msg {
+func (p *ReverseLookup) ResponsePTR(q *dns.Msg) *dns.Msg {
 	if p.args.HandlePTR && len(q.Question) > 0 && q.Question[0].Qtype == dns.TypePTR {
 		question := q.Question[0]
 		addr, _ := utils.ParsePTRName(question.Name)
@@ -147,7 +147,7 @@ func (p *reverseLookup) handlePTRQuery(q *dns.Msg) *dns.Msg {
 	return nil
 }
 
-func (p *reverseLookup) saveIPs(q, r *dns.Msg) {
+func (p *ReverseLookup) saveIPs(q, r *dns.Msg) {
 	if r == nil {
 		return
 	}

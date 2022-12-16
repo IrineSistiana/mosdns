@@ -37,12 +37,12 @@ func init() {
 	MustRegExecQuickSetup("jump", setupJump)
 }
 
-type sequence struct {
-	chain            []*chainNode
+type Sequence struct {
+	chain            []*ChainNode
 	anonymousPlugins []any
 }
 
-func (s *sequence) Close() error {
+func (s *Sequence) Close() error {
 	for _, plugin := range s.anonymousPlugins {
 		closePlugin(plugin)
 	}
@@ -52,11 +52,11 @@ func (s *sequence) Close() error {
 type Args = []RuleArgs
 
 func Init(bp *coremain.BP, args any) (any, error) {
-	return newSequencePlugin(bp, *args.(*Args))
+	return NewSequence(bp, *args.(*Args))
 }
 
-func newSequencePlugin(bq BQ, ra []RuleArgs) (*sequence, error) {
-	s := &sequence{}
+func NewSequence(bq BQ, ra []RuleArgs) (*Sequence, error) {
+	s := &Sequence{}
 
 	var rc []RuleConfig
 	for _, ra := range ra {
@@ -69,7 +69,7 @@ func newSequencePlugin(bq BQ, ra []RuleArgs) (*sequence, error) {
 	return s, nil
 }
 
-func (s *sequence) Exec(ctx context.Context, qCtx *query_context.Context) error {
-	walker := newChainWalker(s.chain, nil)
+func (s *Sequence) Exec(ctx context.Context, qCtx *query_context.Context) error {
+	walker := NewChainWalker(s.chain, nil)
 	return walker.ExecNext(ctx, qCtx)
 }

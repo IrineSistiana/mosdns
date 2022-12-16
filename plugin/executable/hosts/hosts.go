@@ -28,6 +28,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v5/pkg/matcher/domain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
+	"github.com/miekg/dns"
 	"os"
 )
 
@@ -37,25 +38,23 @@ func init() {
 	coremain.RegNewPluginFunc(PluginType, Init, func() any { return new(Args) })
 }
 
-var _ sequence.Executable = (*hostsPlugin)(nil)
+var _ sequence.Executable = (*Hosts)(nil)
 
 type Args struct {
 	Entries []string `yaml:"entries"`
 	Files   []string `yaml:"files"`
 }
 
-type hostsPlugin struct {
+type Hosts struct {
 	h *hosts.Hosts
 }
 
 func Init(_ *coremain.BP, args any) (any, error) {
-	return newHostsContainer(args.(*Args))
+	return NewHosts(args.(*Args))
 }
 
-func newHostsContainer(args *Args) (*hostsPlugin, error) {
+func NewHosts(args *Args) (*Hosts, error) {
 	m := domain.NewMixMatcher[*hosts.IPs]()
-	m.SetDefaultMatcher(domain.MatcherFull)
-
 	m.SetDefaultMatcher(domain.MatcherFull)
 	for i, entry := range args.Entries {
 		if err := domain.Load[*hosts.IPs](m, entry, hosts.ParseIPs); err != nil {
@@ -72,12 +71,16 @@ func newHostsContainer(args *Args) (*hostsPlugin, error) {
 		}
 	}
 
-	return &hostsPlugin{
+	return &Hosts{
 		h: hosts.NewHosts(m),
 	}, nil
 }
 
-func (h *hostsPlugin) Exec(_ context.Context, qCtx *query_context.Context) error {
+func (h *Hosts) Response(q *dns.Msg) *dns.Msg {
+	return h.h.LookupMsg(q)
+}
+
+func (h *Hosts) Exec(_ context.Context, qCtx *query_context.Context) error {
 	r := h.h.LookupMsg(qCtx.Q())
 	if r != nil {
 		qCtx.SetResponse(r)

@@ -27,7 +27,9 @@ import (
 )
 
 type BQ interface {
+	// M returns a non-nil *coremain.Mosdns.
 	M() *coremain.Mosdns
+	// L returns a non-nil *zap.Logger.
 	L() *zap.Logger
 }
 
