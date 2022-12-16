@@ -120,9 +120,10 @@ func NewCache(bq sequence.BQ, args *Args) *Cache {
 
 	backend := cache.New[key, *item](cache.Opts{Size: args.Size})
 	p := &Cache{
-		args:    args,
-		logger:  bq.L(),
-		backend: backend,
+		args:        args,
+		logger:      bq.L(),
+		backend:     backend,
+		closeNotify: make(chan struct{}),
 
 		queryTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "query_total",
