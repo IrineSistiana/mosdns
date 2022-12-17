@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package utils
+package dnsutils
 
 import (
 	"net/netip"
@@ -33,7 +33,11 @@ func Test_reverse4(t *testing.T) {
 		wantErr bool
 	}{
 		{"v4", "4.4.8.8", netip.MustParseAddr("8.8.4.4"), false},
-		{"err", "123114123", netip.Addr{}, true},
+		{"v4_with_prefix", "prefix.4.4.8.8", netip.MustParseAddr("8.8.4.4"), false},
+		{"invalid_format", "123114123", netip.Addr{}, true},
+		{"invalid_format", "12..311..4123..", netip.Addr{}, true},
+		{"invalid_format", "...", netip.Addr{}, true},
+		{"short_length", "4.8.8", netip.Addr{}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -57,7 +61,10 @@ func Test_reverse6(t *testing.T) {
 		wantErr bool
 	}{
 		{"v6", "b.a.9.8.7.6.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2", netip.MustParseAddr("2001:db8::567:89ab"), false},
-		{"err", "123114123", netip.Addr{}, true},
+		{"v6_with_prefix", "prefix.b.a.9.8.7.6.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2", netip.MustParseAddr("2001:db8::567:89ab"), false},
+		{"invalid_format", "123114123", netip.Addr{}, true},
+		{"invalid_format", "..123...", netip.Addr{}, true},
+		{"short_length", "0.0.0.0.0.0.8.b.d.0.1.0.0.2", netip.Addr{}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

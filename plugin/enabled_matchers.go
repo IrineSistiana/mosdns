@@ -24,6 +24,7 @@ import (
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/cname"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/has_resp"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/has_wanted_ans"
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/ptr_ip"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/qclass"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/qname"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/qtype"

@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/cache"
+	"github.com/IrineSistiana/mosdns/v5/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
@@ -122,7 +123,7 @@ func (p *ReverseLookup) lookup(n netip.Addr) string {
 func (p *ReverseLookup) ResponsePTR(q *dns.Msg) *dns.Msg {
 	if p.args.HandlePTR && len(q.Question) > 0 && q.Question[0].Qtype == dns.TypePTR {
 		question := q.Question[0]
-		addr, _ := utils.ParsePTRName(question.Name)
+		addr, _ := dnsutils.ParsePTRQName(question.Name)
 		// If we cannot parse this ptr name. Just ignore it and pass query to next node.
 		// PTR standards are a mess.
 		if !addr.IsValid() {
