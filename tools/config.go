@@ -80,22 +80,24 @@ func genCfg(out string) error {
 	cfg := `
 log:
   level: info
-  file: ""
 
 plugins:
   - tag: forward_google
     type: forward
     args:
-      upstream:
+      upstreams:
         - addr: https://8.8.8.8/dns-query
 
-servers:
-  - exec: forward_google
-    listeners:
-      - protocol: udp
-        addr: 127.0.0.1:5533
-      - protocol: tcp
-        addr: 127.0.0.1:5533
+  - tag: udp_server
+    type: udp_server
+    args:
+      entry: forward_google
+      listen: "127.0.0.1:53"
+  - tag: tcp_server
+    type: tcp_server
+    args:
+      entry: forward_google
+      listen: "127.0.0.1:53"
 `
 	v := viper.New()
 	v.SetConfigType("yaml")
