@@ -152,7 +152,7 @@ func TestSelector_Exec(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &Selector{
-				BQ:     sequence.NewBQ(coremain.NewTestMosdns(), zap.NewNop()),
+				BQ:     sequence.NewBQ(coremain.NewTestMosdnsWithPlugins(nil), zap.NewNop()),
 				prefer: tt.prefer,
 			}
 

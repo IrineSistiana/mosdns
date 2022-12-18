@@ -55,14 +55,15 @@ func RegNewPluginFunc(typ string, initFunc NewPluginFunc, argsType NewPluginArgs
 	pluginTypeRegister.Lock()
 	defer pluginTypeRegister.Unlock()
 
+	if pluginTypeRegister.m == nil {
+		pluginTypeRegister.m = make(map[string]PluginTypeInfo)
+	}
+
 	_, ok := pluginTypeRegister.m[typ]
 	if ok {
 		panic(fmt.Sprintf("duplicate plugin type [%s]", typ))
 	}
 
-	if pluginTypeRegister.m == nil {
-		pluginTypeRegister.m = make(map[string]PluginTypeInfo)
-	}
 	pluginTypeRegister.m[typ] = PluginTypeInfo{
 		NewPlugin: initFunc,
 		NewArgs:   argsType,
@@ -86,8 +87,12 @@ func GetPluginType(typ string) (PluginTypeInfo, bool) {
 	return info, ok
 }
 
-// NewPlugin initializes a Plugin from c and adds it to mosdns.
-func (m *Mosdns) NewPlugin(c PluginConfig) error {
+// newPlugin initializes a Plugin from c and adds it to mosdns.
+func (m *Mosdns) newPlugin(c PluginConfig) error {
+	if len(c.Tag) == 0 {
+		c.Tag = fmt.Sprintf("anonymouse_%s_%d", c.Type, len(m.plugins))
+	}
+
 	if _, dup := m.plugins[c.Tag]; dup {
 		return fmt.Errorf("duplicated plugin tag %s", c.Tag)
 	}
@@ -105,16 +110,13 @@ func (m *Mosdns) NewPlugin(c PluginConfig) error {
 			return fmt.Errorf("unable to decode plugin args: %w", err)
 		}
 	}
+
+	m.logger.Info("loading plugin", zap.String("tag", c.Tag), zap.String("type", c.Type))
 	p, err := typeInfo.NewPlugin(NewBP(c.Tag, m), args)
 	if err != nil {
 		return fmt.Errorf("failed to init plugin: %w", err)
 	}
-
-	m.plugins[c.Tag] = &pluginWrapper{
-		tag: c.Tag,
-		typ: c.Type,
-		p:   p,
-	}
+	m.plugins[c.Tag] = p
 	return nil
 }
 
@@ -140,12 +142,14 @@ var presetPluginFuncReg struct {
 func RegNewPersetPluginFunc(tag string, f NewPersetPluginFunc) {
 	presetPluginFuncReg.Lock()
 	defer presetPluginFuncReg.Unlock()
-	if _, ok := presetPluginFuncReg.m[tag]; ok {
-		panic(fmt.Sprintf("preset plugin %s has already been registered", tag))
-	}
+
 	if presetPluginFuncReg.m == nil {
 		presetPluginFuncReg.m = make(map[string]NewPersetPluginFunc)
 	}
+	if _, ok := presetPluginFuncReg.m[tag]; ok {
+		panic(fmt.Sprintf("preset plugin %s has already been registered", tag))
+	}
+
 	presetPluginFuncReg.m[tag] = f
 }
 

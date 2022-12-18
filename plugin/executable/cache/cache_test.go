@@ -29,7 +29,7 @@ import (
 )
 
 func Test_cachePlugin_Dump(t *testing.T) {
-	bp := coremain.NewBP("test", coremain.NewTestMosdns())
+	bp := coremain.NewBP("test", coremain.NewTestMosdnsWithPlugins(nil))
 	c := NewCache(bp, &Args{Size: 16 * dumpBlockSize}) // Big enough to create dump fragments.
 
 	resp := new(dns.Msg)

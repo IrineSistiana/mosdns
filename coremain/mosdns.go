@@ -39,7 +39,7 @@ type Mosdns struct {
 	logger *zap.Logger // non-nil logger.
 
 	// Plugins
-	plugins map[string]*pluginWrapper
+	plugins map[string]any
 
 	httpMux    *chi.Mux
 	metricsReg *prometheus.Registry
@@ -56,11 +56,12 @@ func NewMosdns(cfg *Config) (*Mosdns, error) {
 
 	m := &Mosdns{
 		logger:     lg,
-		plugins:    make(map[string]*pluginWrapper),
+		plugins:    make(map[string]any),
 		httpMux:    chi.NewRouter(),
 		metricsReg: newMetricsReg(),
 		sc:         safe_close.NewSafeClose(),
 	}
+	// This must be called after m.httpMux and m.metricsReg been set.
 	m.initHttpMux()
 
 	// Start http api server
@@ -94,9 +95,9 @@ func NewMosdns(cfg *Config) (*Mosdns, error) {
 			defer done()
 			<-closeSignal
 			m.logger.Info("starting shutdown sequences")
-			for _, w := range m.plugins {
-				if closer, _ := w.p.(io.Closer); closer != nil {
-					m.logger.Info("closing plugin", zap.String("tag", w.tag))
+			for tag, p := range m.plugins {
+				if closer, _ := p.(io.Closer); closer != nil {
+					m.logger.Info("closing plugin", zap.String("tag", tag))
 					_ = closer.Close()
 				}
 			}
@@ -105,21 +106,12 @@ func NewMosdns(cfg *Config) (*Mosdns, error) {
 	})
 
 	// Preset plugins
-	for tag, f := range LoadNewPersetPluginFuncs() {
-		p, err := f(NewBP(tag, m))
-		if err != nil {
-			m.sc.SendCloseSignal(err)
-			return nil, fmt.Errorf("failed to init preset plugin %s, %w", tag, err)
-		}
-		m.plugins[tag] = &pluginWrapper{
-			tag: tag,
-			typ: "preset",
-			p:   p,
-		}
+	if err := m.loadPresetPlugins(); err != nil {
+		m.sc.SendCloseSignal(err)
+		return nil, err
 	}
-
 	// Plugins from config.
-	if err := m.loadPlugins(cfg, 0); err != nil {
+	if err := m.loadPluginsFromCfg(cfg, 0); err != nil {
 		m.sc.SendCloseSignal(err)
 		return nil, err
 	}
@@ -128,35 +120,14 @@ func NewMosdns(cfg *Config) (*Mosdns, error) {
 	return m, nil
 }
 
-// NewTestMosdns returns a mosdns instance for testing.
-func NewTestMosdns() *Mosdns {
+// NewTestMosdnsWithPlugins returns a mosdns instance for testing.
+func NewTestMosdnsWithPlugins(p map[string]any) *Mosdns {
 	return &Mosdns{
 		logger:     mlog.Nop(),
 		httpMux:    chi.NewRouter(),
-		plugins:    make(map[string]*pluginWrapper),
+		plugins:    p,
 		metricsReg: newMetricsReg(),
 		sc:         safe_close.NewSafeClose(),
-	}
-}
-
-// AddPlugin manually adds a plugin to mosdns. It returns an error if tag has
-// already been added.
-func (m *Mosdns) AddPlugin(tag, typ string, p any) error {
-	if _, dup := m.plugins[tag]; dup {
-		return fmt.Errorf("duplicated tag %s", tag)
-	}
-	m.plugins[tag] = &pluginWrapper{
-		tag: tag,
-		typ: typ,
-		p:   p,
-	}
-	return nil
-}
-
-// MustAddPlugin adds plugin to mosdns. It panics if tag is duplicated.
-func (m *Mosdns) MustAddPlugin(tag, typ string, p any) {
-	if err := m.AddPlugin(tag, typ, p); err != nil {
-		panic(err.Error())
 	}
 }
 
@@ -176,11 +147,7 @@ func (m *Mosdns) Logger() *zap.Logger {
 
 // GetPlugin returns a plugin.
 func (m *Mosdns) GetPlugin(tag string) any {
-	w, ok := m.plugins[tag]
-	if ok {
-		return w.p
-	}
-	return nil
+	return m.plugins[tag]
 }
 
 // GetMetricsReg returns a prometheus.Registerer with a prefix of "mosdns_"
@@ -193,10 +160,6 @@ func (m *Mosdns) GetAPIRouter() *chi.Mux {
 }
 
 func (m *Mosdns) RegPluginAPI(tag string, mux *chi.Mux) {
-	m.httpMux.Mount("/plugins/"+tag, mux)
-}
-
-func (m *Mosdns) NewBP(tag string, mux *chi.Mux) {
 	m.httpMux.Mount("/plugins/"+tag, mux)
 }
 
@@ -239,8 +202,19 @@ func (m *Mosdns) initHttpMux() {
 	m.httpMux.MethodNotAllowed(invalidApiReqHelper)
 }
 
-// loadPlugins loads plugins from this config. It follows include first.
-func (m *Mosdns) loadPlugins(cfg *Config, includeDepth int) error {
+func (m *Mosdns) loadPresetPlugins() error {
+	for tag, f := range LoadNewPersetPluginFuncs() {
+		p, err := f(NewBP(tag, m))
+		if err != nil {
+			return fmt.Errorf("failed to init preset plugin %s, %w", tag, err)
+		}
+		m.plugins[tag] = p
+	}
+	return nil
+}
+
+// loadPluginsFromCfg loads plugins from this config. It follows include first.
+func (m *Mosdns) loadPluginsFromCfg(cfg *Config, includeDepth int) error {
 	const maxIncludeDepth = 8
 	if includeDepth > maxIncludeDepth {
 		return errors.New("maximum include depth reached")
@@ -254,17 +228,13 @@ func (m *Mosdns) loadPlugins(cfg *Config, includeDepth int) error {
 			return fmt.Errorf("failed to read config from %s, %w", s, err)
 		}
 		m.logger.Info("load config", zap.String("file", path))
-		if err := m.loadPlugins(subCfg, includeDepth); err != nil {
+		if err := m.loadPluginsFromCfg(subCfg, includeDepth); err != nil {
 			return fmt.Errorf("failed to load config from %s, %w", s, err)
 		}
 	}
 
 	for i, pc := range cfg.Plugins {
-		if len(pc.Type) == 0 || len(pc.Tag) == 0 {
-			continue
-		}
-		m.logger.Info("loading plugin", zap.String("tag", pc.Tag), zap.String("type", pc.Type))
-		if err := m.NewPlugin(pc); err != nil {
+		if err := m.newPlugin(pc); err != nil {
 			return fmt.Errorf("failed to init plugin #%d %s, %w", i, pc.Tag, err)
 		}
 	}

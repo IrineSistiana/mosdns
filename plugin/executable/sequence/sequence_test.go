@@ -59,13 +59,13 @@ func (d *dummy) Exec(ctx context.Context, qCtx *query_context.Context, next Chai
 	return next.ExecNext(ctx, qCtx)
 }
 
-func preparePlugins(m *coremain.Mosdns) {
-	m.MustAddPlugin("target", "", &dummy{wantR: new(dns.Msg)})
-	m.MustAddPlugin("err", "", &dummy{wantErr: errors.New("err")})
-	m.MustAddPlugin("drop", "", &dummy{dropR: true})
-	m.MustAddPlugin("nop", "", &dummy{})
-	m.MustAddPlugin("true", "", &dummy{matched: true})
-	m.MustAddPlugin("false", "", &dummy{matched: false})
+func preparePlugins(p map[string]any) {
+	p["target"] = &dummy{wantR: new(dns.Msg)}
+	p["err"] = &dummy{wantErr: errors.New("err")}
+	p["drop"] = &dummy{dropR: true}
+	p["nop"] = &dummy{}
+	p["true"] = &dummy{matched: true}
+	p["false"] = &dummy{matched: false}
 }
 
 func Test_sequence_Exec(t *testing.T) {
@@ -172,14 +172,15 @@ func Test_sequence_Exec(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := coremain.NewTestMosdns()
-			preparePlugins(m)
+			ps := make(map[string]any)
+			m := coremain.NewTestMosdnsWithPlugins(ps)
+			preparePlugins(ps)
 			if len(tt.ra2) > 0 {
 				s, err := NewSequence(coremain.NewBP("test", m), tt.ra2)
 				if err != nil {
 					t.Fatal(err)
 				}
-				m.MustAddPlugin("seq2", "", s)
+				ps["seq2"] = s
 			}
 			s, err := NewSequence(coremain.NewBP("test", m), tt.ra)
 			if err != nil {

@@ -32,10 +32,11 @@ type Config struct {
 
 // PluginConfig represents a plugin config
 type PluginConfig struct {
-	// Tag, required
+	// Tag for this plugin. Optional. If omitted, this plugin will
+	// be registered with a random tag.
 	Tag string `yaml:"tag"`
 
-	// Type, required
+	// Type, required.
 	Type string `yaml:"type"`
 
 	// Args, might be required by some plugins.
