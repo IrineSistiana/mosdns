@@ -31,11 +31,3 @@ func (mg MatcherGroup) Match(s string) (struct{}, bool) {
 	}
 	return struct{}{}, false
 }
-
-func (mg MatcherGroup) Len() int {
-	s := 0
-	for _, m := range mg {
-		s += m.Len()
-	}
-	return s
-}

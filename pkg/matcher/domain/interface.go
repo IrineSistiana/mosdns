@@ -28,7 +28,6 @@ type Matcher[T any] interface {
 	// Match matches the domain s.
 	// s could be a fqdn or not, and should be case-insensitive.
 	Match(s string) (v T, ok bool)
-	Len() int
 }
 
 type WriteableMatcher[T any] interface {

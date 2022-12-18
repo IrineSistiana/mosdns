@@ -257,7 +257,7 @@ func (m *MixMatcher[T]) Match(s string) (v T, ok bool) {
 
 func (m *MixMatcher[T]) Len() int {
 	sum := 0
-	for _, matcher := range [...]Matcher[T]{m.full, m.domain, m.regex, m.keyword} {
+	for _, matcher := range [...]interface{ Len() int }{m.full, m.domain, m.regex, m.keyword} {
 		if matcher == nil {
 			continue
 		}

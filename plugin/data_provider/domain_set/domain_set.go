@@ -25,7 +25,6 @@ import (
 	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/matcher/domain"
 	"github.com/IrineSistiana/mosdns/v5/plugin/data_provider"
-	"go.uber.org/zap"
 	"os"
 )
 
@@ -40,7 +39,6 @@ func Init(bp *coremain.BP, args any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	bp.L().Info("domain set loaded", zap.Int("length", m.GetDomainMatcher().Len()))
 	return m, nil
 }
 
