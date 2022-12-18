@@ -166,7 +166,7 @@ func getRespFromCache(msgKey string, backend *cache.Cache[key, *item], lazyCache
 		now := time.Now()
 
 		// Not expired.
-		if now.After(v.expirationTime) {
+		if now.Before(v.expirationTime) {
 			r := v.resp.Copy()
 			dnsutils.SubtractTTL(r, uint32(now.Sub(v.storedTime).Seconds()))
 			return r, false
@@ -223,6 +223,7 @@ func saveRespToCache(msgKey string, r *dns.Msg, backend *cache.Cache[key, *item]
 	now := time.Now()
 	v := &item{
 		resp:           copyNoOpt(r),
+		storedTime:     now,
 		expirationTime: now.Add(msgTtl),
 	}
 	backend.Store(key(msgKey), v, now.Add(cacheTtl))
