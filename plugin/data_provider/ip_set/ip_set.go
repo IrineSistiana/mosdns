@@ -25,7 +25,6 @@ import (
 	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/matcher/netlist"
 	"github.com/IrineSistiana/mosdns/v5/plugin/data_provider"
-	"go.uber.org/zap"
 	"net/netip"
 	"os"
 	"strings"
@@ -75,7 +74,6 @@ func NewIPSet(bp *coremain.BP, args *Args) (*IPSet, error) {
 		}
 		p.mg = append(p.mg, provider.GetIPMatcher())
 	}
-	bp.L().Info("ip set loaded", zap.Int("length", MatcherGroup(p.mg).Len()))
 	return p, nil
 }
 
@@ -142,12 +140,4 @@ func (mg MatcherGroup) Match(addr netip.Addr) bool {
 		}
 	}
 	return false
-}
-
-func (mg MatcherGroup) Len() int {
-	s := 0
-	for _, m := range mg {
-		s += m.Len()
-	}
-	return s
 }
