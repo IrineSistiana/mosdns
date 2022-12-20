@@ -35,6 +35,8 @@ func init() {
 	MustRegExecQuickSetup("return", setupReturn)
 	MustRegExecQuickSetup("goto", setupGoto)
 	MustRegExecQuickSetup("jump", setupJump)
+	MustRegMatchQuickSetup("true", setupTrue)
+	MustRegMatchQuickSetup("false", setupFalse)
 }
 
 type Sequence struct {
