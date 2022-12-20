@@ -22,6 +22,7 @@ package plugin
 import (
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/client_ip"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/cname"
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/env"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/has_resp"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/has_wanted_ans"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/ptr_ip"
