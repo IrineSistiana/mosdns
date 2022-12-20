@@ -29,6 +29,6 @@ import (
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/qclass"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/qname"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/qtype"
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/random"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/rcode"
-	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/resp_ip"
 )
