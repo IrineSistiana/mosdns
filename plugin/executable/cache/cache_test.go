@@ -21,7 +21,6 @@ package cache
 
 import (
 	"bytes"
-	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/miekg/dns"
 	"strconv"
 	"testing"
@@ -29,8 +28,7 @@ import (
 )
 
 func Test_cachePlugin_Dump(t *testing.T) {
-	bp := coremain.NewBP("test", coremain.NewTestMosdnsWithPlugins(nil))
-	c := NewCache(bp, &Args{Size: 16 * dumpBlockSize}) // Big enough to create dump fragments.
+	c := NewCache(&Args{Size: 16 * dumpBlockSize}, Opts{}) // Big enough to create dump fragments.
 
 	resp := new(dns.Msg)
 	resp.SetQuestion("test.", dns.TypeA)
