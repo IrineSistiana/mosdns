@@ -96,8 +96,15 @@ type Cache struct {
 }
 
 func Init(bp *coremain.BP, args any) (any, error) {
-	c := NewCache(bp, args.(*Args))
-	MustRegPlugin(c, bp)
+	c := NewCache(args.(*Args), Opts{
+		Logger:     bp.L(),
+		MetricsTag: bp.Tag(),
+	})
+
+	if err := c.RegMetricsTo(prometheus.WrapRegistererWithPrefix(PluginType+"_", bp.M().GetMetricsReg())); err != nil {
+		return nil, fmt.Errorf("failed to register metrics, %w", err)
+	}
+	bp.RegAPI(c.Api())
 	return c, nil
 }
 
@@ -112,34 +119,50 @@ func quickSetupCache(bq sequence.BQ, s string) (any, error) {
 		}
 		size = i
 	}
-	return NewCache(bq, &Args{Size: size}), nil
+	// Don't register metrics in quick setup.
+	return NewCache(&Args{Size: size}, Opts{Logger: bq.L()}), nil
 }
 
-func NewCache(bq sequence.BQ, args *Args) *Cache {
+type Opts struct {
+	Logger     *zap.Logger
+	MetricsTag string
+}
+
+func NewCache(args *Args, opts Opts) *Cache {
 	args.init()
 
+	logger := opts.Logger
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+
 	backend := cache.New[key, *item](cache.Opts{Size: args.Size})
+	lb := map[string]string{"tag": opts.MetricsTag}
 	p := &Cache{
 		args:        args,
-		logger:      bq.L(),
+		logger:      logger,
 		backend:     backend,
 		closeNotify: make(chan struct{}),
 
 		queryTotal: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "query_total",
-			Help: "The total number of processed queries",
+			Name:        "query_total",
+			Help:        "The total number of processed queries",
+			ConstLabels: lb,
 		}),
 		hitTotal: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "hit_total",
-			Help: "The total number of queries that hit the cache",
+			Name:        "hit_total",
+			Help:        "The total number of queries that hit the cache",
+			ConstLabels: lb,
 		}),
 		lazyHitTotal: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "lazy_hit_total",
-			Help: "The total number of queries that hit the expired cache",
+			Name:        "lazy_hit_total",
+			Help:        "The total number of queries that hit the expired cache",
+			ConstLabels: lb,
 		}),
 		size: prometheus.NewGaugeFunc(prometheus.GaugeOpts{
-			Name: "cache_size",
-			Help: "Current cache size in records",
+			Name:        "size_current",
+			Help:        "Current cache size in records",
+			ConstLabels: lb,
 		}, func() float64 {
 			return float64(backend.Len())
 		}),
@@ -153,10 +176,13 @@ func NewCache(bq sequence.BQ, args *Args) *Cache {
 	return p
 }
 
-// MustRegPlugin registers metrics and api.
-func MustRegPlugin(c *Cache, to *coremain.BP) {
-	to.GetMetricsReg().MustRegister(c.queryTotal, c.hitTotal, c.lazyHitTotal, c.size)
-	to.RegAPI(c.api())
+func (c *Cache) RegMetricsTo(r prometheus.Registerer) error {
+	for _, collector := range [...]prometheus.Collector{c.queryTotal, c.hitTotal, c.lazyHitTotal, c.size} {
+		if err := r.Register(collector); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (c *Cache) Exec(ctx context.Context, qCtx *query_context.Context, next sequence.ChainWalker) error {
@@ -291,7 +317,7 @@ func (c *Cache) dumpCache() error {
 	return nil
 }
 
-func (c *Cache) api() *chi.Mux {
+func (c *Cache) Api() *chi.Mux {
 	r := chi.NewRouter()
 	r.Get("/flush", func(w http.ResponseWriter, req *http.Request) {
 		c.backend.Flush()

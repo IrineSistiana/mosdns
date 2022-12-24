@@ -31,6 +31,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
 	"github.com/miekg/dns"
+	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 	"strings"
 	"time"
@@ -76,7 +77,15 @@ type UpstreamConfig struct {
 }
 
 func Init(bp *coremain.BP, args any) (any, error) {
-	return NewForward(args.(*Args), bp.L())
+	f, err := NewForward(args.(*Args), Opts{Logger: bp.L(), MetricsTag: bp.Tag()})
+	if err != nil {
+		return nil, err
+	}
+	if err := f.RegisterMetricsTo(prometheus.WrapRegistererWithPrefix(PluginType+"_", bp.M().GetMetricsReg())); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return f, nil
 }
 
 var _ sequence.Executable = (*Forward)(nil)
@@ -90,20 +99,24 @@ type Forward struct {
 	tag2Upstream map[string]*upstreamWrapper // for fast tag lookup only.
 }
 
+type Opts struct {
+	Logger     *zap.Logger
+	MetricsTag string
+}
+
 // NewForward inits a Forward from given args.
 // args must contain at least one upstream.
-// If logger is nil, zap.NewNop() will be used.
-func NewForward(args *Args, logger *zap.Logger) (*Forward, error) {
+func NewForward(args *Args, opt Opts) (*Forward, error) {
 	if len(args.Upstreams) == 0 {
 		return nil, errors.New("no upstream is configured")
 	}
-	if logger == nil {
-		logger = zap.NewNop()
+	if opt.Logger == nil {
+		opt.Logger = zap.NewNop()
 	}
 
 	f := &Forward{
 		args:         args,
-		logger:       logger,
+		logger:       opt.Logger,
 		us:           make(map[*upstreamWrapper]struct{}),
 		tag2Upstream: make(map[string]*upstreamWrapper),
 	}
@@ -120,8 +133,7 @@ func NewForward(args *Args, logger *zap.Logger) (*Forward, error) {
 			return nil, fmt.Errorf("#%d upstream invalid args, addr is required", i)
 		}
 		applyGlobal(&c)
-
-		opt := upstream.Opt{
+		uOpt := upstream.Opt{
 			DialAddr:       c.DialAddr,
 			Socks5:         c.Socks5,
 			SoMark:         c.SoMark,
@@ -135,18 +147,15 @@ func NewForward(args *Args, logger *zap.Logger) (*Forward, error) {
 				InsecureSkipVerify: c.InsecureSkipVerify,
 				ClientSessionCache: tls.NewLRUClientSessionCache(4),
 			},
-			Logger: logger,
+			Logger: opt.Logger,
 		}
 
-		u, err := upstream.NewUpstream(c.Addr, opt)
+		u, err := upstream.NewUpstream(c.Addr, uOpt)
 		if err != nil {
 			_ = f.Close()
 			return nil, fmt.Errorf("failed to init upstream #%d: %w", i, err)
 		}
-		uw := &upstreamWrapper{
-			Upstream: u,
-			cfg:      c,
-		}
+		uw := wrapUpstream(u, c, opt.MetricsTag)
 		f.us[uw] = struct{}{}
 
 		if len(c.Tag) > 0 {
@@ -159,6 +168,19 @@ func NewForward(args *Args, logger *zap.Logger) (*Forward, error) {
 	}
 
 	return f, nil
+}
+
+func (f *Forward) RegisterMetricsTo(r prometheus.Registerer) error {
+	for wu := range f.us {
+		// Only register metrics for upstream that has a tag.
+		if len(wu.cfg.Tag) == 0 {
+			continue
+		}
+		if err := wu.registerMetricsTo(r); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (f *Forward) Exec(ctx context.Context, qCtx *query_context.Context) (err error) {
@@ -281,5 +303,5 @@ func quickSetup(bq sequence.BQ, s string) (any, error) {
 	for _, u := range strings.Fields(s) {
 		args.Upstreams = append(args.Upstreams, UpstreamConfig{Addr: u})
 	}
-	return NewForward(args, bq.L())
+	return NewForward(args, Opts{Logger: bq.L()})
 }

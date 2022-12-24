@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 	"github.com/go-chi/chi/v5"
-	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 	"reflect"
 	"sync"
@@ -188,9 +187,11 @@ func (p *BP) M() *Mosdns {
 	return p.m
 }
 
-// GetMetricsReg return a prometheus.Registerer with a prefix of "mosdns_plugin_${plugin_tag}_]"
-func (p *BP) GetMetricsReg() prometheus.Registerer {
-	return prometheus.WrapRegistererWithPrefix(fmt.Sprintf("plugin_%s_", p.tag), p.m.GetMetricsReg())
+// Tag returns the plugin tag.
+// This tag should be unique globally unless it's in
+// a test environment.
+func (p *BP) Tag() string {
+	return p.tag
 }
 
 // RegAPI mounts mux to mosdns api. Note: Plugins MUST NOT call RegAPI twice.

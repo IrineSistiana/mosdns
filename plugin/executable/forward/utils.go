@@ -20,19 +20,85 @@
 package fastforward
 
 import (
+	"context"
 	"github.com/IrineSistiana/mosdns/v5/pkg/upstream"
+	"github.com/miekg/dns"
+	"github.com/prometheus/client_golang/prometheus"
+	"time"
 )
 
 type upstreamWrapper struct {
-	upstream.Upstream
-	cfg UpstreamConfig
+	u               upstream.Upstream
+	cfg             UpstreamConfig
+	queryTotal      prometheus.Counter
+	errTotal        prometheus.Counter
+	thread          prometheus.Gauge
+	responseLatency prometheus.Histogram
+}
+
+func wrapUpstream(u upstream.Upstream, cfg UpstreamConfig, pluginTag string) *upstreamWrapper {
+	lb := map[string]string{"upstream": cfg.Tag, "tag": pluginTag}
+	return &upstreamWrapper{
+		u:   u,
+		cfg: cfg,
+		queryTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name:        "query_total",
+			Help:        "The total number of queries processed by this upstream",
+			ConstLabels: lb,
+		}),
+		errTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name:        "err_total",
+			Help:        "The total number of queries failed, including SERVFAIL",
+			ConstLabels: lb,
+		}),
+		thread: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name:        "thread",
+			Help:        "The number of threads (queries) that are currently being processed",
+			ConstLabels: lb,
+		}),
+		responseLatency: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:        "response_latency_millisecond",
+			Help:        "The response latency in millisecond",
+			Buckets:     []float64{1, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000},
+			ConstLabels: lb,
+		}),
+	}
+}
+
+func (uw *upstreamWrapper) registerMetricsTo(r prometheus.Registerer) error {
+	for _, collector := range [...]prometheus.Collector{uw.queryTotal, uw.errTotal, uw.thread, uw.responseLatency} {
+		if err := r.Register(collector); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // name returns upstream tag if it was set in the config.
 // Otherwise, it returns upstream address.
-func (u *upstreamWrapper) name() string {
-	if t := u.cfg.Tag; len(t) > 0 {
-		return u.cfg.Tag
+func (uw *upstreamWrapper) name() string {
+	if t := uw.cfg.Tag; len(t) > 0 {
+		return uw.cfg.Tag
 	}
-	return u.cfg.Addr
+	return uw.cfg.Addr
+}
+
+func (uw *upstreamWrapper) ExchangeContext(ctx context.Context, m *dns.Msg) (*dns.Msg, error) {
+	uw.queryTotal.Inc()
+
+	start := time.Now()
+	uw.thread.Inc()
+	r, err := uw.u.ExchangeContext(ctx, m)
+	uw.thread.Dec()
+
+	if err != nil || (r != nil && r.Rcode == dns.RcodeServerFailure) {
+		uw.errTotal.Inc()
+	} else {
+		uw.responseLatency.Observe(float64(time.Since(start).Milliseconds()))
+	}
+	return r, err
+}
+
+func (uw *upstreamWrapper) Close() error {
+	return uw.u.Close()
 }
