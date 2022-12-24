@@ -104,11 +104,18 @@ type Opt struct {
 
 	// Logger specifies the logger that the upstream will use.
 	Logger *zap.Logger
+
+	// EventObserver can observe connection events.
+	// Note: Not Implemented for HTTP/3 upstreams.
+	EventObserver EventObserver
 }
 
 func NewUpstream(addr string, opt Opt) (Upstream, error) {
 	if opt.Logger == nil {
 		opt.Logger = mlog.Nop()
+	}
+	if opt.EventObserver == nil {
+		opt.EventObserver = nopEO{}
 	}
 
 	// parse protocol and server addr
@@ -134,7 +141,9 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 		uto := transport.Opts{
 			Logger: opt.Logger,
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
-				return dialer.DialContext(ctx, "udp", dialAddr)
+				c, err := dialer.DialContext(ctx, "udp", dialAddr)
+				c = wrapConn(c, opt.EventObserver)
+				return c, err
 			},
 			WriteFunc: dnsutils.WriteMsgToUDP,
 			ReadFunc: func(c io.Reader) (*dns.Msg, int, error) {
@@ -147,7 +156,9 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 		tto := transport.Opts{
 			Logger: opt.Logger,
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
-				return dialer.DialContext(ctx, "tcp", dialAddr)
+				c, err := dialer.DialContext(ctx, "tcp", dialAddr)
+				c = wrapConn(c, opt.EventObserver)
+				return c, err
 			},
 			WriteFunc: dnsutils.WriteMsgToTCP,
 			ReadFunc:  dnsutils.ReadMsgFromTCP,
@@ -161,7 +172,9 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 		to := transport.Opts{
 			Logger: opt.Logger,
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
-				return dialTCP(ctx, dialAddr, opt.Socks5, dialer)
+				c, err := dialTCP(ctx, dialAddr, opt.Socks5, dialer)
+				c = wrapConn(c, opt.EventObserver)
+				return c, err
 			},
 			WriteFunc:      dnsutils.WriteMsgToTCP,
 			ReadFunc:       dnsutils.ReadMsgFromTCP,
@@ -189,11 +202,13 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 				if err != nil {
 					return nil, err
 				}
+				conn = wrapConn(conn, opt.EventObserver)
 				tlsConn := tls.Client(conn, tlsConfig)
 				if err := tlsConn.HandshakeContext(ctx); err != nil {
 					tlsConn.Close()
 					return nil, err
 				}
+
 				return tlsConn, nil
 			},
 			WriteFunc:      dnsutils.WriteMsgToTCP,
@@ -244,7 +259,9 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 		} else {
 			t1 := &http.Transport{
 				DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) { // overwrite server addr
-					return dialTCP(ctx, dialAddr, opt.Socks5, dialer)
+					c, err := dialTCP(ctx, dialAddr, opt.Socks5, dialer)
+					c = wrapConn(c, opt.EventObserver)
+					return c, err
 				},
 				TLSClientConfig:     opt.TLSConfig,
 				TLSHandshakeTimeout: tlsHandshakeTimeout,

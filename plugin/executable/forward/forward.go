@@ -133,6 +133,8 @@ func NewForward(args *Args, opt Opts) (*Forward, error) {
 			return nil, fmt.Errorf("#%d upstream invalid args, addr is required", i)
 		}
 		applyGlobal(&c)
+
+		uw := newWrapper(c, opt.MetricsTag)
 		uOpt := upstream.Opt{
 			DialAddr:       c.DialAddr,
 			Socks5:         c.Socks5,
@@ -147,7 +149,8 @@ func NewForward(args *Args, opt Opts) (*Forward, error) {
 				InsecureSkipVerify: c.InsecureSkipVerify,
 				ClientSessionCache: tls.NewLRUClientSessionCache(4),
 			},
-			Logger: opt.Logger,
+			Logger:        opt.Logger,
+			EventObserver: uw,
 		}
 
 		u, err := upstream.NewUpstream(c.Addr, uOpt)
@@ -155,7 +158,7 @@ func NewForward(args *Args, opt Opts) (*Forward, error) {
 			_ = f.Close()
 			return nil, fmt.Errorf("failed to init upstream #%d: %w", i, err)
 		}
-		uw := wrapUpstream(u, c, opt.MetricsTag)
+		uw.u = u
 		f.us[uw] = struct{}{}
 
 		if len(c.Tag) > 0 {

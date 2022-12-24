@@ -34,12 +34,25 @@ type upstreamWrapper struct {
 	errTotal        prometheus.Counter
 	thread          prometheus.Gauge
 	responseLatency prometheus.Histogram
+
+	connOpened prometheus.Counter
+	connClosed prometheus.Counter
 }
 
-func wrapUpstream(u upstream.Upstream, cfg UpstreamConfig, pluginTag string) *upstreamWrapper {
+func (uw *upstreamWrapper) OnEvent(typ upstream.Event) {
+	switch typ {
+	case upstream.EventConnOpen:
+		uw.connOpened.Inc()
+	case upstream.EventConnClose:
+		uw.connClosed.Inc()
+	}
+}
+
+// newWrapper inits all metrics.
+// Note: upstreamWrapper.u still needs to be set.
+func newWrapper(cfg UpstreamConfig, pluginTag string) *upstreamWrapper {
 	lb := map[string]string{"upstream": cfg.Tag, "tag": pluginTag}
 	return &upstreamWrapper{
-		u:   u,
 		cfg: cfg,
 		queryTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name:        "query_total",
@@ -62,11 +75,29 @@ func wrapUpstream(u upstream.Upstream, cfg UpstreamConfig, pluginTag string) *up
 			Buckets:     []float64{1, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000},
 			ConstLabels: lb,
 		}),
+
+		connOpened: prometheus.NewCounter(prometheus.CounterOpts{
+			Name:        "conn_opened_total",
+			Help:        "The total number of connections that are opened",
+			ConstLabels: lb,
+		}),
+		connClosed: prometheus.NewCounter(prometheus.CounterOpts{
+			Name:        "conn_closed_total",
+			Help:        "The total number of connections that are closed",
+			ConstLabels: lb,
+		}),
 	}
 }
 
 func (uw *upstreamWrapper) registerMetricsTo(r prometheus.Registerer) error {
-	for _, collector := range [...]prometheus.Collector{uw.queryTotal, uw.errTotal, uw.thread, uw.responseLatency} {
+	for _, collector := range [...]prometheus.Collector{
+		uw.queryTotal,
+		uw.errTotal,
+		uw.thread,
+		uw.responseLatency,
+		uw.connOpened,
+		uw.connClosed,
+	} {
 		if err := r.Register(collector); err != nil {
 			return err
 		}
