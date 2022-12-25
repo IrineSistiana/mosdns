@@ -122,7 +122,7 @@ func (uw *upstreamWrapper) ExchangeContext(ctx context.Context, m *dns.Msg) (*dn
 	r, err := uw.u.ExchangeContext(ctx, m)
 	uw.thread.Dec()
 
-	if err != nil || (r != nil && r.Rcode == dns.RcodeServerFailure) {
+	if err != nil {
 		uw.errTotal.Inc()
 	} else {
 		uw.responseLatency.Observe(float64(time.Since(start).Milliseconds()))
