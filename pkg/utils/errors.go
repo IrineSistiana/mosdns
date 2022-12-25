@@ -20,36 +20,44 @@
 package utils
 
 import (
-	"fmt"
 	"strings"
+	"sync"
 )
 
-type Errors []error
-
-func (es *Errors) Error() string {
-	return es.String()
+type ConcurrentErrors struct {
+	sync.RWMutex
+	es []error
 }
 
-func (es *Errors) Append(err error) {
-	*es = append(*es, err)
-}
+func (c *ConcurrentErrors) Error() string {
+	c.Lock()
+	defer c.Unlock()
 
-func (es *Errors) Build() error {
-	switch len(*es) {
+	switch len(c.es) {
 	case 0:
-		return nil
+		return ""
 	case 1:
-		return (*es)[0]
-	default:
-		return es
+		return c.es[0].Error()
 	}
+
+	b := new(strings.Builder)
+	b.WriteString("multi errors:")
+	b.WriteString(c.es[0].Error())
+	for _, e := range c.es[1:] {
+		b.WriteString(", ")
+		b.WriteString(e.Error())
+	}
+	return b.String()
 }
 
-func (es *Errors) String() string {
-	sb := new(strings.Builder)
-	sb.WriteString("joint errors:")
-	for i, err := range *es {
-		sb.WriteString(fmt.Sprintf(" #%d: %v", i, err))
-	}
-	return sb.String()
+func (c *ConcurrentErrors) Append(err error) {
+	c.Lock()
+	defer c.Unlock()
+	c.es = append(c.es, err)
+}
+
+func (c *ConcurrentErrors) Len() int {
+	c.Lock()
+	defer c.Unlock()
+	return len(c.es)
 }

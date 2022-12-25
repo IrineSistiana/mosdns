@@ -228,8 +228,6 @@ func (f *Forward) Close() error {
 	return nil
 }
 
-var ErrAllFailed = errors.New("all upstreams failed")
-
 func (f *Forward) exchange(ctx context.Context, qCtx *query_context.Context, us map[*upstreamWrapper]struct{}) (*dns.Msg, error) {
 	tn := f.args.Concurrent
 	if tn <= 0 {
@@ -256,8 +254,11 @@ func (f *Forward) exchange(ctx context.Context, qCtx *query_context.Context, us 
 	}}
 	idleDo.Add(tn)
 
-	qc := qCtx.Copy() // qCtx is not safe for concurrent use.
+	es := new(utils.ConcurrentErrors)
+
 	i := 0
+	qc := qCtx.Q().Copy()
+	uqid := qCtx.Id()
 	for u := range us {
 		i++
 		if i > tn {
@@ -267,14 +268,24 @@ func (f *Forward) exchange(ctx context.Context, qCtx *query_context.Context, us 
 		u := u
 		go func() {
 			defer idleDo.Done()
-			qCtx := qc
 
+			q := qc
 			// Give each upstream a fixed timeout to finsh the query.
 			ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
 			defer cancel()
-			r, err := u.ExchangeContext(ctx, qCtx.Q())
+			r, err := u.ExchangeContext(ctx, q)
 			if err != nil {
-				f.logger.Warn("upstream error", qCtx.InfoField(), zap.String("upstream", u.name()), zap.Error(err))
+				es.Append(&upstreamErr{
+					upstreamName: u.name(),
+					err:          err,
+				})
+				f.logger.Warn(
+					"upstream error",
+					zap.Uint32("uqid", uqid),
+					zap.Inline((*queryInfo)(q)),
+					zap.String("upstream", u.name()),
+					zap.Error(err),
+				)
 			}
 			if r != nil {
 				select {
@@ -294,10 +305,11 @@ readLoop:
 			}
 			return r, nil
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			es.Append(fmt.Errorf("exchange: %w", ctx.Err()))
+			return nil, es
 		}
 	}
-	return nil, ErrAllFailed
+	return nil, es
 }
 
 func quickSetup(bq sequence.BQ, s string) (any, error) {

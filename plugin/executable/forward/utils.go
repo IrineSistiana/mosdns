@@ -21,9 +21,11 @@ package fastforward
 
 import (
 	"context"
+	"fmt"
 	"github.com/IrineSistiana/mosdns/v5/pkg/upstream"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
+	"go.uber.org/zap/zapcore"
 	"time"
 )
 
@@ -132,4 +134,31 @@ func (uw *upstreamWrapper) ExchangeContext(ctx context.Context, m *dns.Msg) (*dn
 
 func (uw *upstreamWrapper) Close() error {
 	return uw.u.Close()
+}
+
+type queryInfo dns.Msg
+
+func (q *queryInfo) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
+	if len(q.Question) != 1 {
+		encoder.AddBool("odd_question", true)
+	} else {
+		question := q.Question[0]
+		encoder.AddString("qname", question.Name)
+		encoder.AddUint16("qtype", question.Qtype)
+		encoder.AddUint16("qclass", question.Qclass)
+	}
+	return nil
+}
+
+type upstreamErr struct {
+	upstreamName string
+	err          error
+}
+
+func (u *upstreamErr) Unwrap() error {
+	return u.err
+}
+
+func (u *upstreamErr) Error() string {
+	return fmt.Sprintf("upstream %s: %s", u.upstreamName, u.err)
 }
