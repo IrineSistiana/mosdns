@@ -24,12 +24,12 @@ import (
 	"sync"
 )
 
-type ConcurrentErrors struct {
+type Errors struct {
 	sync.RWMutex
 	es []error
 }
 
-func (c *ConcurrentErrors) Error() string {
+func (c *Errors) Error() string {
 	c.Lock()
 	defer c.Unlock()
 
@@ -50,13 +50,13 @@ func (c *ConcurrentErrors) Error() string {
 	return b.String()
 }
 
-func (c *ConcurrentErrors) Append(err error) {
+func (c *Errors) Append(err error) {
 	c.Lock()
 	defer c.Unlock()
 	c.es = append(c.es, err)
 }
 
-func (c *ConcurrentErrors) Len() int {
+func (c *Errors) Len() int {
 	c.Lock()
 	defer c.Unlock()
 	return len(c.es)

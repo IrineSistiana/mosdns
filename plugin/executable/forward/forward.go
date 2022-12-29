@@ -26,7 +26,6 @@ import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
-	"github.com/IrineSistiana/mosdns/v5/pkg/safe_close"
 	"github.com/IrineSistiana/mosdns/v5/pkg/upstream"
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
@@ -210,7 +209,7 @@ func (f *Forward) QuickConfigureExec(args string) (any, error) {
 			us[u] = struct{}{}
 		}
 	}
-	execFunc := func(ctx context.Context, qCtx *query_context.Context) error {
+	var execFunc sequence.ExecutableFunc = func(ctx context.Context, qCtx *query_context.Context) error {
 		r, err := f.exchange(ctx, qCtx, us)
 		if err != nil {
 			return err
@@ -218,7 +217,7 @@ func (f *Forward) QuickConfigureExec(args string) (any, error) {
 		qCtx.SetResponse(r)
 		return nil
 	}
-	return sequence.ExecutableFunc(execFunc), nil
+	return execFunc, nil
 }
 
 func (f *Forward) Close() error {
@@ -229,79 +228,70 @@ func (f *Forward) Close() error {
 }
 
 func (f *Forward) exchange(ctx context.Context, qCtx *query_context.Context, us map[*upstreamWrapper]struct{}) (*dns.Msg, error) {
-	tn := f.args.Concurrent
-	if tn <= 0 {
-		tn = 1
-	}
-	if tn > len(us) {
-		tn = len(us)
-	}
-	if tn > maxConcurrentQueries {
-		tn = maxConcurrentQueries
+	if len(us) == 0 {
+		return nil, errors.New("no upstream to exchange")
 	}
 
-	if tn == 1 { // No concurrent queries.
-		var u *upstreamWrapper
-		for u = range us {
-			break
-		}
-		return u.ExchangeContext(ctx, qCtx.Q())
+	mcq := f.args.Concurrent
+	if mcq <= 0 {
+		mcq = 1
+	}
+	if mcq > maxConcurrentQueries {
+		mcq = maxConcurrentQueries
 	}
 
-	c := make(chan *dns.Msg, 1) // Channel for responses.
-	idleDo := safe_close.IdleDo{Do: func() {
-		close(c)
-	}}
-	idleDo.Add(tn)
+	type res struct {
+		r   *dns.Msg
+		u   *upstreamWrapper
+		err error
+	}
 
-	es := new(utils.ConcurrentErrors)
+	resChan := make(chan res)
+	done := make(chan struct{})
+	defer close(done)
 
-	i := 0
 	qc := qCtx.Q().Copy()
 	uqid := qCtx.Id()
+	sent := 0
 	for u := range us {
-		i++
-		if i > tn {
+		if sent > mcq {
 			break
 		}
+		sent++
 
 		u := u
 		go func() {
-			defer idleDo.Done()
-
-			q := qc
 			// Give each upstream a fixed timeout to finsh the query.
-			ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
+			upstreamCtx, cancel := context.WithTimeout(context.Background(), queryTimeout)
 			defer cancel()
-			r, err := u.ExchangeContext(ctx, q)
+			r, err := u.ExchangeContext(upstreamCtx, qc)
+			if err != nil {
+				f.logger.Warn(
+					"upstream error",
+					zap.Uint32("uqid", uqid),
+					zap.Inline((*queryInfo)(qc)),
+					zap.String("upstream", u.name()),
+					zap.Error(err),
+				)
+			}
+			select {
+			case resChan <- res{r: r, err: err, u: u}:
+			case <-done:
+			}
+		}()
+	}
+
+	es := new(utils.Errors)
+	for i := 0; i < sent; i++ {
+		select {
+		case res := <-resChan:
+			r, u, err := res.r, res.u, res.err
 			if err != nil {
 				es.Append(&upstreamErr{
 					upstreamName: u.name(),
 					err:          err,
 				})
-				f.logger.Warn(
-					"upstream error",
-					zap.Uint32("uqid", uqid),
-					zap.Inline((*queryInfo)(q)),
-					zap.String("upstream", u.name()),
-					zap.Error(err),
-				)
-			}
-			if r != nil {
-				select {
-				case c <- r:
-				default:
-				}
-			}
-		}()
-	}
-
-readLoop:
-	for {
-		select {
-		case r, ok := <-c:
-			if !ok {
-				break readLoop
+				continue
 			}
 			return r, nil
 		case <-ctx.Done():
