@@ -138,8 +138,7 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 	switch addrURL.Scheme {
 	case "", "udp":
 		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 53)
-		uto := transport.Opts{
-			Logger: opt.Logger,
+		uto := transport.IOOpts{
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
 				c, err := dialer.DialContext(ctx, "udp", dialAddr)
 				c = wrapConn(c, opt.EventObserver)
@@ -149,12 +148,9 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 			ReadFunc: func(c io.Reader) (*dns.Msg, int, error) {
 				return dnsutils.ReadMsgFromUDP(c, 4096)
 			},
-			EnablePipeline: true,
-			MaxConns:       opt.MaxConns,
-			IdleTimeout:    time.Second * 60,
+			IdleTimeout: time.Minute * 5,
 		}
-		tto := transport.Opts{
-			Logger: opt.Logger,
+		tto := transport.IOOpts{
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
 				c, err := dialer.DialContext(ctx, "tcp", dialAddr)
 				c = wrapConn(c, opt.EventObserver)
@@ -164,25 +160,25 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 			ReadFunc:  dnsutils.ReadMsgFromTCP,
 		}
 		return &udpWithFallback{
-			u: transport.NewTransport(uto),
-			t: transport.NewTransport(tto),
+			u: transport.NewPipelineTransport(transport.PipelineOpts{IOOpts: uto, MaxConn: 1}),
+			t: transport.NewReuseConnTransport(transport.ReuseConnOpts{IOOpts: tto}),
 		}, nil
 	case "tcp":
 		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 53)
-		to := transport.Opts{
-			Logger: opt.Logger,
+		to := transport.IOOpts{
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
 				c, err := dialTCP(ctx, dialAddr, opt.Socks5, dialer)
 				c = wrapConn(c, opt.EventObserver)
 				return c, err
 			},
-			WriteFunc:      dnsutils.WriteMsgToTCP,
-			ReadFunc:       dnsutils.ReadMsgFromTCP,
-			IdleTimeout:    opt.IdleTimeout,
-			EnablePipeline: opt.EnablePipeline,
-			MaxConns:       opt.MaxConns,
+			WriteFunc:   dnsutils.WriteMsgToTCP,
+			ReadFunc:    dnsutils.ReadMsgFromTCP,
+			IdleTimeout: opt.IdleTimeout,
 		}
-		return transport.NewTransport(to), nil
+		if opt.EnablePipeline {
+			return transport.NewPipelineTransport(transport.PipelineOpts{IOOpts: to, MaxConn: opt.MaxConns}), nil
+		}
+		return transport.NewReuseConnTransport(transport.ReuseConnOpts{IOOpts: to}), nil
 	case "tls":
 		var tlsConfig *tls.Config
 		if opt.TLSConfig != nil {
@@ -195,8 +191,7 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 		}
 
 		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 853)
-		to := transport.Opts{
-			Logger: opt.Logger,
+		to := transport.IOOpts{
 			DialFunc: func(ctx context.Context) (net.Conn, error) {
 				conn, err := dialTCP(ctx, dialAddr, opt.Socks5, dialer)
 				if err != nil {
@@ -211,13 +206,14 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 
 				return tlsConn, nil
 			},
-			WriteFunc:      dnsutils.WriteMsgToTCP,
-			ReadFunc:       dnsutils.ReadMsgFromTCP,
-			IdleTimeout:    opt.IdleTimeout,
-			EnablePipeline: opt.EnablePipeline,
-			MaxConns:       opt.MaxConns,
+			WriteFunc:   dnsutils.WriteMsgToTCP,
+			ReadFunc:    dnsutils.ReadMsgFromTCP,
+			IdleTimeout: opt.IdleTimeout,
 		}
-		return transport.NewTransport(to), nil
+		if opt.EnablePipeline {
+			return transport.NewPipelineTransport(transport.PipelineOpts{IOOpts: to, MaxConn: opt.MaxConns}), nil
+		}
+		return transport.NewReuseConnTransport(transport.ReuseConnOpts{IOOpts: to}), nil
 	case "https":
 		idleConnTimeout := time.Second * 30
 		if opt.IdleTimeout > 0 {
@@ -313,8 +309,8 @@ func tryRemovePort(s string) string {
 }
 
 type udpWithFallback struct {
-	u *transport.Transport
-	t *transport.Transport
+	u *transport.PipelineTransport
+	t *transport.ReuseConnTransport
 }
 
 func (u *udpWithFallback) ExchangeContext(ctx context.Context, q *dns.Msg) (*dns.Msg, error) {
