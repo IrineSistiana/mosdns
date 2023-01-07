@@ -63,7 +63,7 @@ func newWrapper(cfg UpstreamConfig, pluginTag string) *upstreamWrapper {
 		}),
 		errTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name:        "err_total",
-			Help:        "The total number of queries failed, including SERVFAIL",
+			Help:        "The total number of queries failed",
 			ConstLabels: lb,
 		}),
 		thread: prometheus.NewGauge(prometheus.GaugeOpts{
