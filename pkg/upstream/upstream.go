@@ -139,7 +139,7 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 	case "", "udp":
 		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 53)
 		uto := transport.IOOpts{
-			DialFunc: func(ctx context.Context) (net.Conn, error) {
+			DialFunc: func(ctx context.Context) (io.ReadWriteCloser, error) {
 				c, err := dialer.DialContext(ctx, "udp", dialAddr)
 				c = wrapConn(c, opt.EventObserver)
 				return c, err
@@ -151,7 +151,7 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 			IdleTimeout: time.Minute * 5,
 		}
 		tto := transport.IOOpts{
-			DialFunc: func(ctx context.Context) (net.Conn, error) {
+			DialFunc: func(ctx context.Context) (io.ReadWriteCloser, error) {
 				c, err := dialer.DialContext(ctx, "tcp", dialAddr)
 				c = wrapConn(c, opt.EventObserver)
 				return c, err
@@ -166,7 +166,7 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 	case "tcp":
 		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 53)
 		to := transport.IOOpts{
-			DialFunc: func(ctx context.Context) (net.Conn, error) {
+			DialFunc: func(ctx context.Context) (io.ReadWriteCloser, error) {
 				c, err := dialTCP(ctx, dialAddr, opt.Socks5, dialer)
 				c = wrapConn(c, opt.EventObserver)
 				return c, err
@@ -192,7 +192,7 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 
 		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 853)
 		to := transport.IOOpts{
-			DialFunc: func(ctx context.Context) (net.Conn, error) {
+			DialFunc: func(ctx context.Context) (io.ReadWriteCloser, error) {
 				conn, err := dialTCP(ctx, dialAddr, opt.Socks5, dialer)
 				if err != nil {
 					return nil, err

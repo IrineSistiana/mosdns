@@ -23,10 +23,9 @@ import (
 	"context"
 	"fmt"
 	"github.com/miekg/dns"
-	"net"
+	"io"
 	"sync"
 	"sync/atomic"
-	"time"
 )
 
 // dnsConn is a low-level connection for dns.
@@ -34,11 +33,13 @@ type dnsConn struct {
 	IOOpts
 
 	connMu          sync.Mutex
+	closed          atomic.Bool // atomic, for fast check
 	connReadyNotify chan struct{}
-	c               net.Conn // c is ready (not nil) when connReadyNotify is done.
-	closed          atomic.Bool
-	closeNotify     chan struct{}
-	closeErr        error // closeErr is ready (not nil) when closeNotify is done.
+	c               io.ReadWriteCloser // c is ready (not nil) when connReadyNotify is closed.
+	cIdleTimer      *idleTimer
+
+	closeNotify chan struct{}
+	closeErr    error // closeErr is ready (not nil) when closeNotify is closed.
 
 	queueMu sync.RWMutex
 	queue   map[uint16]chan *dns.Msg
@@ -93,7 +94,7 @@ func (dc *dnsConn) exchange(ctx context.Context, q *dns.Msg) (*dns.Msg, error) {
 	// This indicates the connection is healthy. Otherwise, this connection might be dead.
 	// The Read deadline will be refreshed in dnsConn.readLoop() after every successful read.
 	if dc.statWaitingReply.CompareAndSwap(false, true) {
-		dc.c.SetReadDeadline(time.Now().Add(waitingReplyTimeout))
+		dc.cIdleTimer.reset(waitingReplyTimeout)
 	}
 
 	select {
@@ -140,6 +141,13 @@ func (dc *dnsConn) dialAndRead() {
 		return
 	}
 	dc.c = c
+	idleTimeout := dc.IdleTimeout
+	if idleTimeout <= 0 {
+		idleTimeout = defaultIdleTimeout
+	}
+	dc.cIdleTimer = newIdleTimer(idleTimeout, func() {
+		_ = c.Close()
+	})
 	close(dc.connReadyNotify)
 	dc.connMu.Unlock()
 
@@ -154,7 +162,7 @@ func (dc *dnsConn) readLoop() {
 	}
 
 	for {
-		dc.c.SetReadDeadline(time.Now().Add(idleTimeout))
+		dc.cIdleTimer.reset(0)
 		r, _, err := dc.ReadFunc(dc.c)
 		if err != nil {
 			dc.closeWithErr(err) // abort this connection.
@@ -193,6 +201,7 @@ func (dc *dnsConn) closeWithErr(err error) {
 	// dc has dialed a connection.
 	if dc.c != nil {
 		dc.c.Close()
+		dc.cIdleTimer.stop()
 	}
 }
 

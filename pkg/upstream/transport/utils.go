@@ -22,6 +22,8 @@ package transport
 import (
 	"github.com/miekg/dns"
 	"math/rand"
+	"sync/atomic"
+	"time"
 )
 
 func shadowCopy(m *dns.Msg) *dns.Msg {
@@ -55,12 +57,16 @@ func sliceDel[T any](s *[]T, i int) {
 // sliceRandGet randomly gets a value from s and its index.
 // It returns -1 if s is empty.
 func sliceRandGet[T any](s []T, r *rand.Rand) (int, T) {
-	if len(s) == 0 {
+	switch len(s) {
+	case 0:
 		var v T
 		return -1, v
+	case 1:
+		return 0, s[0]
+	default:
+		i := r.Intn(len(s))
+		return i, s[i]
 	}
-	i := r.Intn(len(s))
-	return i, s[i]
 }
 
 // sliceRandPop randomly pops a value from s.
@@ -85,4 +91,39 @@ func slicePopLatest[T any](s *[]T) (T, bool) {
 	v := (*s)[i]
 	sliceDel(s, i)
 	return v, true
+}
+
+type idleTimer struct {
+	d        time.Duration
+	updating atomic.Bool
+	t        *time.Timer
+	stopped  bool
+}
+
+func newIdleTimer(d time.Duration, f func()) *idleTimer {
+	return &idleTimer{
+		d: d,
+		t: time.AfterFunc(d, f),
+	}
+}
+
+func (t *idleTimer) reset(d time.Duration) {
+	if t.updating.CompareAndSwap(false, true) {
+		defer t.updating.Store(false)
+		if t.stopped {
+			return
+		}
+		if d <= 0 {
+			d = t.d
+		}
+		if !t.t.Reset(t.d) {
+			t.stopped = true
+			// re-activated. stop it
+			t.t.Stop()
+		}
+	}
+}
+
+func (t *idleTimer) stop() {
+	t.t.Stop()
 }

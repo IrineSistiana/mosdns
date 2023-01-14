@@ -51,14 +51,14 @@ type PipelineOpts struct {
 
 type pipelineConn struct {
 	dc *dnsConn
-	wg *sync.WaitGroup
+	wg sync.WaitGroup
 
 	// Note: this field is protected by PipelineTransport.m.
 	servedLocked uint16
 }
 
 func newPipelineConn(c *dnsConn) *pipelineConn {
-	return &pipelineConn{dc: c, wg: new(sync.WaitGroup)}
+	return &pipelineConn{dc: c}
 }
 
 func NewPipelineTransport(opt PipelineOpts) *PipelineTransport {
@@ -82,7 +82,7 @@ func (t *PipelineTransport) ExchangeContext(ctx context.Context, m *dns.Msg) (*d
 
 		if err != nil {
 			// Reused connection may not stable.
-			// Try to resent this query if it was failed on a reused connection.
+			// Try to re-send this query if it failed on a reused connection.
 			if !isNewConn && attempt < maxAttempt && ctx.Err() == nil {
 				attempt++
 				continue
@@ -125,16 +125,7 @@ func (t *PipelineTransport) getPipelineConn() (
 		return
 	}
 
-	var pc *pipelineConn
-	var pci int
-	for {
-		pci, pc = sliceRandGet(t.conns, t.r)
-		if pc != nil && pc.dc.isClosed() { // closed conn, delete it and retry
-			sliceDel(&t.conns, pci)
-			continue
-		}
-		break // conn pool is empty or we got a pc
-	}
+	pci, pc := t.pickPipelineConnLocked()
 
 	// Dail a new connection if (conn pool is empty), or
 	// (the picked conn is busy, and we are allowed to dail more connections).
@@ -150,7 +141,7 @@ func (t *PipelineTransport) getPipelineConn() (
 	} else {
 		dc = pc.dc
 	}
-	wg = pc.wg
+	wg = &pc.wg
 
 	pc.wg.Add(1)
 	pc.servedLocked++
@@ -168,4 +159,18 @@ func (t *PipelineTransport) getPipelineConn() (
 	}
 	t.m.Unlock()
 	return
+}
+
+// pickPipelineConn picks up a random alive pipelineConn from pool.
+// If pool is empty, it returns nil.
+// Require holding PipelineTransport.m.
+func (t *PipelineTransport) pickPipelineConnLocked() (int, *pipelineConn) {
+	for {
+		pci, pc := sliceRandGet(t.conns, t.r)
+		if pc != nil && pc.dc.isClosed() { // closed conn, delete it and retry
+			sliceDel(&t.conns, pci)
+			continue
+		}
+		return pci, pc // conn pool is empty or we got a pc
+	}
 }

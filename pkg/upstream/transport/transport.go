@@ -24,7 +24,6 @@ import (
 	"errors"
 	"github.com/miekg/dns"
 	"io"
-	"net"
 	"time"
 )
 
@@ -49,7 +48,7 @@ const (
 type IOOpts struct {
 	// DialFunc specifies the method to dial a connection to the server.
 	// DialFunc MUST NOT be nil.
-	DialFunc func(ctx context.Context) (net.Conn, error)
+	DialFunc func(ctx context.Context) (io.ReadWriteCloser, error)
 	// WriteFunc specifies the method to write a wire dns msg to the connection
 	// opened by the DialFunc.
 	// WriteFunc MUST NOT be nil.

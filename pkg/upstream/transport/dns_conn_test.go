@@ -36,7 +36,7 @@ import (
 
 var (
 	// dial a connection that has random 0~20ms response latency.
-	dial = func(ctx context.Context) (net.Conn, error) {
+	dial = func(ctx context.Context) (io.ReadWriteCloser, error) {
 		c1, c2 := net.Pipe()
 		go func() {
 			for {
@@ -57,7 +57,7 @@ var (
 		return c1, nil
 	}
 
-	dialErr = func(ctx context.Context) (net.Conn, error) {
+	dialErr = func(ctx context.Context) (io.ReadWriteCloser, error) {
 		return nil, errors.New("dial err")
 	}
 
@@ -82,7 +82,7 @@ var (
 		return nil, 0, errors.New("read err")
 	}
 
-	dialErrP = func(ctx context.Context) (net.Conn, error) {
+	dialErrP = func(ctx context.Context) (io.ReadWriteCloser, error) {
 		if rand.Float64() < 0.5 {
 			return dialErr(ctx)
 		}
