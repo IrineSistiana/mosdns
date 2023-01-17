@@ -41,7 +41,7 @@ type Args struct {
 	Listen      string `yaml:"listen"`
 	Cert        string `yaml:"cert"`
 	Key         string `yaml:"key"`
-	IdleTimeout int    `yaml:"idleTimeout"`
+	IdleTimeout int    `yaml:"idle_timeout"`
 }
 
 func (a *Args) init() {
