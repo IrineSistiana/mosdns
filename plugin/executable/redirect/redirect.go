@@ -56,7 +56,7 @@ func Init(bp *coremain.BP, args any) (any, error) {
 		return nil, err
 	}
 	bp.L().Info("redirect rules loaded", zap.Int("length", r.Len()))
-	return nil, err
+	return r, nil
 }
 
 func NewRedirect(args *Args) (*Redirect, error) {
