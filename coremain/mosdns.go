@@ -108,11 +108,13 @@ func NewMosdns(cfg *Config) (*Mosdns, error) {
 	// Preset plugins
 	if err := m.loadPresetPlugins(); err != nil {
 		m.sc.SendCloseSignal(err)
+		_ = m.sc.WaitClosed()
 		return nil, err
 	}
 	// Plugins from config.
 	if err := m.loadPluginsFromCfg(cfg, 0); err != nil {
 		m.sc.SendCloseSignal(err)
+		_ = m.sc.WaitClosed()
 		return nil, err
 	}
 	m.logger.Info("all plugins are loaded")
