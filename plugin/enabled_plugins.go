@@ -19,6 +19,29 @@
 
 package plugin
 
+// data providers
+import (
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/data_provider/domain_set"
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/data_provider/ip_set"
+)
+
+// matches
+import (
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/client_ip"
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/cname"
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/env"
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/has_resp"
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/has_wanted_ans"
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/ptr_ip"
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/qclass"
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/qname"
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/qtype"
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/random"
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/rcode"
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/resp_ip"
+)
+
+// executables
 import (
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/executable/arbitrary"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/executable/black_hole"
@@ -40,4 +63,16 @@ import (
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence/fallback"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/executable/sleep"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/executable/ttl"
+)
+
+// other
+import (
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/mark" // executable and matcher
+)
+
+// servers
+import (
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/server/http_server"
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/server/tcp_server"
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/server/udp_server"
 )
