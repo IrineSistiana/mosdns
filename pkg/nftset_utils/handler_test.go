@@ -25,6 +25,7 @@ import (
 	"github.com/google/nftables"
 	"net/netip"
 	"os"
+	"sync"
 	"testing"
 )
 
@@ -56,19 +57,19 @@ func Test_AddElems(t *testing.T) {
 	n := "test"
 	prepareSet(t, n, n, false)
 
-	nc, err := nftables.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	h := NewNtSetHandler(HandlerOpts{
-		Conn:        nc,
 		TableFamily: nftables.TableFamilyINet,
 		TableName:   n,
 		SetName:     n,
 	})
+	h.disableSetCache = true
 
 	if err := h.AddElems(netip.MustParsePrefix("127.0.0.1/24")); err != nil {
+		t.Fatal(err)
+	}
+
+	nc, err := nftables.New()
+	if err != nil {
 		t.Fatal(err)
 	}
 	elems, err := nc.GetSetElements(h.set)
@@ -78,4 +79,18 @@ func Test_AddElems(t *testing.T) {
 	if len(elems) == 0 {
 		t.Fatal("set is empty")
 	}
+
+	// test concurrent safe.
+	wg := new(sync.WaitGroup)
+	for i := 0; i < 512; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := h.AddElems(netip.MustParsePrefix("127.0.0.1/24")); err != nil {
+				t.Error(err)
+				return
+			}
+		}()
+	}
+	wg.Wait()
 }

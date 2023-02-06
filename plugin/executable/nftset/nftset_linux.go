@@ -36,7 +36,6 @@ type nftSetPlugin struct {
 	args      *Args
 	v4Handler *nftset_utils.NftSetHandler
 	v6Handler *nftset_utils.NftSetHandler
-	nc        *nftables.Conn // netlink conn to close.
 }
 
 func newNftSetPlugin(args *Args) (*nftSetPlugin, error) {
@@ -49,15 +48,8 @@ func newNftSetPlugin(args *Args) (*nftSetPlugin, error) {
 		return nil, fmt.Errorf("invalid ipv6 mask %d", m)
 	}
 
-	// Open a lasting netlink socket.
-	nc, err := nftables.New(nftables.AsLasting())
-	if err != nil {
-		return nil, fmt.Errorf("failed to connecet netlink, %w", err)
-	}
-
 	p := &nftSetPlugin{
 		args: args,
-		nc:   nc,
 	}
 
 	newHandler := func(sa SetArgs) (*nftset_utils.NftSetHandler, error) {
@@ -69,20 +61,19 @@ func newNftSetPlugin(args *Args) (*nftSetPlugin, error) {
 			return nil, fmt.Errorf("unsupported nftables family [%s]", sa.TableFamily)
 		}
 		return nftset_utils.NewNtSetHandler(nftset_utils.HandlerOpts{
-			Conn:        nc,
 			TableFamily: f,
 			TableName:   sa.Table,
 			SetName:     sa.Set,
 		}), nil
 	}
+	var err error
 	p.v4Handler, err = newHandler(args.IPv4)
 	if err != nil {
-		_ = nc.CloseLasting()
 		return nil, err
 	}
 	p.v6Handler, err = newHandler(args.IPv6)
 	if err != nil {
-		_ = nc.CloseLasting()
+		_ = p.v4Handler.Close()
 		return nil, err
 	}
 	return p, nil
@@ -147,7 +138,9 @@ func (p *nftSetPlugin) addElems(r *dns.Msg) error {
 }
 
 func (p *nftSetPlugin) Close() error {
-	return p.nc.CloseLasting()
+	_ = p.v6Handler.Close()
+	_ = p.v4Handler.Close()
+	return nil
 }
 
 func parseTableFamily(s string) (nftables.TableFamily, bool) {
