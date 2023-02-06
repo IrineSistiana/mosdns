@@ -136,6 +136,11 @@ func (ctx *Context) GetValue(k uint32) (any, bool) {
 	return v, ok
 }
 
+// DeleteValue deletes value k from Context
+func (ctx *Context) DeleteValue(k uint32) {
+	delete(ctx.kv, k)
+}
+
 // SetMark marks this Context with given mark.
 func (ctx *Context) SetMark(m uint32) {
 	if ctx.marks == nil {
@@ -148,6 +153,11 @@ func (ctx *Context) SetMark(m uint32) {
 func (ctx *Context) HasMark(m uint32) bool {
 	_, ok := ctx.marks[m]
 	return ok
+}
+
+// DeleteMark deletes mark m from this Context.
+func (ctx *Context) DeleteMark(m uint32) {
+	delete(ctx.marks, m)
 }
 
 // MarshalLogObject implements zapcore.ObjectMarshaler.
