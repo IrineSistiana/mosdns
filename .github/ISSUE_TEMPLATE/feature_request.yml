@@ -1,0 +1,16 @@
+name: "Feature request"
+description: "希望添加新功能"
+title: "[Feature request] "
+body:
+  - type: markdown
+    attributes:
+      value: "感谢提出建议。提交的 issue 不一定会马上得到开发者的回复。开发者会根据社区的反应以及功能的重要性选择是否实现这个新功能。"
+
+  - type: textarea
+    id: new-feature
+    attributes:
+      label: 希望添加的功能
+      description: "请详细描述一下该功能作用，使用场景，是否有类似实现，文档等。"
+      placeholder: "希望支持 ... 可以更快的 ..."
+    validations:
+      required: true
