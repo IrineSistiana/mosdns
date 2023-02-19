@@ -96,13 +96,17 @@ func newFallbackPlugin(bp *coremain.BP, args *Args) (*fallback, error) {
 	return s, nil
 }
 
+var (
+	ErrFailed = errors.New("no valid response from both primary and secondary")
+)
+
 func (f *fallback) Exec(ctx context.Context, qCtx *query_context.Context, _ sequence.ChainWalker) error {
 	return f.doFallback(ctx, qCtx)
 }
 
-func (f *fallback) doFallback(ctx context.Context, qCtx *query_context.Context) (err error) {
+func (f *fallback) doFallback(ctx context.Context, qCtx *query_context.Context) error {
 	respChan := make(chan *dns.Msg, 2) // resp could be nil.
-	primFailed := make(chan struct{})  // will be closed if primary returns an error.
+	primFailed := make(chan struct{})
 	primDone := make(chan struct{})
 
 	// primary goroutine.
@@ -117,13 +121,13 @@ func (f *fallback) doFallback(ctx context.Context, qCtx *query_context.Context) 
 		}
 
 		r := qCtx.R()
-		if err != nil || r == nil || r.Rcode != dns.RcodeSuccess { // No valid resp from primary.
+		if err != nil || r == nil {
 			close(primFailed)
-			r = nil
+			respChan <- nil
 		} else {
 			close(primDone)
+			respChan <- r
 		}
-		respChan <- r
 	}()
 
 	// Secondary goroutine.
@@ -136,7 +140,7 @@ func (f *fallback) doFallback(ctx context.Context, qCtx *query_context.Context) 
 			case <-primDone: // primary is done, no need to exec this.
 				return
 			case <-primFailed: // primary failed
-			case <-timer.C: // or timed out, exec secondary now.
+			case <-timer.C: // timed out
 			}
 		}
 
@@ -146,14 +150,12 @@ func (f *fallback) doFallback(ctx context.Context, qCtx *query_context.Context) 
 		err := f.secondary.Exec(ctx, qCtx)
 		if err != nil {
 			f.logger.Warn("secondary error", qCtx.InfoField(), zap.Error(err))
+			respChan <- nil
+			return
 		}
 
 		r := qCtx.R()
-		if err != nil || r == nil || r.Rcode != dns.RcodeSuccess { // No valid resp from primary.
-			r = nil
-		}
-
-		// If secondary has a valid resp, wait primary failed or timed out.
+		// always standby is enabled. Wait until secondary resp is needed.
 		if f.alwaysStandby && r != nil {
 			select {
 			case <-ctx.Done():
@@ -179,7 +181,7 @@ func (f *fallback) doFallback(ctx context.Context, qCtx *query_context.Context) 
 	}
 
 	// All goroutines finished but failed.
-	return errors.New("no valid response from both primary and secondary")
+	return ErrFailed
 }
 
 func makeDdlCtx(ctx context.Context, timeout time.Duration) (context.Context, func()) {
