@@ -100,7 +100,9 @@ var (
 	ErrFailed = errors.New("no valid response from both primary and secondary")
 )
 
-func (f *fallback) Exec(ctx context.Context, qCtx *query_context.Context, _ sequence.ChainWalker) error {
+var _ sequence.Executable = (*fallback)(nil)
+
+func (f *fallback) Exec(ctx context.Context, qCtx *query_context.Context) error {
 	return f.doFallback(ctx, qCtx)
 }
 
