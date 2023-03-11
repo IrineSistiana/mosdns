@@ -43,7 +43,7 @@ body:
     attributes:
       label: Bug 描述和复现步骤
       description: "描述越详细越有助于定位和解决 Bug。"
-      placeholder: "示例: 使用 dig www.google.com 发送请求，mosdns 会崩溃。"
+      placeholder: "示例: Bug: mosdns 的 qname 匹配器无法匹配 xxxx 域名。复现方式: 使用如下配置，请求 xxxx.xxxx ，观察 log 发现匹配器没有匹配到。"
     validations:
       required: true
 
@@ -52,7 +52,7 @@ body:
     attributes:
       label: 使用的配置文件
       render: yaml
-      description: "必须是完整的配置文件。不要只复制某个插件的配置片段。"
+      description: "必须是完整的配置文件。不要只复制某个插件的配置片段。请尽可能的提供最小配置文件(能复现 bug，但没有其他功能)方便开发者定位问题。"
     validations:
       required: true
 
@@ -61,5 +61,3 @@ body:
     attributes:
       label: mosdns 的 log 记录
       render: txt
-      description: "请复制连续的几十行 log，不要只复制一行。大部分情况一行 log 提供的信息有限。建议用 `debug` 级别的 log。"
-
