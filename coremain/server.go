@@ -20,6 +20,7 @@
 package coremain
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v4/pkg/server"
@@ -28,6 +29,7 @@ import (
 	"github.com/pires/go-proxyproto"
 	"go.uber.org/zap"
 	"net"
+	"syscall"
 	"time"
 )
 
@@ -115,7 +117,13 @@ func (m *Mosdns) startServerListener(cfg *ServerListenerConfig, dnsHandler dns_h
 	var run func() error
 	switch cfg.Protocol {
 	case "", "udp":
-		conn, err := net.ListenPacket("udp", cfg.Addr)
+		// see also: https://github.com/IrineSistiana/mosdns/pull/657
+		var lc net.ListenConfig
+		lc.Control = func(network, address string, c syscall.RawConn) error {
+			return serverSocketOption(c, cfg, network, address)
+		}
+
+		conn, err := lc.ListenPacket(context.Background(), "udp", cfg.Addr)
 		if err != nil {
 			return err
 		}
