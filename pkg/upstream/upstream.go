@@ -248,7 +248,7 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 					if err != nil {
 						return nil, err
 					}
-					return quic.DialEarlyContext(ctx, conn, ua, addrURL.Host, tlsCfg, cfg)
+					return quic.DialEarly(ctx, conn, ua, tlsCfg, cfg)
 				},
 			}
 		} else {
