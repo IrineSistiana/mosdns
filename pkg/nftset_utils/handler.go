@@ -24,11 +24,12 @@ package nftset_utils
 import (
 	"errors"
 	"fmt"
-	"github.com/google/nftables"
-	"go4.org/netipx"
 	"net/netip"
 	"sync"
 	"time"
+
+	"github.com/google/nftables"
+	"go4.org/netipx"
 )
 
 var (
@@ -113,16 +114,18 @@ func (h *NftSetHandler) AddElems(es ...netip.Prefix) error {
 		elems = make([]nftables.SetElement, 0, len(es))
 	}
 
-	for _, e := range es {
-		if set.Interval && !e.IsSingleIP() {
-			r := netipx.RangeOfPrefix(e)
-			start := r.From()
-			end := r.To()
-			elems = append(
-				elems,
-				nftables.SetElement{Key: start.AsSlice(), IntervalEnd: false},
-				nftables.SetElement{Key: end.Next().AsSlice(), IntervalEnd: true},
-			)
+	for i, e := range es {
+		if !e.IsValid() {
+			return fmt.Errorf("invalid prefix at index %d", i)
+		}
+		if set.Interval {
+			start := e.Masked().Addr()
+			elems = append(elems, nftables.SetElement{Key: start.AsSlice(), IntervalEnd: false})
+			
+			end := netipx.PrefixLastIP(e).Next() // may be invalid if end is overflowed
+			if end.IsValid() {
+				elems = append(elems, nftables.SetElement{Key: end.AsSlice(), IntervalEnd: true})
+			}
 		} else {
 			elems = append(elems, nftables.SetElement{Key: e.Addr().AsSlice()})
 		}
