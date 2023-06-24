@@ -242,13 +242,19 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 					MaxStreamReceiveWindow:         4 * 1024,
 					InitialConnectionReceiveWindow: 8 * 1024,
 					MaxConnectionReceiveWindow:     64 * 1024,
+					MaxIncomingStreams:             100,
+					MaxIncomingUniStreams:          100,
 				},
 				Dial: func(ctx context.Context, _ string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error) {
 					ua, err := net.ResolveUDPAddr("udp", dialAddr) // TODO: Support bootstrap.
 					if err != nil {
 						return nil, err
 					}
-					return quic.DialEarly(ctx, conn, ua, tlsCfg, cfg)
+					newConn, err := lc.ListenPacket(context.Background(), "udp", "")
+					if err != nil {
+						return nil, fmt.Errorf("failed to create udp socket for quic")
+					}
+					return quic.DialEarly(ctx, newConn, ua, tlsCfg, cfg)
 				},
 			}
 		} else {
