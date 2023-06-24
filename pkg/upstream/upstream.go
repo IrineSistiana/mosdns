@@ -228,11 +228,6 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 		var t http.RoundTripper
 		var addonCloser io.Closer // udpConn
 		if opt.EnableHTTP3 {
-			lc := net.ListenConfig{Control: getSocketControlFunc(socketOpts{so_mark: opt.SoMark, bind_to_device: opt.BindToDevice})}
-			conn, err := lc.ListenPacket(context.Background(), "udp", "")
-			if err != nil {
-				return nil, fmt.Errorf("failed to init udp socket for quic")
-			}
 			t = &http3.RoundTripper{
 				TLSClientConfig: opt.TLSConfig,
 				QuicConfig: &quic.Config{
@@ -243,10 +238,18 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 					MaxConnectionReceiveWindow:     64 * 1024,
 				},
 				Dial: func(ctx context.Context, _ string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error) {
+					lc := net.ListenConfig{Control: getSocketControlFunc(socketOpts{so_mark: opt.SoMark, bind_to_device: opt.BindToDevice})}
+					conn, err := lc.ListenPacket(context.Background(), "udp", "")
+					if err != nil {
+						return nil, fmt.Errorf("failed to init udp socket for quic")
+					}
+					addonCloser = conn
+
 					ua, err := net.ResolveUDPAddr("udp", dialAddr) // TODO: Support bootstrap.
 					if err != nil {
 						return nil, err
 					}
+
 					return quic.DialEarly(ctx, conn, ua, tlsCfg, cfg)
 				},
 			}
