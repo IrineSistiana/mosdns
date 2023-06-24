@@ -250,11 +250,7 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 					if err != nil {
 						return nil, err
 					}
-					newConn, err := lc.ListenPacket(context.Background(), "udp", "")
-					if err != nil {
-						return nil, fmt.Errorf("failed to create udp socket for quic")
-					}
-					return quic.DialEarly(ctx, newConn, ua, tlsCfg, cfg)
+					return quic.DialEarly(ctx, conn, ua, tlsCfg, cfg)
 				},
 			}
 		} else {
