@@ -233,7 +233,6 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 			if err != nil {
 				return nil, fmt.Errorf("failed to init udp socket for quic")
 			}
-			addonCloser = conn
 			t = &http3.RoundTripper{
 				TLSClientConfig: opt.TLSConfig,
 				QuicConfig: &quic.Config{
@@ -242,8 +241,6 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 					MaxStreamReceiveWindow:         4 * 1024,
 					InitialConnectionReceiveWindow: 8 * 1024,
 					MaxConnectionReceiveWindow:     64 * 1024,
-					MaxIncomingStreams:             100,
-					MaxIncomingUniStreams:          100,
 				},
 				Dial: func(ctx context.Context, _ string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error) {
 					ua, err := net.ResolveUDPAddr("udp", dialAddr) // TODO: Support bootstrap.
