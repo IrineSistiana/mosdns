@@ -23,6 +23,14 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/IrineSistiana/mosdns/v5/mlog"
 	"github.com/IrineSistiana/mosdns/v5/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v5/pkg/upstream/bootstrap"
@@ -33,13 +41,6 @@ import (
 	"github.com/quic-go/quic-go/http3"
 	"go.uber.org/zap"
 	"golang.org/x/net/http2"
-	"io"
-	"net"
-	"net/http"
-	"net/url"
-	"strconv"
-	"strings"
-	"time"
 )
 
 const (
@@ -233,7 +234,10 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 			if err != nil {
 				return nil, fmt.Errorf("failed to init udp socket for quic")
 			}
-			addonCloser = conn
+			qt := &quic.Transport{
+				Conn: conn,
+			}
+			addonCloser = qt
 			t = &http3.RoundTripper{
 				TLSClientConfig: opt.TLSConfig,
 				QuicConfig: &quic.Config{
@@ -248,7 +252,8 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 					if err != nil {
 						return nil, err
 					}
-					return quic.DialEarlyContext(ctx, conn, ua, addrURL.Host, tlsCfg, cfg)
+
+					return qt.DialEarly(ctx, ua, tlsCfg, cfg)
 				},
 			}
 		} else {
