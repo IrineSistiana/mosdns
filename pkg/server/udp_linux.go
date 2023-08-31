@@ -22,84 +22,71 @@
 package server
 
 import (
+	"errors"
 	"fmt"
+	"net"
+	"os"
+
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
 	"golang.org/x/sys/unix"
-	"net"
-	"os"
 )
 
-type ipv4cmc struct {
-	c *ipv4.PacketConn
-}
+var (
+	errCmNoDstAddr = errors.New("control msg does not have dst address")
+)
 
-func newIpv4cmc(c *ipv4.PacketConn) *ipv4cmc {
-	return &ipv4cmc{c: c}
-}
-
-func (i *ipv4cmc) readFrom(b []byte) (n int, dst net.IP, IfIndex int, src net.Addr, err error) {
-	n, cm, src, err := i.c.ReadFrom(b)
-	if cm != nil {
-		dst, IfIndex = cm.Dst, cm.IfIndex
-	}
-	return
-}
-
-func (i *ipv4cmc) writeTo(b []byte, src net.IP, IfIndex int, dst net.Addr) (n int, err error) {
-	cm := &ipv4.ControlMessage{
-		Src:     src,
-		IfIndex: IfIndex,
-	}
-	return i.c.WriteTo(b, cm, dst)
-}
-
-type ipv6cmc struct {
-	c4 *ipv4.PacketConn // ipv4 entrypoint for sending ipv4 packages.
-	c6 *ipv6.PacketConn
-}
-
-func newIpv6PacketConn(c4 *ipv4.PacketConn, c6 *ipv6.PacketConn) *ipv6cmc {
-	return &ipv6cmc{c4: c4, c6: c6}
-}
-
-func (i *ipv6cmc) readFrom(b []byte) (n int, dst net.IP, IfIndex int, src net.Addr, err error) {
-	n, cm, src, err := i.c6.ReadFrom(b)
-	if cm != nil {
-		dst, IfIndex = cm.Dst, cm.IfIndex
-	}
-	return
-}
-
-func (i *ipv6cmc) writeTo(b []byte, src net.IP, IfIndex int, dst net.Addr) (n int, err error) {
-	if src != nil {
-		// If src is ipv4, use IP_PKTINFO instead of IPV6_PKTINFO.
-		// Otherwise, sendmsg will raise "invalid argument" error.
-		// No official doc found.
-		if src4 := src.To4(); src4 != nil {
-			cm4 := &ipv4.ControlMessage{
-				Src:     src4,
-				IfIndex: IfIndex,
-			}
-			return i.c4.WriteTo(b, cm4, dst)
-		}
-	}
-	cm6 := &ipv6.ControlMessage{
-		Src:     src,
-		IfIndex: IfIndex,
-	}
-	return i.c6.WriteTo(b, cm6, dst)
-}
-
-func newCmc(c *net.UDPConn) (cmcUDPConn, error) {
-	sc, err := c.SyscallConn()
-	if err != nil {
+func getOOBFromCM4(oob []byte) (net.IP, error) {
+	var cm ipv4.ControlMessage
+	if err := cm.Parse(oob); err != nil {
 		return nil, err
 	}
+	if cm.Dst == nil {
+		return nil, errCmNoDstAddr
+	}
+	return cm.Dst, nil
+}
 
+func getOOBFromCM6(oob []byte) (net.IP, error) {
+	var cm ipv6.ControlMessage
+	if err := cm.Parse(oob); err != nil {
+		return nil, err
+	}
+	if cm.Dst == nil {
+		return nil, errCmNoDstAddr
+	}
+	return cm.Dst, nil
+}
+
+func srcIP2Cm(ip net.IP) []byte {
+	if ip4 := ip.To4(); ip4 != nil {
+		return (&ipv4.ControlMessage{
+			Src: ip,
+		}).Marshal()
+	}
+
+	if ip6 := ip.To16(); ip6 != nil {
+		return (&ipv6.ControlMessage{
+			Src: ip,
+		}).Marshal()
+	}
+
+	return nil
+}
+
+func initOobHandler(c *net.UDPConn) (getSrcAddrFromOOB, writeSrcAddrToOOB, error) {
+	if !c.LocalAddr().(*net.UDPAddr).IP.IsUnspecified() {
+		return nil, nil, nil
+	}
+
+	sc, err := c.SyscallConn()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var getter getSrcAddrFromOOB
+	var setter writeSrcAddrToOOB
 	var controlErr error
-	var cmc cmcUDPConn
-
 	if err := sc.Control(func(fd uintptr) {
 		v, err := unix.GetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_DOMAIN)
 		if err != nil {
@@ -109,27 +96,30 @@ func newCmc(c *net.UDPConn) (cmcUDPConn, error) {
 		switch v {
 		case unix.AF_INET:
 			c4 := ipv4.NewPacketConn(c)
-			if err := c4.SetControlMessage(ipv4.FlagDst|ipv4.FlagInterface, true); err != nil {
+			if err := c4.SetControlMessage(ipv4.FlagDst, true); err != nil {
 				controlErr = fmt.Errorf("failed to set ipv4 cmsg flags, %w", err)
 			}
-			cmc = newIpv4cmc(c4)
+
+			getter = getOOBFromCM4
+			setter = srcIP2Cm
 			return
 		case unix.AF_INET6:
 			c6 := ipv6.NewPacketConn(c)
-			if err := c6.SetControlMessage(ipv6.FlagDst|ipv6.FlagInterface, true); err != nil {
+			if err := c6.SetControlMessage(ipv6.FlagDst, true); err != nil {
 				controlErr = fmt.Errorf("failed to set ipv6 cmsg flags, %w", err)
 			}
-			cmc = newIpv6PacketConn(ipv4.NewPacketConn(c), c6)
+			getter = getOOBFromCM6
+			setter = srcIP2Cm
 			return
 		default:
 			controlErr = fmt.Errorf("socket protocol %d is not supported", v)
 		}
 	}); err != nil {
-		return nil, fmt.Errorf("control fd err, %w", controlErr)
+		return nil, nil, fmt.Errorf("control fd err, %w", controlErr)
 	}
 
 	if controlErr != nil {
-		return nil, fmt.Errorf("failed to set up socket, %w", controlErr)
+		return nil, nil, fmt.Errorf("failed to set up socket, %w", controlErr)
 	}
-	return cmc, nil
+	return getter, setter, nil
 }

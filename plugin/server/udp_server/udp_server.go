@@ -21,11 +21,12 @@ package udp_server
 
 import (
 	"fmt"
+	"net"
+
 	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/server"
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 	"github.com/IrineSistiana/mosdns/v5/plugin/server/server_utils"
-	"net"
 )
 
 const PluginType = "udp_server"
@@ -71,7 +72,7 @@ func StartServer(bp *coremain.BP, args *Args) (*UdpServer, error) {
 	}
 	go func() {
 		defer c.Close()
-		err := s.ServeUDP(c)
+		err := s.ServeUDP(c.(*net.UDPConn))
 		bp.M().GetSafeClose().SendCloseSignal(err)
 	}()
 	return &UdpServer{
