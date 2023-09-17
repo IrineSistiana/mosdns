@@ -39,6 +39,7 @@ const (
 	defaultDoQTimeout       = time.Second * 5
 	dialTimeout             = time.Second * 3
 	connectionLostThreshold = time.Second * 5
+	handshakeTimeout        = time.Second * 3
 )
 
 var (
@@ -160,7 +161,21 @@ func (u *Upstream) asyncDialConn() *lazyConn {
 			return
 		}
 
-		c, err := u.t.Dial(ctx, ua, u.tlsConfig, u.quicConfig)
+		var c quic.Connection
+		ec, err := u.t.DialEarly(ctx, ua, u.tlsConfig, u.quicConfig)
+		if ec != nil {
+			// This is a workaround to
+			// 1. recover from strange 0rtt rejected err.
+			// 2. avoid NextConnection might block forever.
+			// TODO: Remove this workaround.
+			select {
+			case <-ctx.Done():
+				err = context.Cause(ctx)
+				ec.CloseWithError(0, "")
+			case <-ec.HandshakeComplete():
+				c = ec.NextConnection()
+			}
+		}
 
 		var closeC bool
 		lc.m.Lock()
