@@ -420,27 +420,27 @@ func (c *Cache) readDump(r io.Reader) (int, error) {
 	readBlock := func() error {
 		h := pool.GetBuf(8)
 		defer pool.ReleaseBuf(h)
-		_, err := io.ReadFull(gr, h)
+		_, err := io.ReadFull(gr, *h)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				return errReadHeaderEOF
 			}
 			return fmt.Errorf("failed to read block header, %w", err)
 		}
-		u := binary.BigEndian.Uint64(h)
+		u := binary.BigEndian.Uint64(*h)
 		if u > dumpMaximumBlockLength {
 			return fmt.Errorf("invalid header, block length is big, %d", u)
 		}
 
 		b := pool.GetBuf(int(u))
 		defer pool.ReleaseBuf(b)
-		_, err = io.ReadFull(gr, b)
+		_, err = io.ReadFull(gr, *b)
 		if err != nil {
 			return fmt.Errorf("failed to read block data, %w", err)
 		}
 
 		block := new(CacheDumpBlock)
-		if err := proto.Unmarshal(b, block); err != nil {
+		if err := proto.Unmarshal(*b, block); err != nil {
 			return fmt.Errorf("failed to decode block data, %w", err)
 		}
 

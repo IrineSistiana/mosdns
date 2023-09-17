@@ -40,13 +40,13 @@ var (
 		c1, c2 := net.Pipe()
 		go func() {
 			for {
-				m, _, readErr := dnsutils.ReadRawMsgFromTCP(c2)
+				m, readErr := dnsutils.ReadRawMsgFromTCP(c2)
 				if m != nil {
 					go func() {
 						defer pool.ReleaseBuf(m)
 						latency := time.Millisecond * time.Duration(rand.Intn(20))
 						time.Sleep(latency)
-						_, _ = dnsutils.WriteRawMsgToTCP(c2, m)
+						_, _ = dnsutils.WriteRawMsgToTCP(c2, *m)
 					}()
 				}
 				if readErr != nil {

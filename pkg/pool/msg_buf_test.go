@@ -32,7 +32,7 @@ func TestPackBuffer_No_Allocation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if cap(wire) != cap(buf) {
-		t.Fatalf("wire and buf have different cap, wire %d, buf %d", cap(wire), cap(buf))
+	if cap(wire) != cap(*buf) {
+		t.Fatalf("wire and buf have different cap, wire %d, buf %d", cap(wire), cap(*buf))
 	}
 }

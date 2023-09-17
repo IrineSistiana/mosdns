@@ -31,9 +31,9 @@ const packBufSize = 4096
 // PackBuffer packs the dns msg m to wire format.
 // Callers should release the buf by calling ReleaseBuf after they have done
 // with the wire []byte.
-func PackBuffer(m *dns.Msg) (wire, buf []byte, err error) {
+func PackBuffer(m *dns.Msg) (wire []byte, buf *[]byte, err error) {
 	buf = GetBuf(packBufSize)
-	wire, err = m.PackBuffer(buf)
+	wire, err = m.PackBuffer(*buf)
 	if err != nil {
 		ReleaseBuf(buf)
 		return nil, nil, err

@@ -3,6 +3,7 @@ module github.com/IrineSistiana/mosdns/v5
 go 1.19
 
 require (
+	github.com/IrineSistiana/go-bytes-pool v0.0.0-20230419012903-2f1f26674686
 	github.com/go-chi/chi/v5 v5.0.10
 	github.com/google/nftables v0.1.0
 	github.com/kardianos/service v1.2.2

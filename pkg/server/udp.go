@@ -73,15 +73,15 @@ func (s *UDPServer) ServeUDP(c *net.UDPConn) error {
 	}
 
 	for {
-		n, oobn, _, remoteAddr, err := c.ReadMsgUDPAddrPort(rb, ob)
+		n, oobn, _, remoteAddr, err := c.ReadMsgUDPAddrPort(*rb, ob)
 		if err != nil {
 			return fmt.Errorf("unexpected read err: %w", err)
 		}
 		clientAddr := remoteAddr.Addr()
 
 		q := new(dns.Msg)
-		if err := q.Unpack(rb[:n]); err != nil {
-			s.opts.Logger.Warn("invalid msg", zap.Error(err), zap.Binary("msg", rb[:n]), zap.Stringer("from", remoteAddr))
+		if err := q.Unpack((*rb)[:n]); err != nil {
+			s.opts.Logger.Warn("invalid msg", zap.Error(err), zap.Binary("msg", (*rb)[:n]), zap.Stringer("from", remoteAddr))
 			continue
 		}
 
