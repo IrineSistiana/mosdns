@@ -24,12 +24,13 @@ package nftset
 import (
 	"context"
 	"fmt"
+	"net/netip"
+
 	"github.com/IrineSistiana/mosdns/v5/pkg/nftset_utils"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 	"github.com/google/nftables"
 	"github.com/miekg/dns"
-	"net/netip"
 )
 
 type nftSetPlugin struct {
@@ -138,8 +139,12 @@ func (p *nftSetPlugin) addElems(r *dns.Msg) error {
 }
 
 func (p *nftSetPlugin) Close() error {
-	_ = p.v6Handler.Close()
-	_ = p.v4Handler.Close()
+	if p.v4Handler != nil {
+		_ = p.v4Handler.Close()
+	}
+	if p.v6Handler != nil {
+		_ = p.v6Handler.Close()
+	}
 	return nil
 }
 
