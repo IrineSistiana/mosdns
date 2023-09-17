@@ -20,6 +20,9 @@
 package pool
 
 import (
+	"encoding/binary"
+	"fmt"
+
 	"github.com/miekg/dns"
 )
 
@@ -39,4 +42,31 @@ func PackBuffer(m *dns.Msg) (wire []byte, buf *[]byte, err error) {
 		return nil, nil, err
 	}
 	return wire, buf, nil
+}
+
+// PackBuffer packs the dns msg m to wire format, with to bytes length header.
+// Callers should release the buf by calling ReleaseBuf.
+func PackTCPBuffer(m *dns.Msg) (buf *[]byte, err error) {
+	b := GetBuf(packBufSize)
+	wire, err := m.PackBuffer((*b)[2:])
+	if err != nil {
+		ReleaseBuf(b)
+		return nil, err
+	}
+
+	l := len(wire)
+	if l > dns.MaxMsgSize {
+		ReleaseBuf(b)
+		return nil, fmt.Errorf("dns payload size %d is too large", l)
+	}
+
+	if &((*b)[0]) != &wire[0] { // reallocated
+		ReleaseBuf(b)
+		b = GetBuf(l + 2)
+		binary.BigEndian.PutUint16((*b)[:2], uint16(l))
+		copy((*b)[2:], wire)
+		return b, nil
+	}
+	*b = (*b)[:2+l]
+	return b, nil
 }

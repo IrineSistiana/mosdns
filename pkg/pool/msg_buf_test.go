@@ -20,8 +20,9 @@
 package pool
 
 import (
-	"github.com/miekg/dns"
 	"testing"
+
+	"github.com/miekg/dns"
 )
 
 func TestPackBuffer_No_Allocation(t *testing.T) {
