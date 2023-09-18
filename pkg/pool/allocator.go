@@ -23,8 +23,8 @@ import (
 	bytesPool "github.com/IrineSistiana/go-bytes-pool"
 )
 
-// defaultBufPool is an Allocator that has a maximum capacity.
 var (
-	GetBuf     = bytesPool.Get
-	ReleaseBuf = bytesPool.Release
+	_pool      = bytesPool.NewPool(10) // 1Mbyte pool, should be enough.
+	GetBuf     = _pool.Get
+	ReleaseBuf = _pool.Release
 )
