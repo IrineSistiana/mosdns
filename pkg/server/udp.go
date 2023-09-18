@@ -66,14 +66,15 @@ func (s *UDPServer) ServeUDP(c *net.UDPConn) error {
 	if err != nil {
 		return fmt.Errorf("failed to init oob handler, %w", err)
 	}
-	var ob *[]byte
+	var ob []byte
 	if oobReader != nil {
-		ob = pool.GetBuf(1024)
-		defer pool.ReleaseBuf(ob)
+		obp := pool.GetBuf(1024)
+		defer pool.ReleaseBuf(obp)
+		ob = *obp
 	}
 
 	for {
-		n, oobn, _, remoteAddr, err := c.ReadMsgUDPAddrPort(*rb, *ob)
+		n, oobn, _, remoteAddr, err := c.ReadMsgUDPAddrPort(*rb, ob)
 		if err != nil {
 			return fmt.Errorf("unexpected read err: %w", err)
 		}
@@ -88,7 +89,7 @@ func (s *UDPServer) ServeUDP(c *net.UDPConn) error {
 		var dstIpFromCm net.IP
 		if oobReader != nil {
 			var err error
-			dstIpFromCm, err = oobReader((*ob)[:oobn])
+			dstIpFromCm, err = oobReader(ob[:oobn])
 			if err != nil {
 				s.opts.Logger.Error("failed to get dst address from oob", zap.Error(err))
 			}
