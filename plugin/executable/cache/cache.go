@@ -24,6 +24,14 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"strconv"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/cache"
 	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
@@ -37,13 +45,6 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/singleflight"
 	"google.golang.org/protobuf/proto"
-	"io"
-	"net/http"
-	"os"
-	"strconv"
-	"sync"
-	"sync/atomic"
-	"time"
 )
 
 const (
@@ -60,7 +61,7 @@ const (
 	expiredMsgTtl            = 5
 
 	minimumChangesToDump   = 1024
-	dumpHeader             = "mosdns_cache_v1"
+	dumpHeader             = "mosdns_cache_v2"
 	dumpBlockSize          = 128
 	dumpMaximumBlockLength = 1 << 20 // 1M block. 8kb pre entry. Should be enough.
 )
@@ -379,7 +380,7 @@ func (c *Cache) writeDump(w io.Writer) (int, error) {
 			return fmt.Errorf("failed to pack msg, %w", err)
 		}
 		e := &CachedEntry{
-			Key:                 string(k),
+			Key:                 []byte(k),
 			CacheExpirationTime: cacheExpirationTime.Unix(),
 			MsgExpirationTime:   v.expirationTime.Unix(),
 			Msg:                 msg,
