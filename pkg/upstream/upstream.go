@@ -35,6 +35,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v5/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v5/pkg/upstream/bootstrap"
 	"github.com/IrineSistiana/mosdns/v5/pkg/upstream/doh"
+	"github.com/IrineSistiana/mosdns/v5/pkg/upstream/doq"
 	"github.com/IrineSistiana/mosdns/v5/pkg/upstream/transport"
 	"github.com/miekg/dns"
 	"github.com/quic-go/quic-go"
@@ -181,10 +182,8 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 		}
 		return transport.NewReuseConnTransport(transport.ReuseConnOpts{IOOpts: to}), nil
 	case "tls":
-		var tlsConfig *tls.Config
-		if opt.TLSConfig != nil {
-			tlsConfig = opt.TLSConfig.Clone()
-		} else {
+		tlsConfig := opt.TLSConfig.Clone()
+		if tlsConfig == nil {
 			tlsConfig = new(tls.Config)
 		}
 		if len(tlsConfig.ServerName) == 0 {
@@ -287,6 +286,35 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 			Client:      &http.Client{Transport: t},
 			AddOnCloser: addonCloser,
 		}, nil
+	case "quic", "doq":
+		tlsConfig := opt.TLSConfig.Clone()
+		if tlsConfig == nil {
+			tlsConfig = new(tls.Config)
+		}
+		if len(tlsConfig.ServerName) == 0 {
+			tlsConfig.ServerName = tryRemovePort(addrURL.Host)
+		}
+
+		quicConfig := &quic.Config{
+			TokenStore:                     quic.NewLRUTokenStore(4, 8),
+			InitialStreamReceiveWindow:     4 * 1024,
+			MaxStreamReceiveWindow:         4 * 1024,
+			InitialConnectionReceiveWindow: 8 * 1024,
+			MaxConnectionReceiveWindow:     64 * 1024,
+		}
+
+		lc := net.ListenConfig{Control: getSocketControlFunc(socketOpts{so_mark: opt.SoMark, bind_to_device: opt.BindToDevice})}
+		uc, err := lc.ListenPacket(context.Background(), "udp", "")
+		if err != nil {
+			return nil, fmt.Errorf("failed to init udp socket for quic")
+		}
+
+		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 853)
+		u, err := doq.NewUpstream(dialAddr, uc.(*net.UDPConn), tlsConfig, quicConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to setup doq upstream, %w", err)
+		}
+		return u, nil
 	default:
 		return nil, fmt.Errorf("unsupported protocol [%s]", addrURL.Scheme)
 	}
