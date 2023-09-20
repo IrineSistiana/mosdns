@@ -62,7 +62,13 @@ func ServeUDP(c *net.UDPConn, h Handler, opts UDPServerOpts) error {
 	for {
 		n, oobn, _, remoteAddr, err := c.ReadMsgUDPAddrPort(*rb, ob)
 		if err != nil {
-			return fmt.Errorf("unexpected read err: %w", err)
+			if n == 0 {
+				// err with zero read. Most likely becasue c was closed.
+				return fmt.Errorf("unexpected read err: %w", err)
+			}
+			// err with some read. Tempory err.
+			logger.Warn("read err", zap.Error(err))
+			continue
 		}
 
 		q := new(dns.Msg)
