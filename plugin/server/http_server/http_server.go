@@ -21,13 +21,14 @@ package tcp_server
 
 import (
 	"fmt"
+	"net/http"
+	"time"
+
 	"github.com/IrineSistiana/mosdns/v5/coremain"
-	"github.com/IrineSistiana/mosdns/v5/pkg/server/http_handler"
+	"github.com/IrineSistiana/mosdns/v5/pkg/server"
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 	"github.com/IrineSistiana/mosdns/v5/plugin/server/server_utils"
 	"golang.org/x/net/http2"
-	"net/http"
-	"time"
 )
 
 const PluginType = "http_server"
@@ -73,12 +74,11 @@ func StartServer(bp *coremain.BP, args *Args) (*HttpServer, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to init dns handler, %w", err)
 		}
-		hhOpts := http_handler.HandlerOpts{
-			DNSHandler:  dh,
-			SrcIPHeader: args.SrcIPHeader,
-			Logger:      bp.L(),
+		hhOpts := server.HttpHandlerOpts{
+			GetSrcIPFromHeader: args.SrcIPHeader,
+			Logger:             bp.L(),
 		}
-		hh := http_handler.NewHandler(hhOpts)
+		hh := server.NewHttpHandler(dh, hhOpts)
 		mux.Handle(entry.Path, hh)
 	}
 

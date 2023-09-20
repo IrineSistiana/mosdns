@@ -22,12 +22,13 @@ package tcp_server
 import (
 	"crypto/tls"
 	"fmt"
+	"net"
+	"time"
+
 	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/server"
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 	"github.com/IrineSistiana/mosdns/v5/plugin/server/server_utils"
-	"net"
-	"time"
 )
 
 const PluginType = "tcp_server"
@@ -69,9 +70,6 @@ func StartServer(bp *coremain.BP, args *Args) (*TcpServer, error) {
 		return nil, fmt.Errorf("failed to init dns handler, %w", err)
 	}
 
-	serverOpts := server.TCPServerOpts{Logger: bp.L(), DNSHandler: dh, IdleTimeout: time.Duration(args.IdleTimeout) * time.Second}
-	s := server.NewTCPServer(serverOpts)
-
 	// Init tls
 	var tc *tls.Config
 	if len(args.Key)+len(args.Cert) > 0 {
@@ -91,7 +89,8 @@ func StartServer(bp *coremain.BP, args *Args) (*TcpServer, error) {
 
 	go func() {
 		defer l.Close()
-		err := s.ServeTCP(l)
+		serverOpts := server.TCPServerOpts{Logger: bp.L(), IdleTimeout: time.Duration(args.IdleTimeout) * time.Second}
+		err := server.ServeTCP(l, dh, serverOpts)
 		bp.M().GetSafeClose().SendCloseSignal(err)
 	}()
 	return &TcpServer{

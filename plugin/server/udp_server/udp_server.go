@@ -64,15 +64,13 @@ func StartServer(bp *coremain.BP, args *Args) (*UdpServer, error) {
 		return nil, fmt.Errorf("failed to init dns handler, %w", err)
 	}
 
-	serverOpts := server.UDPServerOpts{Logger: bp.L(), DNSHandler: dh}
-	s := server.NewUDPServer(serverOpts)
 	c, err := net.ListenPacket("udp", args.Listen)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create socket, %w", err)
 	}
 	go func() {
 		defer c.Close()
-		err := s.ServeUDP(c.(*net.UDPConn))
+		err := server.ServeUDP(c.(*net.UDPConn), dh, server.UDPServerOpts{Logger: bp.L()})
 		bp.M().GetSafeClose().SendCloseSignal(err)
 	}()
 	return &UdpServer{

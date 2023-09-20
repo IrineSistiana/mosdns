@@ -17,17 +17,19 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package dns_handler
+package server_handler
 
 import (
 	"context"
+	"time"
+
 	"github.com/IrineSistiana/mosdns/v5/mlog"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v5/pkg/server"
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
-	"time"
 )
 
 const (
@@ -37,18 +39,6 @@ const (
 var (
 	nopLogger = mlog.Nop()
 )
-
-// Handler handles dns query.
-type Handler interface {
-	// ServeDNS handles incoming request qCtx and MUST ALWAYS set a response.
-	// Implements must not keep and use qCtx after the ServeDNS returned.
-	// ServeDNS should handle dns errors by itself and return a proper error responses
-	// for clients.
-	// If ServeDNS returns an error, caller considers that the error is associated
-	// with the downstream connection and will close the downstream connection
-	// immediately.
-	ServeDNS(ctx context.Context, qCtx *query_context.Context) error
-}
 
 type EntryHandlerOpts struct {
 	// Logger is used for logging. Default is a noop logger.
@@ -73,20 +63,26 @@ type EntryHandler struct {
 	opts EntryHandlerOpts
 }
 
+var _ server.Handler = (*EntryHandler)(nil)
+
 func NewEntryHandler(opts EntryHandlerOpts) *EntryHandler {
 	opts.init()
 	return &EntryHandler{opts: opts}
 }
 
-// ServeDNS implements Handler.
+// ServeDNS implements server.Handler.
 // If entry returns an error, a SERVFAIL response will be set.
 // If entry returns without a response, a REFUSED response will be set.
-func (h *EntryHandler) ServeDNS(ctx context.Context, qCtx *query_context.Context) error {
+func (h *EntryHandler) Handle(ctx context.Context, q *dns.Msg, qInfo server.QueryMeta) (*dns.Msg, error) {
 	ddl := time.Now().Add(h.opts.QueryTimeout)
 	ctx, cancel := context.WithDeadline(ctx, ddl)
 	defer cancel()
 
 	// exec entry
+	qCtx := query_context.NewContext(q)
+	if qInfo.ClientAddr.IsValid() {
+		query_context.SetClientAddr(qCtx, &qInfo.ClientAddr)
+	}
 	err := h.opts.Entry.Exec(ctx, qCtx)
 	respMsg := qCtx.R()
 	if err != nil {
@@ -104,6 +100,5 @@ func (h *EntryHandler) ServeDNS(ctx context.Context, qCtx *query_context.Context
 		respMsg.Rcode = dns.RcodeServerFailure
 	}
 	respMsg.RecursionAvailable = true
-	qCtx.SetResponse(respMsg)
-	return nil
+	return respMsg, nil
 }
