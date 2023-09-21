@@ -22,10 +22,12 @@ package upstream
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -42,10 +44,11 @@ import (
 	"github.com/quic-go/quic-go/http3"
 	"go.uber.org/zap"
 	"golang.org/x/net/http2"
+	"golang.org/x/net/proxy"
 )
 
 const (
-	tlsHandshakeTimeout = time.Second * 5
+	tlsHandshakeTimeout = time.Second * 3
 )
 
 // Upstream represents a DNS upstream.
@@ -59,12 +62,17 @@ type Upstream interface {
 
 type Opt struct {
 	// DialAddr specifies the address the upstream will
-	// actually dial to.
+	// actually dial to in the network layer by overwriting
+	// the address inferred from upstream url.
+	// It won't affect high level layers. (e.g. SNI, HTTP HOST header won't be changed).
+	// Can be an IP or a domain. Port is optional.
+	// Tips: If the upstream url host is a domain, specific an IP address
+	// here can skip resolving ip of this domain.
 	DialAddr string
 
 	// Socks5 specifies the socks5 proxy server that the upstream
 	// will connect though.
-	// Not implemented for udp upstreams and doh upstreams with http/3.
+	// Not implemented for udp based protocols (aka. dns over udp, http3, quic).
 	Socks5 string
 
 	// SoMark sets the socket SO_MARK option in unix system.
@@ -75,40 +83,42 @@ type Opt struct {
 
 	// IdleTimeout specifies the idle timeout for long-connections.
 	// Available for TCP, DoT, DoH.
-	// If negative, TCP, DoT will not reuse connections.
-	// Default: TCP, DoT: 10s , DoH: 30s.
+	// Default: TCP, DoT: 10s , DoH, DoQ: 30s.
 	IdleTimeout time.Duration
 
 	// EnablePipeline enables query pipelining support as RFC 7766 6.2.1.1 suggested.
 	// Available for TCP, DoT upstream with IdleTimeout >= 0.
+	// Note: There is no fallback.
 	EnablePipeline bool
 
 	// EnableHTTP3 enables HTTP/3 protocol for DoH upstream.
+	// Note: There is no fallback.
 	EnableHTTP3 bool
 
 	// MaxConns limits the total number of connections, including connections
 	// in the dialing states.
-	// Implemented for TCP/DoT pipeline enabled upstreams and DoH upstreams.
+	// Implemented for TCP/DoT pipeline enabled upstream and DoH upstream.
 	// Default is 2.
 	MaxConns int
 
-	// Bootstrap specifies a plain dns server for the go runtime to solve the
-	// domain of the upstream server. It SHOULD be an IP address. Custom port
-	// is supported.
-	// Note: Use a domain address may cause dead resolve loop and additional
-	// latency to dial upstream server.
-	// HTTP3 is not supported.
+	// Bootstrap specifies a plain dns server to solve the
+	// upstream server domain address.
+	// It must be an IP address. Port is optional.
 	Bootstrap string
 
+	// Bootstrap version. One of 0 (default equals 4), 4, 6.
+	// TODO: Support dual-stack.
+	BootstrapVer int
+
 	// TLSConfig specifies the tls.Config that the TLS client will use.
-	// Available for DoT, DoH upstreams.
+	// Available for DoT, DoH upstream.
 	TLSConfig *tls.Config
 
 	// Logger specifies the logger that the upstream will use.
 	Logger *zap.Logger
 
 	// EventObserver can observe connection events.
-	// Note: Not Implemented for HTTP/3 upstreams.
+	// Not implemented for udp based protocols (dns over udp, http3, quic).
 	EventObserver EventObserver
 }
 
@@ -129,17 +139,127 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 		return nil, fmt.Errorf("invalid server address, %w", err)
 	}
 
+	// If host is a ipv6 without port, it will be in []. This will cause err when
+	// split and join address and port. Try to remove brackets now.
+	addrUrlHost := tryTrimIpv6Brackets(addrURL.Host)
+
 	dialer := &net.Dialer{
-		Resolver: bootstrap.NewBootstrap(opt.Bootstrap),
 		Control: getSocketControlFunc(socketOpts{
 			so_mark:        opt.SoMark,
 			bind_to_device: opt.BindToDevice,
 		}),
 	}
 
+	var bootstrapAp netip.AddrPort
+	if s := opt.Bootstrap; len(s) > 0 {
+		bootstrapAp, err = parseBootstrapAp(s)
+		if err != nil {
+			return nil, fmt.Errorf("invalid bootstrap, %w", err)
+		}
+	}
+
+	newUdpAddrResolveFunc := func(defaultPort uint16) (func(ctx context.Context) (*net.UDPAddr, error), error) {
+		host, port, err := parseDialAddr(addrUrlHost, opt.DialAddr, defaultPort)
+		if err != nil {
+			return nil, err
+		}
+
+		if addr, err := netip.ParseAddr(host); err == nil { // host is an ip.
+			ua := net.UDPAddrFromAddrPort(netip.AddrPortFrom(addr, port))
+			return func(ctx context.Context) (*net.UDPAddr, error) {
+				return ua, nil
+			}, nil
+		} else { // Not an ip, assuming it's a domain name.
+			if bootstrapAp.IsValid() {
+				// Bootstrap enabled.
+				bs, err := bootstrap.New(host, port, bootstrapAp, opt.BootstrapVer, opt.Logger)
+				if err != nil {
+					return nil, err
+				}
+
+				return func(ctx context.Context) (*net.UDPAddr, error) {
+					s, err := bs.GetAddrPortStr(ctx)
+					if err != nil {
+						return nil, fmt.Errorf("bootstrap failed, %w", err)
+					}
+					return net.ResolveUDPAddr("udp", s)
+				}, nil
+			} else {
+				// Bootstrap disabled.
+				dialAddr := joinPort(host, port)
+				return func(ctx context.Context) (*net.UDPAddr, error) {
+					return net.ResolveUDPAddr("udp", dialAddr)
+				}, nil
+			}
+		}
+	}
+
+	newTcpDialer := func(dialAddrMustBeIp bool, defaultPort uint16) (func(ctx context.Context) (net.Conn, error), error) {
+		host, port, err := parseDialAddr(addrUrlHost, opt.DialAddr, defaultPort)
+		if err != nil {
+			return nil, err
+		}
+
+		// Socks5 enabled.
+		if s5Addr := opt.Socks5; len(s5Addr) > 0 {
+			socks5Dialer, err := proxy.SOCKS5("tcp", s5Addr, nil, dialer)
+			if err != nil {
+				return nil, fmt.Errorf("failed to init socks5 dialer: %w", err)
+			}
+
+			contextDialer := socks5Dialer.(proxy.ContextDialer)
+			dialAddr := net.JoinHostPort(host, strconv.Itoa(int(port)))
+			return func(ctx context.Context) (net.Conn, error) {
+				return contextDialer.DialContext(ctx, "tcp", dialAddr)
+			}, nil
+		}
+
+		if _, err := netip.ParseAddr(host); err == nil {
+			// Host is an ip addr. No need to resolve it.
+			dialAddr := net.JoinHostPort(host, strconv.Itoa(int(port)))
+			return func(ctx context.Context) (net.Conn, error) {
+				return dialer.DialContext(ctx, "tcp", dialAddr)
+			}, nil
+		} else {
+			if dialAddrMustBeIp {
+				return nil, errors.New("addr must be an ip address")
+			}
+			// Host is not an ip addr, assuming it is a domain.
+			if bootstrapAp.IsValid() {
+				// Bootstrap enabled.
+				bs, err := bootstrap.New(host, port, bootstrapAp, opt.BootstrapVer, opt.Logger)
+				if err != nil {
+					return nil, err
+				}
+
+				return func(ctx context.Context) (net.Conn, error) {
+					dialAddr, err := bs.GetAddrPortStr(ctx)
+					if err != nil {
+						return nil, fmt.Errorf("bootstrap failed, %w", err)
+					}
+					return dialer.DialContext(ctx, "tcp", dialAddr)
+				}, nil
+			} else {
+				// Bootstrap disabled.
+				dialAddr := net.JoinHostPort(host, strconv.Itoa(int(port)))
+				return func(ctx context.Context) (net.Conn, error) {
+					return dialer.DialContext(ctx, "tcp", dialAddr)
+				}, nil
+			}
+		}
+	}
+
 	switch addrURL.Scheme {
 	case "", "udp":
-		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 53)
+		const defaultPort = 53
+		host, port, err := parseDialAddr(addrUrlHost, opt.DialAddr, defaultPort)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := netip.ParseAddr(host); err != nil {
+			return nil, fmt.Errorf("addr must be an ip address, %w", err)
+		}
+		dialAddr := joinPort(host, port)
 		uto := transport.IOOpts{
 			DialFunc: func(ctx context.Context) (io.ReadWriteCloser, error) {
 				c, err := dialer.DialContext(ctx, "udp", dialAddr)
@@ -166,10 +286,14 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 			t: transport.NewReuseConnTransport(transport.ReuseConnOpts{IOOpts: tto}),
 		}, nil
 	case "tcp":
-		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 53)
+		const defaultPort = 53
+		tcpDialer, err := newTcpDialer(true, defaultPort)
+		if err != nil {
+			return nil, fmt.Errorf("failed to init tcp dialer, %w", err)
+		}
 		to := transport.IOOpts{
 			DialFunc: func(ctx context.Context) (io.ReadWriteCloser, error) {
-				c, err := dialTCP(ctx, dialAddr, opt.Socks5, dialer)
+				c, err := tcpDialer(ctx)
 				c = wrapConn(c, opt.EventObserver)
 				return c, err
 			},
@@ -182,18 +306,22 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 		}
 		return transport.NewReuseConnTransport(transport.ReuseConnOpts{IOOpts: to}), nil
 	case "tls":
+		const defaultPort = 853
 		tlsConfig := opt.TLSConfig.Clone()
 		if tlsConfig == nil {
 			tlsConfig = new(tls.Config)
 		}
 		if len(tlsConfig.ServerName) == 0 {
-			tlsConfig.ServerName = tryRemovePort(addrURL.Host)
+			tlsConfig.ServerName = tryRemovePort(addrUrlHost)
 		}
 
-		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 853)
+		tcpDialer, err := newTcpDialer(false, defaultPort)
+		if err != nil {
+			return nil, fmt.Errorf("failed to init tcp dialer, %w", err)
+		}
 		to := transport.IOOpts{
 			DialFunc: func(ctx context.Context) (io.ReadWriteCloser, error) {
-				conn, err := dialTCP(ctx, dialAddr, opt.Socks5, dialer)
+				conn, err := tcpDialer(ctx)
 				if err != nil {
 					return nil, err
 				}
@@ -203,7 +331,6 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 					tlsConn.Close()
 					return nil, err
 				}
-
 				return tlsConn, nil
 			},
 			WriteFunc:   dnsutils.WriteMsgToTCP,
@@ -215,6 +342,7 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 		}
 		return transport.NewReuseConnTransport(transport.ReuseConnOpts{IOOpts: to}), nil
 	case "https":
+		const defaultPort = 443
 		idleConnTimeout := time.Second * 30
 		if opt.IdleTimeout > 0 {
 			idleConnTimeout = opt.IdleTimeout
@@ -224,41 +352,42 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 			maxConn = opt.MaxConns
 		}
 
-		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 443)
 		var t http.RoundTripper
-		var addonCloser io.Closer // udpConn
+		var addonCloser io.Closer
 		if opt.EnableHTTP3 {
+			udpBootstrap, err := newUdpAddrResolveFunc(defaultPort)
+			if err != nil {
+				return nil, fmt.Errorf("failed to init udp addr bootstrap, %w", err)
+			}
+
 			lc := net.ListenConfig{Control: getSocketControlFunc(socketOpts{so_mark: opt.SoMark, bind_to_device: opt.BindToDevice})}
 			conn, err := lc.ListenPacket(context.Background(), "udp", "")
 			if err != nil {
 				return nil, fmt.Errorf("failed to init udp socket for quic")
 			}
-			qt := &quic.Transport{
+			quicTransport := &quic.Transport{
 				Conn: conn,
 			}
-			addonCloser = qt
+			addonCloser = quicTransport
 			t = &http3.RoundTripper{
 				TLSClientConfig: opt.TLSConfig,
-				QuicConfig: &quic.Config{
-					TokenStore:                     quic.NewLRUTokenStore(4, 8),
-					InitialStreamReceiveWindow:     4 * 1024,
-					MaxStreamReceiveWindow:         4 * 1024,
-					InitialConnectionReceiveWindow: 8 * 1024,
-					MaxConnectionReceiveWindow:     64 * 1024,
-				},
+				QuicConfig:      newDefaultQuicConfig(),
 				Dial: func(ctx context.Context, _ string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error) {
-					ua, err := net.ResolveUDPAddr("udp", dialAddr) // TODO: Support bootstrap.
+					ua, err := udpBootstrap(ctx)
 					if err != nil {
 						return nil, err
 					}
-
-					return qt.DialEarly(ctx, ua, tlsCfg, cfg)
+					return quicTransport.DialEarly(ctx, ua, tlsCfg, cfg)
 				},
 			}
 		} else {
+			tcpDialer, err := newTcpDialer(false, defaultPort)
+			if err != nil {
+				return nil, fmt.Errorf("failed to init tcp dialer, %w", err)
+			}
 			t1 := &http.Transport{
 				DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) { // overwrite server addr
-					c, err := dialTCP(ctx, dialAddr, opt.Socks5, dialer)
+					c, err := tcpDialer(ctx)
 					c = wrapConn(c, opt.EventObserver)
 					return c, err
 				},
@@ -281,26 +410,34 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 			t = t1
 		}
 
-		return &doh.Upstream{
-			EndPoint:    addr,
-			Client:      &http.Client{Transport: t},
-			AddOnCloser: addonCloser,
+		return &dohWithClose{
+			u:      doh.NewUpstream(addr, &http.Client{Transport: t}),
+			closer: addonCloser,
 		}, nil
 	case "quic", "doq":
+		const defaultPort = 853
 		tlsConfig := opt.TLSConfig.Clone()
 		if tlsConfig == nil {
 			tlsConfig = new(tls.Config)
 		}
 		if len(tlsConfig.ServerName) == 0 {
-			tlsConfig.ServerName = tryRemovePort(addrURL.Host)
+			tlsConfig.ServerName = tryRemovePort(addrUrlHost)
+		}
+		tlsConfig.NextProtos = doq.DoqAlpn
+
+		quicConfig := newDefaultQuicConfig()
+		if opt.IdleTimeout > 0 {
+			quicConfig.MaxIdleTimeout = opt.IdleTimeout
 		}
 
-		quicConfig := &quic.Config{
-			TokenStore:                     quic.NewLRUTokenStore(4, 8),
-			InitialStreamReceiveWindow:     4 * 1024,
-			MaxStreamReceiveWindow:         4 * 1024,
-			InitialConnectionReceiveWindow: 8 * 1024,
-			MaxConnectionReceiveWindow:     64 * 1024,
+		udpBootstrap, err := newUdpAddrResolveFunc(defaultPort)
+		if err != nil {
+			return nil, fmt.Errorf("failed to init udp addr bootstrap, %w", err)
+		}
+
+		srk, err := doq.InitSrk()
+		if err != nil {
+			opt.Logger.Error("failed to init quic stateless reset key", zap.Error(err))
 		}
 
 		lc := net.ListenConfig{Control: getSocketControlFunc(socketOpts{so_mark: opt.SoMark, bind_to_device: opt.BindToDevice})}
@@ -309,35 +446,44 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 			return nil, fmt.Errorf("failed to init udp socket for quic")
 		}
 
-		dialAddr := getDialAddrWithPort(addrURL.Host, opt.DialAddr, 853)
-		u, err := doq.NewUpstream(dialAddr, uc.(*net.UDPConn), tlsConfig, quicConfig)
-		if err != nil {
-			return nil, fmt.Errorf("failed to setup doq upstream, %w", err)
+		t := &quic.Transport{
+			Conn:              uc,
+			StatelessResetKey: (*quic.StatelessResetKey)(srk),
 		}
-		return u, nil
+
+		dialer := func(ctx context.Context) (quic.Connection, error) {
+			ua, err := udpBootstrap(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("bootstrap failed, %w", err)
+			}
+			var c quic.Connection
+			ec, err := t.DialEarly(ctx, ua, tlsConfig, quicConfig)
+			if err != nil {
+				return nil, err
+			}
+
+			// This is a workaround to
+			// 1. recover from strange 0rtt rejected err.
+			// 2. avoid NextConnection might block forever.
+			// TODO: Remove this workaround.
+			select {
+			case <-ctx.Done():
+				err := context.Cause(ctx)
+				ec.CloseWithError(0, "")
+				return nil, err
+			case <-ec.HandshakeComplete():
+				c = ec.NextConnection()
+			}
+			return c, nil
+		}
+
+		return &doqWithClose{
+			u: doq.NewUpstream(dialer),
+			t: t,
+		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported protocol [%s]", addrURL.Scheme)
 	}
-}
-
-func getDialAddrWithPort(host, dialAddr string, defaultPort int) string {
-	addr := host
-	if len(dialAddr) > 0 {
-		addr = dialAddr
-	}
-	_, _, err := net.SplitHostPort(addr)
-	if err != nil { // no port, add it.
-		return net.JoinHostPort(strings.Trim(addr, "[]"), strconv.Itoa(defaultPort))
-	}
-	return addr
-}
-
-func tryRemovePort(s string) string {
-	host, _, err := net.SplitHostPort(s)
-	if err != nil {
-		return s
-	}
-	return host
 }
 
 type udpWithFallback struct {
@@ -360,4 +506,49 @@ func (u *udpWithFallback) Close() error {
 	u.u.Close()
 	u.t.Close()
 	return nil
+}
+
+type doqWithClose struct {
+	u *doq.Upstream
+	t *quic.Transport
+}
+
+func (u *doqWithClose) ExchangeContext(ctx context.Context, m *dns.Msg) (*dns.Msg, error) {
+	return u.u.ExchangeContext(ctx, m)
+}
+
+func (u *doqWithClose) Close() error {
+	return u.t.Close()
+}
+
+type dohWithClose struct {
+	u      *doh.Upstream
+	closer io.Closer // maybe nil
+}
+
+func (u *dohWithClose) ExchangeContext(ctx context.Context, m *dns.Msg) (*dns.Msg, error) {
+	return u.u.ExchangeContext(ctx, m)
+}
+
+func (u *dohWithClose) Close() error {
+	if u.closer != nil {
+		return u.closer.Close()
+	}
+	return nil
+}
+
+func newDefaultQuicConfig() *quic.Config {
+	return &quic.Config{
+		TokenStore: quic.NewLRUTokenStore(4, 8),
+
+		// Dns does not need large amount of io, so the rx/tx windows are small.
+		InitialStreamReceiveWindow:     4 * 1024,
+		MaxStreamReceiveWindow:         4 * 1024,
+		InitialConnectionReceiveWindow: 8 * 1024,
+		MaxConnectionReceiveWindow:     64 * 1024,
+
+		MaxIdleTimeout:       time.Second * 30,
+		KeepAlivePeriod:      time.Second * 25,
+		HandshakeIdleTimeout: tlsHandshakeTimeout,
+	}
 }

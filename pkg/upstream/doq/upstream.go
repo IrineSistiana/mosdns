@@ -22,8 +22,6 @@ package doq
 import (
 	"context"
 	"crypto/rand"
-	"crypto/tls"
-	"errors"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -39,58 +37,33 @@ const (
 	defaultDoQTimeout       = time.Second * 5
 	dialTimeout             = time.Second * 3
 	connectionLostThreshold = time.Second * 5
-	handshakeTimeout        = time.Second * 3
 )
 
 var (
-	doqAlpn = []string{"doq"}
+	DoqAlpn = []string{"doq"}
 )
 
 type Upstream struct {
-	t          *quic.Transport
-	addr       string
-	tlsConfig  *tls.Config
-	quicConfig *quic.Config
+	dialer func(ctx context.Context) (quic.Connection, error)
 
 	cm sync.Mutex
 	lc *lazyConn
 }
 
-// tlsConfig cannot be nil, it should have Servername or InsecureSkipVerify.
-func NewUpstream(addr string, lc *net.UDPConn, tlsConfig *tls.Config, quicConfig *quic.Config) (*Upstream, error) {
-	srk, err := initSrk()
-	if err != nil {
-		return nil, err
-	}
-	if tlsConfig == nil {
-		return nil, errors.New("nil tls config")
-	}
-
-	tlsConfig = tlsConfig.Clone()
-	tlsConfig.NextProtos = doqAlpn
-
+func NewUpstream(dialer func(ctx context.Context) (quic.Connection, error)) *Upstream {
 	return &Upstream{
-		t: &quic.Transport{
-			Conn:              lc,
-			StatelessResetKey: (*quic.StatelessResetKey)(srk),
-		},
-		addr:       addr,
-		tlsConfig:  tlsConfig,
-		quicConfig: quicConfig,
-	}, nil
+		dialer: dialer,
+	}
 }
 
-func initSrk() (*[32]byte, error) {
+// A helper func to init quic stateless reset key.
+func InitSrk() (*[32]byte, error) {
 	var b [32]byte
 	_, err := rand.Read(b[:])
 	if err != nil {
 		return nil, err
 	}
 	return &b, nil
-}
-
-func (u *Upstream) Close() error {
-	return u.t.Close()
 }
 
 func (u *Upstream) newStream(ctx context.Context) (quic.Stream, *lazyConn, error) {
@@ -154,31 +127,10 @@ func (u *Upstream) asyncDialConn() *lazyConn {
 
 	go func() {
 		defer cancel()
+		c, err := u.dialer(ctx)
 
-		ua, err := net.ResolveUDPAddr("udp", u.addr) // TODO: Support bootstrap.
-		if err != nil {
-			lc.err = err
-			return
-		}
-
-		var c quic.Connection
-		ec, err := u.t.DialEarly(ctx, ua, u.tlsConfig, u.quicConfig)
-		if ec != nil {
-			// This is a workaround to
-			// 1. recover from strange 0rtt rejected err.
-			// 2. avoid NextConnection might block forever.
-			// TODO: Remove this workaround.
-			select {
-			case <-ctx.Done():
-				err = context.Cause(ctx)
-				ec.CloseWithError(0, "")
-			case <-ec.HandshakeComplete():
-				c = ec.NextConnection()
-			}
-		}
-
-		var closeC bool
 		lc.m.Lock()
+		var closeC bool
 		if lc.closed {
 			closeC = true // lc was closed, nothing to do
 		} else {

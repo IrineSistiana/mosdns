@@ -24,12 +24,13 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
-	"github.com/miekg/dns"
 	"net"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
+	"github.com/miekg/dns"
 )
 
 func newUDPTestServer(t testing.TB, handler dns.Handler) (addr string, shutdownFunc func()) {
@@ -68,6 +69,9 @@ func newTCPTestServer(t testing.TB, handler dns.Handler) (addr string, shutdownF
 func newDoTTestServer(t testing.TB, handler dns.Handler) (addr string, shutdownFunc func()) {
 	serverName := "test"
 	cert, err := utils.GenerateCertificate(serverName)
+	if err != nil {
+		t.Fatal(err)
+	}
 	tlsConfig := new(tls.Config)
 	tlsConfig.Certificates = []tls.Certificate{cert}
 	tlsListener, err := tls.Listen("tcp", "127.0.0.1:0", tlsConfig)

@@ -20,10 +20,11 @@
 package transport
 
 import (
-	"github.com/miekg/dns"
 	"math/rand"
-	"sync/atomic"
+	"sync"
 	"time"
+
+	"github.com/miekg/dns"
 )
 
 func shadowCopy(m *dns.Msg) *dns.Msg {
@@ -94,10 +95,10 @@ func slicePopLatest[T any](s *[]T) (T, bool) {
 }
 
 type idleTimer struct {
-	d        time.Duration
-	updating atomic.Bool
-	t        *time.Timer
-	stopped  bool
+	d       time.Duration
+	m       sync.Mutex
+	t       *time.Timer
+	stopped bool
 }
 
 func newIdleTimer(d time.Duration, f func()) *idleTimer {
@@ -108,22 +109,29 @@ func newIdleTimer(d time.Duration, f func()) *idleTimer {
 }
 
 func (t *idleTimer) reset(d time.Duration) {
-	if t.updating.CompareAndSwap(false, true) {
-		defer t.updating.Store(false)
-		if t.stopped {
-			return
-		}
-		if d <= 0 {
-			d = t.d
-		}
-		if !t.t.Reset(t.d) {
-			t.stopped = true
-			// re-activated. stop it
-			t.t.Stop()
-		}
+	t.m.Lock()
+	defer t.m.Unlock()
+	if t.stopped {
+		return
+	}
+
+	if d <= 0 {
+		d = t.d
+	}
+
+	if !t.t.Reset(d) {
+		t.stopped = true
+		// re-activated. stop it
+		t.t.Stop()
 	}
 }
 
 func (t *idleTimer) stop() {
+	t.m.Lock()
+	defer t.m.Unlock()
+	if t.stopped {
+		return
+	}
+	t.stopped = true
 	t.t.Stop()
 }

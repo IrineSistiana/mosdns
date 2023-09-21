@@ -20,10 +20,10 @@
 package upstream
 
 import (
-	"context"
 	"fmt"
-	"golang.org/x/net/proxy"
 	"net"
+	"net/netip"
+	"strconv"
 )
 
 type socketOpts struct {
@@ -31,14 +31,70 @@ type socketOpts struct {
 	bind_to_device string
 }
 
-func dialTCP(ctx context.Context, addr, socks5 string, dialer *net.Dialer) (net.Conn, error) {
-	if len(socks5) > 0 {
-		socks5Dialer, err := proxy.SOCKS5("tcp", socks5, nil, dialer)
-		if err != nil {
-			return nil, fmt.Errorf("failed to init socks5 dialer: %w", err)
-		}
-		return socks5Dialer.(proxy.ContextDialer).DialContext(ctx, "tcp", addr)
+func parseDialAddr(urlHost, dialAddr string, defaultPort uint16) (string, uint16, error) {
+	addr := urlHost
+	if len(dialAddr) > 0 {
+		addr = dialAddr
 	}
+	host, port, err := trySplitHostPort(addr)
+	if err != nil {
+		return "", 0, err
+	}
+	if port == 0 {
+		port = defaultPort
+	}
+	return host, port, nil
+}
 
-	return dialer.DialContext(ctx, "tcp", addr)
+func joinPort(host string, port uint16) string {
+	return net.JoinHostPort(host, strconv.Itoa(int(port)))
+}
+
+func tryRemovePort(s string) string {
+	host, _, err := net.SplitHostPort(s)
+	if err != nil {
+		return s
+	}
+	return host
+}
+
+// trySplitHostPort splits host and port.
+// If s has no port, it returns s,0,nil
+func trySplitHostPort(s string) (string, uint16, error) {
+	var port uint16
+	host, portS, err := net.SplitHostPort(s)
+	if err == nil {
+		n, err := strconv.ParseUint(portS, 10, 16)
+		if err != nil {
+			return "", 0, fmt.Errorf("invalid port, %w", err)
+		}
+		port = uint16(n)
+		return host, port, nil
+	}
+	return s, 0, nil
+}
+
+func parseBootstrapAp(s string) (netip.AddrPort, error) {
+	host, port, err := trySplitHostPort(s)
+	if err != nil {
+		return netip.AddrPort{}, err
+	}
+	if port == 0 {
+		port = 53
+	}
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return netip.AddrPort{}, err
+	}
+	return netip.AddrPortFrom(addr, port), nil
+}
+
+func tryTrimIpv6Brackets(s string) string {
+	if len(s) < 2 {
+		return s
+	}
+	if s[0] == '[' && s[len(s)-1] == ']' {
+		return s[1 : len(s)-2]
+	}
+	return s
 }

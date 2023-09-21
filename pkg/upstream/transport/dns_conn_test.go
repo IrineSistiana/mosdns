@@ -22,9 +22,6 @@ package transport
 import (
 	"context"
 	"errors"
-	"github.com/IrineSistiana/mosdns/v5/pkg/dnsutils"
-	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
-	"github.com/miekg/dns"
 	"io"
 	"math/rand"
 	"net"
@@ -32,6 +29,10 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/IrineSistiana/mosdns/v5/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
+	"github.com/miekg/dns"
 )
 
 var (

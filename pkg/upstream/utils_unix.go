@@ -22,9 +22,10 @@
 package upstream
 
 import (
-	"golang.org/x/sys/unix"
 	"os"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 func getSocketControlFunc(opts socketOpts) func(string, string, syscall.RawConn) error {

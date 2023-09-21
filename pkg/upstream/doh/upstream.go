@@ -23,13 +23,14 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
-	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
-	"github.com/miekg/dns"
 	"io"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
+	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
+	"github.com/miekg/dns"
 )
 
 const (
@@ -42,21 +43,10 @@ type Upstream struct {
 	EndPoint string
 	// Client is a http.Client that sends http requests.
 	Client *http.Client
-
-	// AddOnCloser will be closed when Upstream is closed.
-	AddOnCloser io.Closer
 }
 
-func (u *Upstream) CloseIdleConnections() {
-	u.Client.CloseIdleConnections()
-}
-
-func (u *Upstream) Close() error {
-	u.Client.CloseIdleConnections()
-	if u.AddOnCloser != nil {
-		u.AddOnCloser.Close()
-	}
-	return nil
+func NewUpstream(endPoint string, client *http.Client) *Upstream {
+	return &Upstream{EndPoint: endPoint, Client: client}
 }
 
 var (
@@ -127,7 +117,7 @@ func (u *Upstream) ExchangeContext(ctx context.Context, q *dns.Msg) (*dns.Msg, e
 func (u *Upstream) exchange(ctx context.Context, url string) (*dns.Msg, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("interal err: NewRequestWithContext: %w", err)
+		return nil, fmt.Errorf("internal err: NewRequestWithContext: %w", err)
 	}
 
 	req.Header["Accept"] = []string{"application/dns-message"}

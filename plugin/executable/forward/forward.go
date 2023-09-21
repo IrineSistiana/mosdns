@@ -24,6 +24,9 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v5/pkg/upstream"
@@ -32,8 +35,6 @@ import (
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
-	"strings"
-	"time"
 )
 
 const PluginType = "forward"
@@ -57,6 +58,7 @@ type Args struct {
 	SoMark       int    `yaml:"so_mark"`
 	BindToDevice string `yaml:"bind_to_device"`
 	Bootstrap    string `yaml:"bootstrap"`
+	BootstrapVer int    `yaml:"bootstrap_version"`
 }
 
 type UpstreamConfig struct {
@@ -73,6 +75,7 @@ type UpstreamConfig struct {
 	SoMark       int    `yaml:"so_mark"`
 	BindToDevice string `yaml:"bind_to_device"`
 	Bootstrap    string `yaml:"bootstrap"`
+	BootstrapVer int    `yaml:"bootstrap_version"`
 }
 
 func Init(bp *coremain.BP, args any) (any, error) {
@@ -125,6 +128,7 @@ func NewForward(args *Args, opt Opts) (*Forward, error) {
 		utils.SetDefaultUnsignNum(&c.SoMark, args.SoMark)
 		utils.SetDefaultString(&c.BindToDevice, args.BindToDevice)
 		utils.SetDefaultString(&c.Bootstrap, args.Bootstrap)
+		utils.SetDefaultUnsignNum(&c.BootstrapVer, args.BootstrapVer)
 	}
 
 	for i, c := range args.Upstreams {
@@ -144,6 +148,7 @@ func NewForward(args *Args, opt Opts) (*Forward, error) {
 			EnablePipeline: c.EnablePipeline,
 			EnableHTTP3:    c.EnableHTTP3,
 			Bootstrap:      c.Bootstrap,
+			BootstrapVer:   c.BootstrapVer,
 			TLSConfig: &tls.Config{
 				InsecureSkipVerify: c.InsecureSkipVerify,
 				ClientSessionCache: tls.NewLRUClientSessionCache(4),

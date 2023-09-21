@@ -21,10 +21,11 @@ package transport
 
 import (
 	"context"
-	"github.com/miekg/dns"
 	"math/rand"
 	"sync"
 	"time"
+
+	"github.com/miekg/dns"
 )
 
 // PipelineTransport will pipeline queries as RFC 7766 6.2.1.1 suggested.
