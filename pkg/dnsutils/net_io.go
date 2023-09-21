@@ -78,12 +78,12 @@ func ReadMsgFromTCP(c io.Reader) (*dns.Msg, int, error) {
 // WriteMsgToTCP packs and writes m to c in RFC 1035 format.
 // n represents how many bytes are written to c.
 func WriteMsgToTCP(c io.Writer, m *dns.Msg) (n int, err error) {
-	mRaw, buf, err := pool.PackBuffer(m)
+	buf, err := pool.PackTCPBuffer(m)
 	if err != nil {
 		return 0, err
 	}
 	defer pool.ReleaseBuf(buf)
-	return WriteRawMsgToTCP(c, mRaw)
+	return c.Write(*buf)
 }
 
 // WriteRawMsgToTCP See WriteMsgToTCP
