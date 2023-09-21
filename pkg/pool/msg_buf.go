@@ -60,13 +60,14 @@ func PackTCPBuffer(m *dns.Msg) (buf *[]byte, err error) {
 		return nil, fmt.Errorf("dns payload size %d is too large", l)
 	}
 
-	if &((*b)[0]) != &wire[0] { // reallocated
+	if &((*b)[2]) != &wire[0] { // reallocated
 		ReleaseBuf(b)
 		b = GetBuf(l + 2)
 		binary.BigEndian.PutUint16((*b)[:2], uint16(l))
 		copy((*b)[2:], wire)
 		return b, nil
 	}
+	binary.BigEndian.PutUint16((*b)[:2], uint16(l))
 	*b = (*b)[:2+l]
 	return b, nil
 }
