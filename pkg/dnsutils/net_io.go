@@ -101,13 +101,12 @@ func WriteRawMsgToTCP(c io.Writer, b []byte) (n int, err error) {
 }
 
 func WriteMsgToUDP(c io.Writer, m *dns.Msg) (int, error) {
-	b, buf, err := pool.PackBuffer(m)
+	b, err := pool.PackBuffer(m)
 	if err != nil {
 		return 0, err
 	}
-	defer pool.ReleaseBuf(buf)
-
-	return c.Write(b)
+	defer pool.ReleaseBuf(b)
+	return c.Write(*b)
 }
 
 func ReadMsgFromUDP(c io.Reader, bufSize int) (*dns.Msg, int, error) {

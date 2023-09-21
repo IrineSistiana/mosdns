@@ -101,14 +101,14 @@ func ServeTCP(l net.Listener, h Handler, opts TCPServerOpts) error {
 						c.Close() // abort the connection
 						return
 					}
-					b, buf, err := pool.PackBuffer(r)
+					b, err := pool.PackTCPBuffer(r)
 					if err != nil {
 						logger.Error("failed to unpack handler's response", zap.Error(err), zap.Stringer("msg", r))
 						return
 					}
-					defer pool.ReleaseBuf(buf)
+					defer pool.ReleaseBuf(b)
 
-					if _, err := dnsutils.WriteRawMsgToTCP(c, b); err != nil {
+					if _, err := c.Write(*b); err != nil {
 						logger.Warn("failed to write response", zap.Stringer("client", c.RemoteAddr()), zap.Error(err))
 						return
 					}

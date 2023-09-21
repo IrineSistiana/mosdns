@@ -54,11 +54,12 @@ var (
 )
 
 func (u *Upstream) ExchangeContext(ctx context.Context, q *dns.Msg) (*dns.Msg, error) {
-	wire, buf, err := pool.PackBuffer(q)
+	bp, err := pool.PackBuffer(q)
 	if err != nil {
 		return nil, fmt.Errorf("failed to pack query msg, %w", err)
 	}
-	defer pool.ReleaseBuf(buf)
+	defer pool.ReleaseBuf(bp)
+	wire := *bp
 
 	// In order to maximize HTTP cache friendliness, DoH clients using media
 	// formats that include the ID field from the DNS message header, such

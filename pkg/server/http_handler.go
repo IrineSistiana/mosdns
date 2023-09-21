@@ -103,17 +103,17 @@ func (h *HttpHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		panic(err) // Force http server to close connection.
 	}
 
-	b, buf, err := pool.PackBuffer(r)
+	b, err := pool.PackBuffer(r)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		h.warnErr(req, "failed to unpack handler's response", err)
 		return
 	}
-	defer pool.ReleaseBuf(buf)
+	defer pool.ReleaseBuf(b)
 
 	w.Header().Set("Content-Type", "application/dns-message")
 	w.Header().Set("Cache-Control", fmt.Sprintf("max-age=%d", dnsutils.GetMinimalTTL(r)))
-	if _, err := w.Write(b); err != nil {
+	if _, err := w.Write(*b); err != nil {
 		h.warnErr(req, "failed to write response", err)
 		return
 	}

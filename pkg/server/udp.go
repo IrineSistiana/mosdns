@@ -95,18 +95,18 @@ func ServeUDP(c *net.UDPConn, h Handler, opts UDPServerOpts) error {
 			}
 			if r != nil {
 				r.Truncate(getUDPSize(q))
-				b, buf, err := pool.PackBuffer(r)
+				b, err := pool.PackBuffer(r)
 				if err != nil {
 					logger.Error("failed to unpack handler's response", zap.Error(err), zap.Stringer("msg", r))
 					return
 				}
-				defer pool.ReleaseBuf(buf)
+				defer pool.ReleaseBuf(b)
 
 				var oob []byte
 				if oobWriter != nil && dstIpFromCm != nil {
 					oob = oobWriter(dstIpFromCm)
 				}
-				if _, _, err := c.WriteMsgUDPAddrPort(b, oob, remoteAddr); err != nil {
+				if _, _, err := c.WriteMsgUDPAddrPort(*b, oob, remoteAddr); err != nil {
 					logger.Warn("failed to write response", zap.Stringer("client", remoteAddr), zap.Error(err))
 				}
 			}

@@ -26,46 +26,47 @@ import (
 	"github.com/miekg/dns"
 )
 
-// There is no such way to give dns.Msg.PackBuffer() a buffer
-// with a proper size.
-// Just give it a big buf and hope the buf will be reused in most scenes.
-const packBufSize = 4096
+// dns.Msg.PackBuffer requires a buffer with length of m.Len() + 1.
+// Don't know why it needs one more byte.
+func getPackBuffer(m *dns.Msg) int {
+	return m.Len() + 1
+}
 
 // PackBuffer packs the dns msg m to wire format.
 // Callers should release the buf by calling ReleaseBuf after they have done
 // with the wire []byte.
-func PackBuffer(m *dns.Msg) (wire []byte, buf *[]byte, err error) {
-	buf = GetBuf(packBufSize)
-	wire, err = m.PackBuffer(*buf)
+func PackBuffer(m *dns.Msg) (*[]byte, error) {
+	b := GetBuf(getPackBuffer(m))
+	wire, err := m.PackBuffer(*b)
 	if err != nil {
-		ReleaseBuf(buf)
-		return nil, nil, err
+		ReleaseBuf(b)
+		return nil, err
 	}
-	return wire, buf, nil
+	if &((*b)[0]) != &wire[0] { // reallocated
+		ReleaseBuf(b)
+		return nil, dns.ErrBuf
+	}
+	return b, nil
 }
 
 // PackBuffer packs the dns msg m to wire format, with to bytes length header.
 // Callers should release the buf by calling ReleaseBuf.
-func PackTCPBuffer(m *dns.Msg) (buf *[]byte, err error) {
-	b := GetBuf(packBufSize)
+func PackTCPBuffer(m *dns.Msg) (*[]byte, error) {
+	b := GetBuf(2 + getPackBuffer(m))
 	wire, err := m.PackBuffer((*b)[2:])
 	if err != nil {
 		ReleaseBuf(b)
 		return nil, err
+	}
+	if &((*b)[2]) != &wire[0] { // reallocated
+		ReleaseBuf(b)
+		return nil, dns.ErrBuf
 	}
 
 	l := len(wire)
 	if l > dns.MaxMsgSize {
 		ReleaseBuf(b)
 		return nil, fmt.Errorf("dns payload size %d is too large", l)
-	}
-
-	if &((*b)[2]) != &wire[0] { // reallocated
-		ReleaseBuf(b)
-		b = GetBuf(l + 2)
-		binary.BigEndian.PutUint16((*b)[:2], uint16(l))
-		copy((*b)[2:], wire)
-		return b, nil
 	}
 	binary.BigEndian.PutUint16((*b)[:2], uint16(l))
 	*b = (*b)[:2+l]
