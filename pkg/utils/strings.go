@@ -20,21 +20,13 @@
 package utils
 
 import (
-	"regexp"
 	"strings"
 	"unsafe"
 )
 
 // BytesToStringUnsafe converts bytes to string.
 func BytesToStringUnsafe(b []byte) string {
-	return *(*string)(unsafe.Pointer(&b))
-}
-
-var charBlockExpr = regexp.MustCompile("\\S+")
-
-// SplitLineReg extracts words from s by using regexp "\S+".
-func SplitLineReg(s string) []string {
-	return charBlockExpr.FindAllString(s, -1)
+	return unsafe.String(unsafe.SliceData(b), len(b))
 }
 
 // RemoveComment removes comment after "symbol".
