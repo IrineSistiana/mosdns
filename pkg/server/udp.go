@@ -63,10 +63,10 @@ func ServeUDP(c *net.UDPConn, h Handler, opts UDPServerOpts) error {
 		n, oobn, _, remoteAddr, err := c.ReadMsgUDPAddrPort(*rb, ob)
 		if err != nil {
 			if n == 0 {
-				// err with zero read. Most likely becasue c was closed.
+				// Err with zero read. Most likely because c was closed.
 				return fmt.Errorf("unexpected read err: %w", err)
 			}
-			// err with some read. Tempory err.
+			// Temporary err.
 			logger.Warn("read err", zap.Error(err))
 			continue
 		}
@@ -88,41 +88,21 @@ func ServeUDP(c *net.UDPConn, h Handler, opts UDPServerOpts) error {
 
 		// handle query
 		go func() {
-			r, err := h.Handle(listenerCtx, q, QueryMeta{ClientAddr: remoteAddr.Addr(), FromUDP: true})
-			if err != nil {
-				logger.Warn("handler err", zap.Error(err))
+			payload := h.Handle(listenerCtx, q, QueryMeta{ClientAddr: remoteAddr.Addr(), FromUDP: true}, pool.PackBuffer)
+			if payload == nil {
 				return
 			}
-			if r != nil {
-				r.Truncate(getUDPSize(q))
-				b, err := pool.PackBuffer(r)
-				if err != nil {
-					logger.Error("failed to unpack handler's response", zap.Error(err), zap.Stringer("msg", r))
-					return
-				}
-				defer pool.ReleaseBuf(b)
+			defer pool.ReleaseBuf(payload)
 
-				var oob []byte
-				if oobWriter != nil && dstIpFromCm != nil {
-					oob = oobWriter(dstIpFromCm)
-				}
-				if _, _, err := c.WriteMsgUDPAddrPort(*b, oob, remoteAddr); err != nil {
-					logger.Warn("failed to write response", zap.Stringer("client", remoteAddr), zap.Error(err))
-				}
+			var oob []byte
+			if oobWriter != nil && dstIpFromCm != nil {
+				oob = oobWriter(dstIpFromCm)
+			}
+			if _, _, err := c.WriteMsgUDPAddrPort(*payload, oob, remoteAddr); err != nil {
+				logger.Warn("failed to write response", zap.Stringer("client", remoteAddr), zap.Error(err))
 			}
 		}()
 	}
-}
-
-func getUDPSize(m *dns.Msg) int {
-	var s uint16
-	if opt := m.IsEdns0(); opt != nil {
-		s = opt.UDPSize()
-	}
-	if s < dns.MinMsgSize {
-		s = dns.MinMsgSize
-	}
-	return int(s)
 }
 
 type getSrcAddrFromOOB func(oob []byte) (net.IP, error)

@@ -21,6 +21,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/netip"
@@ -93,22 +94,22 @@ func ServeTCP(l net.Listener, h Handler, opts TCPServerOpts) error {
 					return // read err, close the connection
 				}
 
+				// Try to get server name from tls conn.
+				var serverName string
+				if tlsConn, ok := c.(*tls.Conn); ok {
+					serverName = tlsConn.ConnectionState().ServerName
+				}
+
 				// handle query
 				go func() {
-					r, err := h.Handle(tcpConnCtx, req, QueryMeta{ClientAddr: clientAddr})
-					if err != nil {
-						logger.Warn("handler err", zap.Error(err))
+					r := h.Handle(tcpConnCtx, req, QueryMeta{ClientAddr: clientAddr, ServerName: serverName}, pool.PackTCPBuffer)
+					if r == nil {
 						c.Close() // abort the connection
 						return
 					}
-					b, err := pool.PackTCPBuffer(r)
-					if err != nil {
-						logger.Error("failed to unpack handler's response", zap.Error(err), zap.Stringer("msg", r))
-						return
-					}
-					defer pool.ReleaseBuf(b)
+					defer pool.ReleaseBuf(r)
 
-					if _, err := c.Write(*b); err != nil {
+					if _, err := c.Write(*r); err != nil {
 						logger.Warn("failed to write response", zap.Stringer("client", c.RemoteAddr()), zap.Error(err))
 						return
 					}

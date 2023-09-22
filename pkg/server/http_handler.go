@@ -28,7 +28,6 @@ import (
 	"net/netip"
 	"strings"
 
-	"github.com/IrineSistiana/mosdns/v5/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
@@ -97,23 +96,23 @@ func (h *HttpHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	r, err := h.dnsHandler.Handle(req.Context(), q, QueryMeta{ClientAddr: clientAddr})
-	if err != nil {
-		h.warnErr(req, "handler err", err)
-		panic(err) // Force http server to close connection.
+	queryMeta := QueryMeta{
+		ClientAddr: clientAddr,
 	}
-
-	b, err := pool.PackBuffer(r)
-	if err != nil {
+	if u := req.URL; u != nil {
+		queryMeta.UrlPath = u.Path
+	}
+	if tlsStat := req.TLS; tlsStat != nil {
+		queryMeta.ServerName = tlsStat.ServerName
+	}
+	resp := h.dnsHandler.Handle(req.Context(), q, queryMeta, pool.PackBuffer)
+	if resp == nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		h.warnErr(req, "failed to unpack handler's response", err)
 		return
 	}
-	defer pool.ReleaseBuf(b)
-
+	defer pool.ReleaseBuf(resp)
 	w.Header().Set("Content-Type", "application/dns-message")
-	w.Header().Set("Cache-Control", fmt.Sprintf("max-age=%d", dnsutils.GetMinimalTTL(r)))
-	if _, err := w.Write(*b); err != nil {
+	if _, err := w.Write(*resp); err != nil {
 		h.warnErr(req, "failed to write response", err)
 		return
 	}

@@ -71,9 +71,9 @@ func NewEntryHandler(opts EntryHandlerOpts) *EntryHandler {
 }
 
 // ServeDNS implements server.Handler.
-// If entry returns an error, a SERVFAIL response will be set.
-// If entry returns without a response, a REFUSED response will be set.
-func (h *EntryHandler) Handle(ctx context.Context, q *dns.Msg, qInfo server.QueryMeta) (*dns.Msg, error) {
+// If entry returns an error, a SERVFAIL response will be returned.
+// If entry returns without a response, a REFUSED response will be returned.
+func (h *EntryHandler) Handle(ctx context.Context, q *dns.Msg, qInfo server.QueryMeta, packMsgPayload func(m *dns.Msg) (*[]byte, error)) *[]byte {
 	ddl := time.Now().Add(h.opts.QueryTimeout)
 	ctx, cancel := context.WithDeadline(ctx, ddl)
 	defer cancel()
@@ -100,5 +100,26 @@ func (h *EntryHandler) Handle(ctx context.Context, q *dns.Msg, qInfo server.Quer
 		respMsg.Rcode = dns.RcodeServerFailure
 	}
 	respMsg.RecursionAvailable = true
-	return respMsg, nil
+
+	if qInfo.FromUDP {
+		respMsg.Truncate(getUDPSize(q))
+	}
+
+	payload, err := packMsgPayload(respMsg)
+	if err != nil {
+		h.opts.Logger.Error("internal err: failed to pack resp msg", zap.Error(err))
+		return nil
+	}
+	return payload
+}
+
+func getUDPSize(m *dns.Msg) int {
+	var s uint16
+	if opt := m.IsEdns0(); opt != nil {
+		s = opt.UDPSize()
+	}
+	if s < dns.MinMsgSize {
+		s = dns.MinMsgSize
+	}
+	return int(s)
 }
