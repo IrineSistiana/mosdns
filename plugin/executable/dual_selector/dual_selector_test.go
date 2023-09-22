@@ -21,14 +21,15 @@ package dual_selector
 
 import (
 	"context"
+	"net"
+	"testing"
+	"time"
+
 	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
-	"net"
-	"testing"
-	"time"
 )
 
 type dummyNext struct {
@@ -158,7 +159,7 @@ func TestSelector_Exec(t *testing.T) {
 
 			q := new(dns.Msg)
 			q.SetQuestion("example.", tt.qtype)
-			qCtx := query_context.NewContext(q)
+			qCtx := query_context.NewContext(q, query_context.QueryMeta{})
 			cw := sequence.NewChainWalker([]*sequence.ChainNode{{E: tt.next}}, nil)
 			if err := s.Exec(context.Background(), qCtx, cw); (err != nil) != tt.wantErr {
 				t.Errorf("Exec() error = %v, wantErr %v", err, tt.wantErr)

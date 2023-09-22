@@ -79,10 +79,7 @@ func (h *EntryHandler) Handle(ctx context.Context, q *dns.Msg, qInfo server.Quer
 	defer cancel()
 
 	// exec entry
-	qCtx := query_context.NewContext(q)
-	if qInfo.ClientAddr.IsValid() {
-		query_context.SetClientAddr(qCtx, &qInfo.ClientAddr)
-	}
+	qCtx := query_context.NewContext(q, qInfo)
 	err := h.opts.Entry.Exec(ctx, qCtx)
 	respMsg := qCtx.R()
 	if err != nil {

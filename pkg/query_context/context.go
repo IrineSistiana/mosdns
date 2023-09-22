@@ -20,11 +20,13 @@
 package query_context
 
 import (
+	"sync/atomic"
+	"time"
+
+	"github.com/IrineSistiana/mosdns/v5/pkg/server"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"sync/atomic"
-	"time"
 )
 
 // Context is a query context that pass through plugins
@@ -34,6 +36,7 @@ import (
 type Context struct {
 	startTime time.Time // when was this Context created
 	q         *dns.Msg
+	queryMeta QueryMeta
 
 	// id for this Context. Not for the dns query. This id is mainly for logging.
 	id uint32
@@ -48,14 +51,17 @@ type Context struct {
 
 var contextUid atomic.Uint32
 
+type QueryMeta = server.QueryMeta
+
 // NewContext creates a new query Context.
 // q is the query dns msg. It cannot be nil, or NewContext will panic.
-func NewContext(q *dns.Msg) *Context {
+func NewContext(q *dns.Msg, qm QueryMeta) *Context {
 	if q == nil {
 		panic("handler: query msg is nil")
 	}
 	ctx := &Context{
 		q:         q,
+		queryMeta: qm,
 		id:        contextUid.Add(1),
 		startTime: time.Now(),
 	}
@@ -66,6 +72,11 @@ func NewContext(q *dns.Msg) *Context {
 // Q returns the query msg. It always returns a non-nil msg.
 func (ctx *Context) Q() *dns.Msg {
 	return ctx.q
+}
+
+// QueryMeta returns the meta data of the query.
+func (ctx *Context) QueryMeta() QueryMeta {
+	return ctx.queryMeta
 }
 
 // R returns the response. It might be nil.
@@ -164,8 +175,8 @@ func (ctx *Context) DeleteMark(m uint32) {
 func (ctx *Context) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
 	encoder.AddUint32("uqid", ctx.id)
 
-	if addr, ok := GetClientAddr(ctx); ok && addr.IsValid() {
-		zap.Stringer("client", addr).AddTo(encoder)
+	if clientAddr := ctx.queryMeta.ClientAddr; clientAddr.IsValid() {
+		zap.Stringer("client", clientAddr).AddTo(encoder)
 	}
 
 	q := ctx.Q()
@@ -180,7 +191,7 @@ func (ctx *Context) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
 	if r := ctx.R(); r != nil {
 		encoder.AddInt("rcode", r.Rcode)
 	}
-	encoder.AddDuration("elapsed", time.Now().Sub(ctx.StartTime()))
+	encoder.AddDuration("elapsed", time.Since(ctx.StartTime()))
 	return nil
 }
 

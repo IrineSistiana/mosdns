@@ -24,15 +24,16 @@ package ipset
 import (
 	"context"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
-	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
-	"github.com/miekg/dns"
-	"github.com/vishvananda/netlink"
 	"math/rand"
 	"net"
 	"os"
 	"strconv"
 	"testing"
+
+	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
+	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
+	"github.com/miekg/dns"
+	"github.com/vishvananda/netlink"
 )
 
 func skipTest(t *testing.T) {
@@ -85,7 +86,7 @@ func Test_ipset(t *testing.T) {
 	r.Answer = append(r.Answer, &dns.A{A: net.ParseIP("127.0.0.2")})
 	r.Answer = append(r.Answer, &dns.AAAA{AAAA: net.ParseIP("::1")})
 	r.Answer = append(r.Answer, &dns.AAAA{AAAA: net.ParseIP("::2")})
-	qCtx := query_context.NewContext(q)
+	qCtx := query_context.NewContext(q, query_context.QueryMeta{})
 	qCtx.SetResponse(r)
 	if err := p.Exec(context.Background(), qCtx); err != nil {
 		t.Fatal(err)

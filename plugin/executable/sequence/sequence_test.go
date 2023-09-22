@@ -22,10 +22,11 @@ package sequence
 import (
 	"context"
 	"errors"
+	"testing"
+
 	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/miekg/dns"
-	"testing"
 )
 
 type dummy struct {
@@ -186,7 +187,7 @@ func Test_sequence_Exec(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			qCtx := query_context.NewContext(new(dns.Msg))
+			qCtx := query_context.NewContext(new(dns.Msg), query_context.QueryMeta{})
 			if err := s.Exec(context.Background(), qCtx); (err != nil) != tt.wantErr {
 				t.Errorf("Exec() error = %v, wantErr %v", err, tt.wantErr)
 			}
