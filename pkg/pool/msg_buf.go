@@ -46,6 +46,7 @@ func PackBuffer(m *dns.Msg) (*[]byte, error) {
 		ReleaseBuf(b)
 		return nil, dns.ErrBuf
 	}
+	*b = (*b)[:len(wire)]
 	return b, nil
 }
 
