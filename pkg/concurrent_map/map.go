@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	mapShardSize = 64
+	MapShardSize = 64
 )
 
 type Hashable interface {
@@ -35,7 +35,7 @@ type Hashable interface {
 type TestAndSetFunc[K comparable, V any] func(key K, v V, ok bool) (newV V, setV, deleteV bool)
 
 type Map[K Hashable, V any] struct {
-	shards [mapShardSize]shard[K, V]
+	shards [MapShardSize]shard[K, V]
 }
 
 func NewMap[K Hashable, V any]() *Map[K, V] {
@@ -46,11 +46,12 @@ func NewMap[K Hashable, V any]() *Map[K, V] {
 	return m
 }
 
+// NewMapCache returns a cache with a maximum size.
+// Note that, because this it has multiple (MapShardSize) shards,
+// the actual maximum size is MapShardSize*(size / MapShardSize).
+// If size <=0, it's equal to NewMap().
 func NewMapCache[K Hashable, V any](size int) *Map[K, V] {
-	sizePreShard := size / mapShardSize
-	if size > 0 && sizePreShard == 0 {
-		sizePreShard = 1
-	}
+	sizePreShard := size / MapShardSize
 	m := new(Map[K, V])
 	for i := range m.shards {
 		m.shards[i] = newShard[K, V](sizePreShard)
@@ -59,7 +60,7 @@ func NewMapCache[K Hashable, V any](size int) *Map[K, V] {
 }
 
 func (m *Map[K, V]) getShard(key K) *shard[K, V] {
-	return &m.shards[key.Sum()%mapShardSize]
+	return &m.shards[key.Sum()%MapShardSize]
 }
 
 func (m *Map[K, V]) Get(key K) (V, bool) {
@@ -103,7 +104,7 @@ func (m *Map[K, V]) Flush() {
 
 type shard[K comparable, V any] struct {
 	l   sync.RWMutex
-	max int
+	max int // Negative or zero max means no limit.
 	m   map[K]V
 }
 
