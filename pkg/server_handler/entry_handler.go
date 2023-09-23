@@ -34,6 +34,7 @@ import (
 
 const (
 	defaultQueryTimeout = time.Second * 5
+	edns0Size           = 1200
 )
 
 var (
@@ -78,6 +79,9 @@ func (h *EntryHandler) Handle(ctx context.Context, q *dns.Msg, qInfo server.Quer
 	ctx, cancel := context.WithDeadline(ctx, ddl)
 	defer cancel()
 
+	// Get udp size before exec plugins. It may be changed by plugins.
+	queryUdpSize := getUDPSize(q)
+
 	// exec entry
 	qCtx := query_context.NewContext(q, qInfo)
 	err := h.opts.Entry.Exec(ctx, qCtx)
@@ -99,7 +103,7 @@ func (h *EntryHandler) Handle(ctx context.Context, q *dns.Msg, qInfo server.Quer
 	respMsg.RecursionAvailable = true
 
 	if qInfo.FromUDP {
-		respMsg.Truncate(getUDPSize(q))
+		respMsg.Truncate(queryUdpSize)
 	}
 
 	payload, err := packMsgPayload(respMsg)
