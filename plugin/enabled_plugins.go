@@ -64,6 +64,7 @@ import (
 
 	// executable and matcher
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/mark"
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/padding_auth"
 
 	// server
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/server/http_server"
