@@ -86,7 +86,7 @@ func testPipelineTransport(t *testing.T, ioOpts IOOpts) {
 	wg.Wait()
 
 	pt.m.Lock()
-	pl := len(pt.conns)
+	pl := len(pt.activeConns)
 	pt.m.Unlock()
 	if pl > po.MaxConn {
 		t.Fatalf("max %d active conn, but got %d active conn(s)", po.MaxConn, pl)
