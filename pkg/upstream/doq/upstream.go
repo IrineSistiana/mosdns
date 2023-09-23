@@ -242,6 +242,14 @@ func (u *Upstream) exchange(s quic.Stream, payload []byte) (*dns.Msg, error) {
 		return nil, err
 	}
 
+	// RFC 9250 4.2
+	//    The client MUST send the DNS query over the selected stream and MUST
+	//    indicate through the STREAM FIN mechanism that no further data will
+	//    be sent on that stream.
+	//
+	// Call Close() here will send the STREAM FIN. It won't close Read.
+	s.Close()
+
 	resp, _, err := dnsutils.ReadMsgFromTCP(s)
 	if err != nil {
 		return nil, err
