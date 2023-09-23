@@ -39,6 +39,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v5/pkg/upstream/doh"
 	"github.com/IrineSistiana/mosdns/v5/pkg/upstream/doq"
 	"github.com/IrineSistiana/mosdns/v5/pkg/upstream/transport"
+	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 	"github.com/miekg/dns"
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
@@ -435,9 +436,9 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 			return nil, fmt.Errorf("failed to init udp addr bootstrap, %w", err)
 		}
 
-		srk, err := doq.InitSrk()
+		srk, _, err := utils.InitQUICSrkFromIfaceMac()
 		if err != nil {
-			opt.Logger.Error("failed to init quic stateless reset key", zap.Error(err))
+			opt.Logger.Warn("failed to init quic stateless reset key, it will be disabled", zap.Error(err))
 		}
 
 		lc := net.ListenConfig{Control: getSocketControlFunc(socketOpts{so_mark: opt.SoMark, bind_to_device: opt.BindToDevice})}

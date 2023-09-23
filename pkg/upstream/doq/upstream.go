@@ -21,7 +21,6 @@ package doq
 
 import (
 	"context"
-	"crypto/rand"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -54,16 +53,6 @@ func NewUpstream(dialer func(ctx context.Context) (quic.Connection, error)) *Ups
 	return &Upstream{
 		dialer: dialer,
 	}
-}
-
-// A helper func to init quic stateless reset key.
-func InitSrk() (*[32]byte, error) {
-	var b [32]byte
-	_, err := rand.Read(b[:])
-	if err != nil {
-		return nil, err
-	}
-	return &b, nil
 }
 
 func (u *Upstream) newStream(ctx context.Context) (quic.Stream, *lazyConn, error) {

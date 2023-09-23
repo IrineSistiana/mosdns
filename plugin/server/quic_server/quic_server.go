@@ -31,6 +31,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 	"github.com/IrineSistiana/mosdns/v5/plugin/server/server_utils"
 	"github.com/quic-go/quic-go"
+	"go.uber.org/zap"
 )
 
 const PluginType = "quic_server"
@@ -66,6 +67,8 @@ func Init(bp *coremain.BP, args any) (any, error) {
 }
 
 func StartServer(bp *coremain.BP, args *Args) (*QuicServer, error) {
+	logger := bp.L()
+
 	dh, err := server_utils.NewHandler(bp, args.Entry)
 	if err != nil {
 		return nil, fmt.Errorf("failed to init dns handler, %w", err)
@@ -97,8 +100,13 @@ func StartServer(bp *coremain.BP, args *Args) (*QuicServer, error) {
 		Allow0RTT:                      false,
 	}
 
+	srk, _, err := utils.InitQUICSrkFromIfaceMac()
+	if err != nil {
+		logger.Warn("failed to init quic stateless reset key, it will be disabled", zap.Error(err))
+	}
 	qt := &quic.Transport{
-		Conn: uc,
+		Conn:              uc,
+		StatelessResetKey: (*quic.StatelessResetKey)(srk),
 	}
 
 	quicListener, err := qt.Listen(tlsConfig, quicConfig)
