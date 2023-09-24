@@ -82,6 +82,16 @@ func (h *EntryHandler) Handle(ctx context.Context, q *dns.Msg, qInfo server.Quer
 	// Get udp size before exec plugins. It may be changed by plugins.
 	queryUdpSize := getUDPSize(q)
 
+	// Enable edns0. We can handle this. 
+	// This also helps to avoid udp->tcp fallback.
+	ends0Upgraded := false
+	if opt := q.IsEdns0(); opt == nil {
+		q.SetEdns0(edns0Size, false)
+		ends0Upgraded = true
+	} else {
+		opt.SetUDPSize(edns0Size)
+	}
+
 	// exec entry
 	qCtx := query_context.NewContext(q, qInfo)
 	err := h.opts.Entry.Exec(ctx, qCtx)
@@ -101,6 +111,12 @@ func (h *EntryHandler) Handle(ctx context.Context, q *dns.Msg, qInfo server.Quer
 		respMsg.Rcode = dns.RcodeServerFailure
 	}
 	respMsg.RecursionAvailable = true
+
+	// Client may not support edns0.
+	// Remove edns0 from resp, as RFC 2671 required.
+	if ends0Upgraded {
+		dnsutils.RemoveEDNS0(respMsg)
+	}
 
 	if qInfo.FromUDP {
 		respMsg.Truncate(queryUdpSize)
