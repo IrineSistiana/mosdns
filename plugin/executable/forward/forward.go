@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/IrineSistiana/mosdns/v5/coremain"
+	"github.com/IrineSistiana/mosdns/v5/pkg/edns0ede"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v5/pkg/upstream"
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
@@ -136,7 +137,7 @@ func NewForward(args *Args, opt Opts) (*Forward, error) {
 		}
 		applyGlobal(&c)
 
-		uw := newWrapper(c, opt.MetricsTag)
+		uw := newWrapper(i, c, opt.MetricsTag)
 		uOpt := upstream.Opt{
 			DialAddr:       c.DialAddr,
 			Socks5:         c.Socks5,
@@ -281,25 +282,23 @@ func (f *Forward) exchange(ctx context.Context, qCtx *query_context.Context, us 
 		}()
 	}
 
-	es := new(utils.Errors)
+	var edes edns0ede.EdeErrors
 	for i := 0; i < mcq; i++ {
 		select {
 		case res := <-resChan:
 			r, u, err := res.r, res.u, res.err
 			if err != nil {
-				es.Append(&upstreamErr{
-					upstreamName: u.name(),
-					err:          err,
-				})
+				// Note: don't append detail err here. May contains sensitive info, like upstream server address.
+				edes = append(edes, &dns.EDNS0_EDE{InfoCode: dns.ExtendedErrorCodeNetworkError, ExtraText: fmt.Sprintf("upstream #%d", u.idx)})
 				continue
 			}
 			return r, nil
 		case <-ctx.Done():
-			es.Append(fmt.Errorf("exchange: %w", ctx.Err()))
-			return nil, es
+			edes = append(edes, &dns.EDNS0_EDE{InfoCode: dns.ExtendedErrorCodeOther, ExtraText: ctx.Err().Error()})
+			return nil, &edes
 		}
 	}
-	return nil, es
+	return nil, &edes
 }
 
 func quickSetup(bq sequence.BQ, s string) (any, error) {

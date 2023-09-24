@@ -24,6 +24,8 @@ import (
 	"time"
 
 	"github.com/IrineSistiana/mosdns/v5/mlog"
+	"github.com/IrineSistiana/mosdns/v5/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v5/pkg/edns0ede"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v5/pkg/server"
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
@@ -97,18 +99,32 @@ func (h *EntryHandler) Handle(ctx context.Context, q *dns.Msg, qInfo server.Quer
 	err := h.opts.Entry.Exec(ctx, qCtx)
 	respMsg := qCtx.R()
 	if err != nil {
-		h.opts.Logger.Warn("entry err", qCtx.InfoField(), zap.Error(err))
-	}
-
-	if err == nil && respMsg == nil {
 		respMsg = new(dns.Msg)
-		respMsg.SetReply(qCtx.Q())
-		respMsg.Rcode = dns.RcodeRefused
-	}
-	if err != nil {
-		respMsg = new(dns.Msg)
-		respMsg.SetReply(qCtx.Q())
+		respMsg.SetReply(q)
 		respMsg.Rcode = dns.RcodeServerFailure
+		optForEde := tryPopOptForEde(q, respMsg)
+		switch v := err.(type) {
+		case *edns0ede.EdeError:
+			h.opts.Logger.Warn("entry err", qCtx.InfoField(), zap.Object("ede", v))
+			if optForEde != nil {
+				optForEde.Option = append(optForEde.Option, (*dns.EDNS0_EDE)(v))
+			}
+		case *edns0ede.EdeErrors:
+			h.opts.Logger.Warn("entry err", qCtx.InfoField(), zap.Array("edes", v))
+			if optForEde != nil {
+				for _, ede := range ([]*dns.EDNS0_EDE)(*v) {
+					optForEde.Option = append(optForEde.Option, ede)
+				}
+			}
+		default:
+			h.opts.Logger.Warn("entry err", qCtx.InfoField(), zap.Error(err))
+		}
+	} else {
+		if respMsg == nil {
+			respMsg = new(dns.Msg)
+			respMsg.SetReply(qCtx.Q())
+			respMsg.Rcode = dns.RcodeRefused
+		}
 	}
 	respMsg.RecursionAvailable = true
 
@@ -139,4 +155,21 @@ func getUDPSize(m *dns.Msg) int {
 		s = dns.MinMsgSize
 	}
 	return int(s)
+}
+
+func tryPopOptForEde(q, resp *dns.Msg) *dns.OPT {
+	qOpt := q.IsEdns0()
+	if qOpt == nil {
+		return nil // query does not support edns0
+	}
+
+	opt := resp.IsEdns0()
+	if opt == nil {
+		opt = new(dns.OPT)
+		opt.Hdr.Name = "."
+		opt.Hdr.Rrtype = dns.TypeOPT
+		opt.SetUDPSize(qOpt.UDPSize())
+		resp.Extra = append(resp.Extra, opt)
+	}
+	return opt
 }
