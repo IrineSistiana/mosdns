@@ -34,12 +34,20 @@ import (
 // Context MUST be created using NewContext.
 // All Context funcs are not safe for concurrent use.
 type Context struct {
+	// id for this Context. Not for the dns query. This id is mainly for logging.
+	id        uint32
 	startTime time.Time // when was this Context created
 	q         *dns.Msg
-	queryMeta QueryMeta
 
-	// id for this Context. Not for the dns query. This id is mainly for logging.
-	id uint32
+	// EDNS0 options from client.
+	// Note: Q() is the query that is going to forward. Initially it has no
+	// option. All options from client are moved to QueryOpt.
+	// Plugins that responsible for handling edns0 option should 
+	// check QueryOpt and add options into Q() on demand.
+	// This field should be read-only.
+	QueryOpt []dns.EDNS0
+	// Server Info. This field should be read-only.
+	ServerMeta ServerMeta
 
 	// Response. Might be nil.
 	r *dns.Msg
@@ -51,17 +59,16 @@ type Context struct {
 
 var contextUid atomic.Uint32
 
-type QueryMeta = server.QueryMeta
+type ServerMeta = server.QueryMeta
 
 // NewContext creates a new query Context.
 // q is the query dns msg. It cannot be nil, or NewContext will panic.
-func NewContext(q *dns.Msg, qm QueryMeta) *Context {
+func NewContext(q *dns.Msg) *Context {
 	if q == nil {
 		panic("handler: query msg is nil")
 	}
 	ctx := &Context{
 		q:         q,
-		queryMeta: qm,
 		id:        contextUid.Add(1),
 		startTime: time.Now(),
 	}
@@ -72,11 +79,6 @@ func NewContext(q *dns.Msg, qm QueryMeta) *Context {
 // Q returns the query msg. It always returns a non-nil msg.
 func (ctx *Context) Q() *dns.Msg {
 	return ctx.q
-}
-
-// QueryMeta returns the meta data of the query.
-func (ctx *Context) QueryMeta() QueryMeta {
-	return ctx.queryMeta
 }
 
 // R returns the response. It might be nil.
@@ -175,7 +177,7 @@ func (ctx *Context) DeleteMark(m uint32) {
 func (ctx *Context) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
 	encoder.AddUint32("uqid", ctx.id)
 
-	if clientAddr := ctx.queryMeta.ClientAddr; clientAddr.IsValid() {
+	if clientAddr := ctx.ServerMeta.ClientAddr; clientAddr.IsValid() {
 		zap.Stringer("client", clientAddr).AddTo(encoder)
 	}
 

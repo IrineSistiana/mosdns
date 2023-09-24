@@ -176,9 +176,9 @@ func (op *opRegExp) MatchStr(s string) bool {
 }
 
 func getUrlPath(qCtx *query_context.Context) string {
-	return qCtx.QueryMeta().UrlPath
+	return qCtx.ServerMeta.UrlPath
 }
 
 func getServerName(qCtx *query_context.Context) string {
-	return qCtx.QueryMeta().ServerName
+	return qCtx.ServerMeta.ServerName
 }

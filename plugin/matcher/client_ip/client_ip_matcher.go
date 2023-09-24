@@ -39,7 +39,7 @@ func QuickSetup(bq sequence.BQ, s string) (sequence.Matcher, error) {
 }
 
 func matchClientAddr(qCtx *query_context.Context, m netlist.Matcher) (bool, error) {
-	addr := qCtx.QueryMeta().ClientAddr
+	addr := qCtx.ServerMeta.ClientAddr
 	if !addr.IsValid() {
 		return false, nil
 	}

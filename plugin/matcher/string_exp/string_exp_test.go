@@ -32,7 +32,8 @@ import (
 func TestMatcher_Match(t *testing.T) {
 	r := require.New(t)
 	q := new(dns.Msg)
-	qc := query_context.NewContext(q, query_context.QueryMeta{UrlPath: "/dns-query", ServerName: "a.b.c"})
+	qc := query_context.NewContext(q)
+	qc.ServerMeta = query_context.ServerMeta{UrlPath: "/dns-query", ServerName: "a.b.c"}
 	os.Setenv("STRING_EXP_TEST", "abc")
 
 	doTest := func(arg string, want bool) {

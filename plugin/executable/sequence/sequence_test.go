@@ -187,7 +187,7 @@ func Test_sequence_Exec(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			qCtx := query_context.NewContext(new(dns.Msg), query_context.QueryMeta{})
+			qCtx := query_context.NewContext(new(dns.Msg))
 			if err := s.Exec(context.Background(), qCtx); (err != nil) != tt.wantErr {
 				t.Errorf("Exec() error = %v, wantErr %v", err, tt.wantErr)
 			}

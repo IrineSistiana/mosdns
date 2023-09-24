@@ -68,7 +68,7 @@ func New(args Args) *RateLimiter {
 }
 
 func (s *RateLimiter) Exec(ctx context.Context, qCtx *query_context.Context) error {
-	clientAddr := qCtx.QueryMeta().ClientAddr
+	clientAddr := qCtx.ServerMeta.ClientAddr
 	if clientAddr.IsValid() {
 		if !s.l.Allow(clientAddr) {
 			qCtx.SetResponse(refuse(qCtx.Q()))
