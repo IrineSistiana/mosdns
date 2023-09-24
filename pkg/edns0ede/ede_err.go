@@ -26,9 +26,10 @@ func (e *EdeErrors) Error() string {
 	sb := new(strings.Builder)
 	if len(*e) == 0 {
 		sb.WriteString("nil")
-	} else {
-		sb.WriteString((*e)[1].String())
+		return sb.String()
 	}
+
+	sb.WriteString((*e)[0].String())
 	for _, ede := range (*e)[1:] {
 		sb.WriteString(", ")
 		sb.WriteString(ede.String())
