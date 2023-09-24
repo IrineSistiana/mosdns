@@ -22,11 +22,13 @@ package fastforward
 import (
 	"context"
 	"fmt"
+	"math/rand"
+	"time"
+
 	"github.com/IrineSistiana/mosdns/v5/pkg/upstream"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap/zapcore"
-	"time"
 )
 
 type upstreamWrapper struct {
@@ -161,4 +163,8 @@ func (u *upstreamErr) Unwrap() error {
 
 func (u *upstreamErr) Error() string {
 	return fmt.Sprintf("upstream %s: %s", u.upstreamName, u.err)
+}
+
+func randPick[T any](s []T) T {
+	return s[rand.Intn(len(s))]
 }
