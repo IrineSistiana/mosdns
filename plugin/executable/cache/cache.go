@@ -203,7 +203,6 @@ func (c *Cache) Exec(ctx context.Context, qCtx *query_context.Context, next sequ
 	if cachedResp != nil { // cache hit
 		c.hitTotal.Inc()
 		cachedResp.Id = q.Id // change msg id
-		shuffleIP(cachedResp)
 		qCtx.SetResponse(cachedResp)
 	}
 

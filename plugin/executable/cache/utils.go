@@ -20,14 +20,14 @@
 package cache
 
 import (
+	"hash/maphash"
+	"time"
+
 	"github.com/IrineSistiana/mosdns/v5/pkg/cache"
 	"github.com/IrineSistiana/mosdns/v5/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 	"github.com/miekg/dns"
 	"golang.org/x/exp/constraints"
-	"hash/maphash"
-	"math/rand"
-	"time"
 )
 
 type key string
@@ -120,30 +120,6 @@ func copyNoOpt(m *dns.Msg) *dns.Msg {
 		m2.Extra = append(m2.Extra, dns.Copy(r))
 	}
 	return m2
-}
-
-// shuffle A/AAAA records in m.
-func shuffleIP(m *dns.Msg) {
-	ans := m.Answer
-
-	// Find out where the a/aaaa records start. Usually is at the suffix.
-	ipStart := len(ans) - 1
-	for i := len(ans) - 1; i >= 0; i-- {
-		switch ans[i].Header().Rrtype {
-		case dns.TypeA, dns.TypeAAAA:
-			ipStart = i
-			continue
-		}
-		break
-	}
-
-	// Shuffle the ip suffix.
-	if ipStart >= 0 {
-		ips := ans[ipStart:]
-		rand.Shuffle(len(ips), func(i, j int) {
-			ips[i], ips[j] = ips[j], ips[i]
-		})
-	}
 }
 
 func min[T constraints.Ordered](a, b T) T {
