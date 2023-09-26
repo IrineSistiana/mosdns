@@ -21,6 +21,7 @@ package rate_limiter
 
 import (
 	"context"
+	"io"
 
 	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
@@ -52,6 +53,7 @@ func (args *Args) init() {
 }
 
 var _ sequence.Executable = (*RateLimiter)(nil)
+var _ io.Closer = (*RateLimiter)(nil)
 
 type RateLimiter struct {
 	l rate_limiter.RateLimiter
@@ -75,6 +77,10 @@ func (s *RateLimiter) Exec(ctx context.Context, qCtx *query_context.Context) err
 		}
 	}
 	return nil
+}
+
+func (s *RateLimiter) Close() error {
+	return s.l.Close()
 }
 
 func refuse(q *dns.Msg) *dns.Msg {
