@@ -49,7 +49,10 @@ type paddingAuth struct {
 }
 
 func (m *paddingAuth) Match(_ context.Context, qCtx *query_context.Context) (bool, error) {
-	for _, optRR := range qCtx.QueryOpt {
+	if qCtx.QueryOpt == nil {
+		return false, nil
+	}
+	for _, optRR := range qCtx.QueryOpt.Option {
 		if padding, ok := optRR.(*dns.EDNS0_PADDING); ok {
 			if bytes.Equal(padding.Padding, m.key) {
 				return true, nil

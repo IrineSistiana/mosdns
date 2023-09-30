@@ -24,7 +24,6 @@ import (
 	"time"
 
 	"github.com/IrineSistiana/mosdns/v5/mlog"
-	"github.com/IrineSistiana/mosdns/v5/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v5/pkg/edns0ede"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v5/pkg/server"
@@ -91,22 +90,14 @@ func (h *EntryHandler) Handle(ctx context.Context, q *dns.Msg, serverMeta server
 	ctx, cancel := context.WithDeadline(ctx, ddl)
 	defer cancel()
 
-	// Get udp size before exec plugins. It may be changed by plugins.
-	queryUdpSize := getUDPSize(q)
-
 	// Enable edns0. We can handle this.
 	// This also helps to avoid udp->tcp fallback.
-	queryOpt, queryEDNS0Upgraded := enableEdns0(q)
-	queryHasEDNS0 := !queryEDNS0Upgraded
-
-	// Save all query opts for plugins.
-	allQueryOpts := queryOpt.Option
-	queryOpt.Option = filterQueryOptions2Forward(queryOpt)
+	queryOpt, queryOrgOpt := handleQueryEdns0(q)
 
 	// exec entry
-	qCtx := query_context.NewContext(q)
+	qCtx := query_context.NewContext(q, queryOpt)
 	qCtx.ServerMeta = serverMeta
-	qCtx.QueryOpt = allQueryOpts
+	qCtx.QueryOpt = queryOrgOpt
 	err := h.opts.Entry.Exec(ctx, qCtx)
 	resp := qCtx.R()
 	if resp == nil {
@@ -114,29 +105,7 @@ func (h *EntryHandler) Handle(ctx context.Context, q *dns.Msg, serverMeta server
 		resp.SetReply(qCtx.Q())
 		resp.Rcode = dns.RcodeRefused
 	}
-
-	// May be nil
-	var respOpt *dns.OPT
-	if queryHasEDNS0 {
-		// RFC 3225 3
-		// The DO bit of the query MUST be copied in the response.
-		// ...
-		// The absence of DNSSEC data in response to a query with the DO bit set
-		// MUST NOT be taken to mean no security information is available for
-		// that zone as the response may be forged or a non-forged response of
-		// an altered (DO bit cleared) query.
-		var newOpt bool
-		respOpt, newOpt = enableEdns0(resp)
-		if queryOpt.Do() {
-			setDo(respOpt, true)
-		}
-		if !newOpt {
-			filterUselessRespOpt(respOpt)
-		}
-	} else {
-		// Remove edns0 from resp if client didn't send it, as RFC 2671 required.
-		dnsutils.RemoveEDNS0(resp)
-	}
+	respOpt := handleRespEdns0(resp, queryOrgOpt) // May be nil
 
 	if err != nil {
 		resp.Rcode = dns.RcodeServerFailure
@@ -162,7 +131,8 @@ func (h *EntryHandler) Handle(ctx context.Context, q *dns.Msg, serverMeta server
 	resp.RecursionAvailable = true
 
 	if serverMeta.FromUDP {
-		resp.Truncate(queryUdpSize)
+		udpSize := getValidUDPSize(queryOrgOpt)
+		resp.Truncate(udpSize)
 	}
 
 	payload, err := packMsgPayload(resp)
@@ -173,26 +143,16 @@ func (h *EntryHandler) Handle(ctx context.Context, q *dns.Msg, serverMeta server
 	return payload
 }
 
-func getUDPSize(m *dns.Msg) int {
+// opt can be nil.
+func getValidUDPSize(opt *dns.OPT) int {
 	var s uint16
-	if opt := m.IsEdns0(); opt != nil {
+	if opt != nil {
 		s = opt.UDPSize()
 	}
 	if s < dns.MinMsgSize {
 		s = dns.MinMsgSize
 	}
 	return int(s)
-}
-
-// returns a copy
-func filterQueryOptions2Forward(opt *dns.OPT) []dns.EDNS0 {
-	var remainOpt []dns.EDNS0
-	for _, op := range opt.Option {
-		if _, ok := queryForwardEDNS0Option[op.Option()]; ok {
-			remainOpt = append(remainOpt, op)
-		}
-	}
-	return remainOpt
 }
 
 // modifies opt directly
@@ -206,18 +166,98 @@ func filterUselessRespOpt(opt *dns.OPT) {
 	opt.Option = remainOpt
 }
 
-func enableEdns0(m *dns.Msg) (*dns.OPT, bool) {
-	opt := m.IsEdns0()
-	edns0Upgraded := false
-	if opt == nil {
-		opt = new(dns.OPT)
-		opt.Hdr.Name = "."
-		opt.Hdr.Rrtype = dns.TypeOPT
-		m.Extra = append(m.Extra, opt)
-		edns0Upgraded = true
+// If queryOrgOpt is nil (org query does not support edns0), it removes opt from m and returns nil.
+// Else, it creates a opt for m if m does not have the opt, sets the do bit, calls
+// filterUselessRespOpt() and returns m's opt.
+func handleRespEdns0(m *dns.Msg, queryOrgOpt *dns.OPT) *dns.OPT {
+	// Remove edns0 from resp if client didn't send it, as RFC 2671 required.
+	if queryOrgOpt == nil {
+		for i := len(m.Extra) - 1; i >= 0; i-- {
+			if m.Extra[i].Header().Rrtype == dns.TypeOPT {
+				m.Extra = append(m.Extra[:i], m.Extra[i+1:]...)
+				break
+			}
+		}
+		return nil
 	}
-	opt.SetUDPSize(edns0Size)
-	return opt, edns0Upgraded
+
+	// Search for existing opt.
+	var respOpt *dns.OPT
+	for i := len(m.Extra) - 1; i >= 0; i-- {
+		if opt, ok := m.Extra[i].(*dns.OPT); ok {
+			respOpt = opt
+			break
+		}
+	}
+
+	// m does not have opt, append one.
+	if respOpt == nil {
+		respOpt = newOpt()
+		m.Extra = append(m.Extra, respOpt)
+	}
+
+	filterUselessRespOpt(respOpt)
+	respOpt.SetUDPSize(edns0Size)
+
+	// RFC 3225 3
+	// The DO bit of the query MUST be copied in the response.
+	// ...
+	// The absence of DNSSEC data in response to a query with the DO bit set
+	// MUST NOT be taken to mean no security information is available for
+	// that zone as the response may be forged or a non-forged response of
+	// an altered (DO bit cleared) query.
+	if queryOrgOpt.Do() {
+		setDo(respOpt, true)
+	}
+	return respOpt
+}
+
+// handleQueryEdns0 enables edns0 if m wasn't.
+// It also copies edns0 do bit and other useful options
+// (defined in queryForwardEDNS0Option) into nOpt.
+// nOpt: The new opt currently in m.
+// orgOpt: m original opt. May be nil.
+func handleQueryEdns0(m *dns.Msg) (nOpt, orgOpt *dns.OPT) {
+	nOpt = newOpt()
+	nOpt.SetUDPSize(edns0Size)
+
+	// Search for existing opt.
+	// If there is one, we replace it with nOpt.
+	for i := len(m.Extra) - 1; i >= 0; i-- {
+		if opt, ok := m.Extra[i].(*dns.OPT); ok {
+			orgOpt = opt
+			m.Extra[i] = nOpt
+
+			// Copy useful info from orgOpt to nOpt.
+			if orgOpt.Do() {
+				setDo(nOpt, true)
+			}
+			nOpt.Option = filterQueryOptions2Forward(orgOpt)
+			return
+		}
+	}
+
+	// m doesn't have opt. Append it.
+	m.Extra = append(m.Extra, nOpt)
+	return
+}
+
+// returns a copy
+func filterQueryOptions2Forward(opt *dns.OPT) []dns.EDNS0 {
+	var remainOpt []dns.EDNS0
+	for _, op := range opt.Option {
+		if _, ok := queryForwardEDNS0Option[op.Option()]; ok {
+			remainOpt = append(remainOpt, op)
+		}
+	}
+	return remainOpt
+}
+
+func newOpt() *dns.OPT {
+	opt := new(dns.OPT)
+	opt.Hdr.Name = "."
+	opt.Hdr.Rrtype = dns.TypeOPT
+	return opt
 }
 
 func setDo(opt *dns.OPT, do bool) {

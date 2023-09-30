@@ -38,14 +38,15 @@ type Context struct {
 	id        uint32
 	startTime time.Time // when was this Context created
 	q         *dns.Msg
+	qOpt      *dns.OPT
 
 	// EDNS0 options from client.
 	// Note: Q() is the query that is going to forward. Initially it has no
 	// option. All options from client are moved to QueryOpt.
-	// Plugins that responsible for handling edns0 option should 
+	// Plugins that responsible for handling edns0 option should
 	// check QueryOpt and add options into Q() on demand.
 	// This field should be read-only.
-	QueryOpt []dns.EDNS0
+	QueryOpt *dns.OPT
 	// Server Info. This field should be read-only.
 	ServerMeta ServerMeta
 
@@ -62,23 +63,45 @@ var contextUid atomic.Uint32
 type ServerMeta = server.QueryMeta
 
 // NewContext creates a new query Context.
-// q is the query dns msg. It cannot be nil, or NewContext will panic.
-func NewContext(q *dns.Msg) *Context {
-	if q == nil {
-		panic("handler: query msg is nil")
+// q is the query dns msg. opt is the edns0 record in q.
+// Both of them cannot be nil, or NewContext will panic.
+// NewContext takes the ownership of q. So do not use q after calling
+// NewContext.
+func NewContext(q *dns.Msg, opt *dns.OPT) *Context {
+	if q == nil || opt == nil {
+		panic("nil args")
 	}
 	ctx := &Context{
-		q:         q,
 		id:        contextUid.Add(1),
 		startTime: time.Now(),
+		q:         q,
+		qOpt:      opt,
 	}
-
 	return ctx
 }
 
-// Q returns the query msg. It always returns a non-nil msg.
+// NewContextTest is a helper func for test only. It enables
+// opt for q automatically.
+func NewContextTest(q *dns.Msg) *Context {
+	opt := q.IsEdns0()
+	if opt == nil {
+		opt = new(dns.OPT)
+		opt.Hdr.Name = "."
+		opt.Hdr.Rrtype = dns.TypeOPT
+		opt.SetUDPSize(512)
+		q.Extra = append(q.Extra, opt)
+	}
+	return NewContext(q, opt)
+}
+
+// Q returns the query msg. It always returns a non-nil, EDNS0 enabled msg.
 func (ctx *Context) Q() *dns.Msg {
 	return ctx.q
+}
+
+// QOPT returns the EDNS0 record in query msg. It always returns a non-nil opt.
+func (ctx *Context) QOPT() *dns.OPT {
+	return ctx.qOpt
 }
 
 // R returns the response. It might be nil.
