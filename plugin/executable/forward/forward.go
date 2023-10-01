@@ -28,7 +28,6 @@ import (
 	"time"
 
 	"github.com/IrineSistiana/mosdns/v5/coremain"
-	"github.com/IrineSistiana/mosdns/v5/pkg/edns0ede"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v5/pkg/upstream"
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
@@ -282,23 +281,19 @@ func (f *Forward) exchange(ctx context.Context, qCtx *query_context.Context, us 
 		}()
 	}
 
-	var edes edns0ede.EdeErrors
 	for i := 0; i < mcq; i++ {
 		select {
 		case res := <-resChan:
-			r, u, err := res.r, res.u, res.err
+			r, err := res.r, res.err
 			if err != nil {
-				// Note: don't append detail err here. May contains sensitive info, like upstream server address.
-				edes = append(edes, &dns.EDNS0_EDE{InfoCode: dns.ExtendedErrorCodeNetworkError, ExtraText: fmt.Sprintf("upstream #%d", u.idx)})
 				continue
 			}
 			return r, nil
 		case <-ctx.Done():
-			edes = append(edes, &dns.EDNS0_EDE{InfoCode: dns.ExtendedErrorCodeOther, ExtraText: ctx.Err().Error()})
-			return nil, &edes
+			return nil, ctx.Err()
 		}
 	}
-	return nil, &edes
+	return nil, errors.New("all upstream servers failed")
 }
 
 func quickSetup(bq sequence.BQ, s string) (any, error) {

@@ -86,7 +86,7 @@ func Test_ipset(t *testing.T) {
 	r.Answer = append(r.Answer, &dns.A{A: net.ParseIP("127.0.0.2")})
 	r.Answer = append(r.Answer, &dns.AAAA{AAAA: net.ParseIP("::1")})
 	r.Answer = append(r.Answer, &dns.AAAA{AAAA: net.ParseIP("::2")})
-	qCtx := query_context.NewContextTest(q)
+	qCtx := query_context.NewContext(q)
 	qCtx.SetResponse(r)
 	if err := p.Exec(context.Background(), qCtx); err != nil {
 		t.Fatal(err)

@@ -47,7 +47,7 @@ import (
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/executable/debug_print"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/executable/drop_resp"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/executable/dual_selector"
-	_ "github.com/IrineSistiana/mosdns/v5/plugin/executable/ecs"
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/executable/ecs_handler"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/executable/forward"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/executable/hosts"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/executable/ipset"
@@ -64,7 +64,6 @@ import (
 
 	// executable and matcher
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/mark"
-	_ "github.com/IrineSistiana/mosdns/v5/plugin/padding_auth"
 
 	// server
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/server/http_server"
