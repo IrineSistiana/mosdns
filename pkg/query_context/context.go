@@ -99,6 +99,22 @@ func (ctx *Context) Q() *dns.Msg {
 	return ctx.query
 }
 
+// QQuestion returns the query question.
+func (ctx *Context) QQuestion() dns.Question {
+	return ctx.query.Question[0]
+}
+
+// QOpt returns the query opt. It always returns a non-nil opt.
+// It's a helper func for searching opt in Q() manually.
+func (ctx *Context) QOpt() *dns.OPT {
+	opt := findOpt(ctx.query)
+	ctx.query.IsEdns0()
+	if opt == nil {
+		panic("query opt is missing")
+	}
+	return opt
+}
+
 // ClientOpt returns the OPT rr from client. Maybe nil, if client does not send it.
 // Plugins that responsible for handling EDNS0 option should
 // check ClientOpt and pick/add options into Q() on demand.
@@ -265,6 +281,15 @@ func popOpt(m *dns.Msg) *dns.OPT {
 	for i := len(m.Extra) - 1; i >= 0; i-- {
 		if opt, ok := m.Extra[i].(*dns.OPT); ok {
 			m.Extra = append(m.Extra[:i], m.Extra[i+1:]...)
+			return opt
+		}
+	}
+	return nil
+}
+
+func findOpt(m *dns.Msg) *dns.OPT {
+	for i := len(m.Extra) - 1; i >= 0; i-- {
+		if opt, ok := m.Extra[i].(*dns.OPT); ok {
 			return opt
 		}
 	}
