@@ -288,6 +288,11 @@ func (f *Forward) exchange(ctx context.Context, qCtx *query_context.Context, us 
 			if err != nil {
 				continue
 			}
+
+			// Retry until the last
+			if i < mcq-1 && r.Rcode != dns.RcodeSuccess && r.Rcode != dns.RcodeNameError {
+				continue
+			}
 			return r, nil
 		case <-ctx.Done():
 			return nil, ctx.Err()
