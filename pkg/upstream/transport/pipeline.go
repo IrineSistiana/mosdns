@@ -176,6 +176,7 @@ func (t *PipelineTransport) pickPipelineConnLocked() (int, *pipelineConn) {
 		pci, pc := sliceRandGet(t.activeConns, t.r)
 		if pc != nil && pc.dc.isClosed() { // closed conn, delete it and retry
 			sliceDel(&t.activeConns, pci)
+			delete(t.conns, pc)
 			continue
 		}
 		return pci, pc // conn pool is empty or we got a pc
