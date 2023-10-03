@@ -21,9 +21,11 @@ package ecs_handler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
+	"strings"
 
 	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
@@ -35,6 +37,10 @@ const PluginType = "ecs_handler"
 
 func init() {
 	coremain.RegNewPluginFunc(PluginType, Init, func() any { return new(Args) })
+
+	// Compatible for old ecs plugin
+	// TODO: Remove this in mosdns v6, probably.
+	sequence.MustRegExecQuickSetup("ecs", QuickSetupOldECS)
 }
 
 var _ sequence.RecursiveExecutable = (*ECSHandler)(nil)
@@ -49,7 +55,7 @@ type Args struct {
 
 type ECSHandler struct {
 	args   Args
-	preset netip.Addr
+	preset netip.Addr // unmapped
 }
 
 func NewHandler(args Args) (*ECSHandler, error) {
@@ -59,7 +65,7 @@ func NewHandler(args Args) (*ECSHandler, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid preset address, %w", err)
 		}
-		preset = addr
+		preset = addr.Unmap()
 	}
 
 	checkOrInitMask := func(p *int, min, max, defaultM int) bool {
@@ -73,10 +79,10 @@ func NewHandler(args Args) (*ECSHandler, error) {
 		return true
 	}
 	if !checkOrInitMask(&args.Mask4, 0, 32, 24) {
-		return nil, fmt.Errorf("invalid mask4")
+		return nil, errors.New("invalid mask4")
 	}
 	if !checkOrInitMask(&args.Mask6, 0, 128, 48) {
-		return nil, fmt.Errorf("invalid mask6")
+		return nil, errors.New("invalid mask6")
 	}
 
 	return &ECSHandler{args: args, preset: preset}, nil
@@ -112,12 +118,17 @@ func (e *ECSHandler) Exec(ctx context.Context, qCtx *query_context.Context, next
 
 // AddECS adds a *dns.EDNS0_SUBNET record to q.
 func (e *ECSHandler) addECS(qCtx *query_context.Context) (forwarded bool) {
-	queryOpt := qCtx.Q().IsEdns0()
+	queryOpt := qCtx.QOpt()
 	// Check if query already has an ecs.
 	for _, o := range queryOpt.Option {
 		if o.Option() == dns.EDNS0SUBNET {
 			return false // skip it
 		}
+	}
+	if qCtx.QQuestion().Qclass != dns.ClassINET {
+		// RFC 7871 5:
+		// ECS is only defined for the Internet (IN) DNS class.
+		return false
 	}
 
 	if e.args.Forward {
@@ -132,24 +143,23 @@ func (e *ECSHandler) addECS(qCtx *query_context.Context) (forwarded bool) {
 		}
 	}
 
-	if e.args.Send {
-		q := qCtx.Q()
-		if len(q.Question) != 1 || q.Question[0].Qclass != dns.ClassINET {
-			// RFC 7871 5:
-			// ECS is only defined for the Internet (IN) DNS class.
-			return false
-		}
-
-		var clientAddr netip.Addr
-		if e.preset.IsValid() {
-			clientAddr = e.preset
-		} else { // If no preset, try to add real client address.
-			clientAddr = qCtx.ServerMeta.ClientAddr
-		}
-
+	if e.preset.IsValid() {
+		clientAddr := e.preset
 		var ecs *dns.EDNS0_SUBNET
+		if clientAddr.Is4() {
+			ecs = newSubnet(clientAddr.AsSlice(), uint8(e.args.Mask4), false)
+		} else {
+			ecs = newSubnet(clientAddr.AsSlice(), uint8(e.args.Mask6), true)
+		}
+		queryOpt.Option = append(queryOpt.Option, ecs)
+		return false
+	}
+
+	if e.args.Send {
+		clientAddr := qCtx.ServerMeta.ClientAddr
 		if clientAddr.IsValid() {
 			clientAddr = clientAddr.Unmap()
+			var ecs *dns.EDNS0_SUBNET
 			if clientAddr.Is4() {
 				ecs = newSubnet(clientAddr.AsSlice(), uint8(e.args.Mask4), false)
 			} else {
@@ -183,4 +193,25 @@ func newSubnet(ip net.IP, mask uint8, v6 bool) *dns.EDNS0_SUBNET {
 	// https://tools.ietf.org/html/rfc7871
 	edns0Subnet.SourceScope = 0
 	return edns0Subnet
+}
+
+// QuickSetup format:
+// old: [ip/mask] [ip/mask]
+// new: [ip]
+// Note: only the first ip will be used as preset address, the second one
+// will be ignored. The mask value will be ignored.
+func QuickSetupOldECS(bq sequence.BQ, s string) (any, error) {
+	a := Args{}
+	fs := strings.Fields(s)
+	if len(fs) > 0 {
+		var foundMask bool
+		a.Preset, _, foundMask = strings.Cut(fs[0], "/")
+		if foundMask {
+			bq.L().Warn("ip mask value is deprecated and will be ignored. The default value (24/48) will be used")
+		}
+		if len(fs) > 1 {
+			bq.L().Warn("Dual-stack ecs is deprecated. Only the first ip will be used as preset ecs address. Others will be simply ignored")
+		}
+	}
+	return NewHandler(a)
 }
