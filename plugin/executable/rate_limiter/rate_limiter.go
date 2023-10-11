@@ -21,14 +21,15 @@ package rate_limiter
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"net/netip"
 
 	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v5/pkg/rate_limiter"
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
-	"github.com/miekg/dns"
 	"golang.org/x/time/rate"
 )
 
@@ -45,47 +46,65 @@ type Args struct {
 	Mask6 int     `yaml:"mask6"`
 }
 
-func (args *Args) init() {
+func (args *Args) init() error {
 	utils.SetDefaultUnsignNum(&args.Qps, 20)
 	utils.SetDefaultUnsignNum(&args.Burst, 40)
 	utils.SetDefaultUnsignNum(&args.Mask4, 32)
-	utils.SetDefaultUnsignNum(&args.Mask4, 48)
-}
+	utils.SetDefaultUnsignNum(&args.Mask6, 48)
 
-var _ sequence.Executable = (*RateLimiter)(nil)
-var _ io.Closer = (*RateLimiter)(nil)
-
-type RateLimiter struct {
-	l rate_limiter.RateLimiter
-}
-
-func Init(_ *coremain.BP, args any) (any, error) {
-	return New(*(args.(*Args))), nil
-}
-
-func New(args Args) *RateLimiter {
-	args.init()
-	l := rate_limiter.NewRateLimiter(rate.Limit(args.Qps), args.Burst, 0, args.Mask4, args.Mask6)
-	return &RateLimiter{l: l}
-}
-
-func (s *RateLimiter) Exec(ctx context.Context, qCtx *query_context.Context) error {
-	clientAddr := qCtx.ServerMeta.ClientAddr
-	if clientAddr.IsValid() {
-		if !s.l.Allow(clientAddr) {
-			qCtx.SetResponse(refuse(qCtx.Q()))
-		}
+	if !utils.CheckNumRange(args.Mask4, 0, 32) {
+		return fmt.Errorf("invalid mask4")
+	}
+	if !utils.CheckNumRange(args.Mask6, 0, 128) {
+		return fmt.Errorf("invalid mask6")
 	}
 	return nil
 }
 
-func (s *RateLimiter) Close() error {
-	return s.l.Close()
+var _ sequence.Matcher = (*RateLimiter)(nil)
+var _ io.Closer = (*RateLimiter)(nil)
+
+type RateLimiter struct {
+	args Args
+	l    *rate_limiter.Limiter
 }
 
-func refuse(q *dns.Msg) *dns.Msg {
-	r := new(dns.Msg)
-	r.SetReply(q)
-	r.Rcode = dns.RcodeRefused
-	return r
+func Init(_ *coremain.BP, args any) (any, error) {
+	return New(*(args.(*Args)))
+}
+
+func New(args Args) (*RateLimiter, error) {
+	err := args.init()
+	if err != nil {
+		return nil, fmt.Errorf("invalid args, %w", err)
+	}
+	l := rate_limiter.NewRateLimiter(rate.Limit(args.Qps), args.Burst)
+	return &RateLimiter{l: l, args: args}, nil
+}
+
+func (s *RateLimiter) Match(ctx context.Context, qCtx *query_context.Context) (bool, error) {
+	addr := s.getMaskedClientAddr(qCtx)
+	if addr.IsValid() {
+		return s.l.Allow(addr), nil
+	}
+	return true, nil
+}
+
+func (s *RateLimiter) getMaskedClientAddr(qCtx *query_context.Context) netip.Addr {
+	a := qCtx.ServerMeta.ClientAddr
+	if !a.IsValid() {
+		return netip.Addr{}
+	}
+	a = a.Unmap()
+	var p netip.Prefix
+	if a.Is4() {
+		p, _ = a.Prefix(s.args.Mask4)
+	} else {
+		p, _ = a.Prefix(s.args.Mask6)
+	}
+	return p.Addr()
+}
+
+func (s *RateLimiter) Close() error {
+	return s.l.Close()
 }

@@ -1,7 +1,6 @@
 package rate_limiter
 
 import (
-	"io"
 	"net/netip"
 	"sync"
 	"time"
@@ -9,21 +8,24 @@ import (
 	"golang.org/x/time/rate"
 )
 
-type RateLimiter interface {
-	Allow(addr netip.Addr) bool
-	io.Closer
-}
+const (
+	tableShards = 32
+	gcInterval  = time.Minute
+)
 
-type limiter struct {
-	limit rate.Limit
-	burst int
-	mask4 int
-	mask6 int
+type Limiter struct {
+	// Limit and Burst are read-only.
+	Limit rate.Limit
+	Burst int
 
 	closeOnce   sync.Once
 	closeNotify chan struct{}
-	m           sync.Mutex
-	tables      map[netip.Addr]*limiterEntry
+	tables      [tableShards]*tableShard
+}
+
+type tableShard struct {
+	m     sync.Mutex
+	table map[netip.Addr]*limiterEntry
 }
 
 type limiterEntry struct {
@@ -32,80 +34,55 @@ type limiterEntry struct {
 	sync.Once
 }
 
-// limit and burst should be greater than zero.
-// If gcInterval is <= 0, it will be automatically chosen between 2~10s.
-// In this case, if the token refill time (burst/limit) is greater than 10s,
-// the actual average qps limit may be higher than expected.
-// If mask is zero or greater than 32/128. The default is 32/48.
-// If mask is negative, the masks will be 0.
-func NewRateLimiter(limit rate.Limit, burst int, gcInterval time.Duration, mask4, mask6 int) RateLimiter {
-	if mask4 > 32 || mask4 == 0 {
-		mask4 = 32
-	}
-	if mask4 < 0 {
-		mask4 = 0
-	}
-
-	if mask6 > 128 || mask6 == 0 {
-		mask6 = 48
-	}
-	if mask6 < 0 {
-		mask6 = 0
-	}
-
-	if gcInterval <= 0 {
-		if limit <= 0 || burst <= 0 {
-			gcInterval = time.Second * 2
-		} else {
-			refillSec := float64(burst) / float64(limit)
-			if refillSec < 2 {
-				refillSec = 2
-			}
-			if refillSec > 10 {
-				refillSec = 10
-			}
-			gcInterval = time.Duration(refillSec) * time.Second
-		}
-	}
-
-	l := &limiter{
-		limit:       limit,
-		burst:       burst,
-		mask4:       mask4,
-		mask6:       mask6,
+// NewRateLimiter creates a new client rate limiter.
+// limit and burst should be greater than zero. See rate.Limiter for more
+// details.
+// Limiter has a internal gc which will run and remove old client entries every 1m.
+// If the token refill time (burst/limit) is greater than 1m,
+// the actual average qps limit may be higher than expected because the client status
+// may be deleted and re-initialized.
+func NewRateLimiter(limit rate.Limit, burst int) *Limiter {
+	l := &Limiter{
+		Limit:       limit,
+		Burst:       burst,
 		closeNotify: make(chan struct{}),
-		tables:      make(map[netip.Addr]*limiterEntry),
 	}
+
+	for i := range l.tables {
+		l.tables[i] = &tableShard{table: make(map[netip.Addr]*limiterEntry)}
+	}
+
 	go l.gcLoop(gcInterval)
 	return l
 }
 
-func (l *limiter) Allow(a netip.Addr) bool {
-	a = l.applyMask(a)
+// maskedUnmappedP must be a masked prefix and contain a unmapped addr.
+func (l *Limiter) Allow(unmappedAddr netip.Addr) bool {
 	now := time.Now()
-	l.m.Lock()
-	e, ok := l.tables[a]
+	shard := l.getTableShard(unmappedAddr)
+	shard.m.Lock()
+	e, ok := shard.table[unmappedAddr]
 	if !ok {
 		e = &limiterEntry{
-			l:        rate.NewLimiter(l.limit, l.burst),
+			l:        rate.NewLimiter(l.Limit, l.Burst),
 			lastSeen: now,
 		}
-		l.tables[a] = e
+		shard.table[unmappedAddr] = e
 	}
 	e.lastSeen = now
+	shard.m.Unlock()
 	clientLimiter := e.l
-	l.m.Unlock()
 	return clientLimiter.AllowN(now, 1)
 }
 
-func (l *limiter) Close() error {
+func (l *Limiter) Close() error {
 	l.closeOnce.Do(func() {
 		close(l.closeNotify)
 	})
 	return nil
 }
 
-func (l *limiter) gcLoop(gcInterval time.Duration) {
+func (l *Limiter) gcLoop(gcInterval time.Duration) {
 	ticker := time.NewTicker(gcInterval)
 	defer ticker.Stop()
 
@@ -119,27 +96,58 @@ func (l *limiter) gcLoop(gcInterval time.Duration) {
 	}
 }
 
-func (l *limiter) doGc(now time.Time, gcInterval time.Duration) {
-	l.m.Lock()
-	defer l.m.Unlock()
-
-	for a, e := range l.tables {
-		if now.Sub(e.lastSeen) > gcInterval {
-			delete(l.tables, a)
+func (l *Limiter) doGc(now time.Time, gcInterval time.Duration) {
+	for _, shard := range l.tables {
+		shard.m.Lock()
+		for a, e := range shard.table {
+			if now.Sub(e.lastSeen) > gcInterval {
+				delete(shard.table, a)
+			}
 		}
+		shard.m.Unlock()
 	}
 }
 
-func (l *limiter) applyMask(a netip.Addr) netip.Addr {
-	switch {
-	case a.Is4():
-		m, _ := a.Prefix(l.mask4)
-		return m.Addr()
-	case a.Is4In6():
-		m, _ := netip.AddrFrom4(a.As4()).Prefix(l.mask4)
-		return m.Addr()
-	default:
-		m, _ := a.Prefix(l.mask6)
-		return m.Addr()
+func (l *Limiter) getTableShard(unmappedAddr netip.Addr) *tableShard {
+	return l.tables[getTableShardIdx(unmappedAddr)]
+}
+
+func (l *Limiter) ForEach(doFunc func(unmappedAddr netip.Addr, r *rate.Limiter) (doBreak bool)) (doBreak bool) {
+	for _, shard := range l.tables {
+		shard.m.Lock()
+		for a, e := range shard.table {
+			doBreak = doFunc(a, e.l)
+			if doBreak {
+				shard.m.Unlock()
+				return
+			}
+		}
+		shard.m.Unlock()
 	}
+	return false
+}
+
+// Len returns current number of entries in the Limiter.
+func (l *Limiter) Len() int {
+	n := 0
+	for _, shard := range l.tables {
+		shard.m.Lock()
+		n += len(shard.table)
+		shard.m.Unlock()
+	}
+	return n
+}
+
+func getTableShardIdx(unmappedAddr netip.Addr) int {
+	var i byte
+	if unmappedAddr.Is4() {
+		for _, b := range unmappedAddr.As4() {
+			i ^= b
+		}
+	} else {
+		for _, b := range unmappedAddr.As16() {
+			i ^= b
+		}
+	}
+	return int(i % tableShards)
 }
