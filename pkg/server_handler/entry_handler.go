@@ -94,6 +94,7 @@ func (h *EntryHandler) Handle(ctx context.Context, q *dns.Msg, serverMeta server
 	defer cancel()
 
 	qCtx := query_context.NewContext(q)
+	qCtx.ServerMeta = serverMeta
 
 	// exec entry
 	err := h.opts.Entry.Exec(ctx, qCtx)
