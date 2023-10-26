@@ -94,8 +94,10 @@ func ServeDoQ(l *quic.Listener, h Handler, opts DoQServerOpts) error {
 				// Handle stream.
 				// For doq, one stream, one query.
 				go func() {
-					defer stream.Close()
-
+					defer func (){
+						stream.Close()
+						stream.CancelRead(0) // TODO: Needs a proper error code.
+					}() 
 					// Avoid fragmentation attack.
 					stream.SetReadDeadline(time.Now().Add(streamReadTimeout))
 					req, _, err := dnsutils.ReadMsgFromTCP(stream)

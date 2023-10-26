@@ -24,6 +24,7 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
 	"github.com/IrineSistiana/mosdns/v5/pkg/upstream"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
@@ -118,7 +119,7 @@ func (uw *upstreamWrapper) name() string {
 	return uw.cfg.Addr
 }
 
-func (uw *upstreamWrapper) ExchangeContext(ctx context.Context, m *dns.Msg) (*dns.Msg, error) {
+func (uw *upstreamWrapper) ExchangeContext(ctx context.Context, m []byte) (*[]byte, error) {
 	uw.queryTotal.Inc()
 
 	start := time.Now()
@@ -154,4 +155,10 @@ func (q *queryInfo) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
 
 func randPick[T any](s []T) T {
 	return s[rand.Intn(len(s))]
+}
+
+func copyPayload(b *[]byte) *[]byte {
+	bc := pool.GetBuf(len(*b))
+	copy(*bc, *b)
+	return bc
 }

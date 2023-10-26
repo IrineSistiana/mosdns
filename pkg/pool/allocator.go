@@ -24,7 +24,7 @@ import (
 )
 
 var (
-	_pool      = bytesPool.NewPool(20) // 1Mbyte pool, should be enough.
+	_pool      = bytesPool.NewPool(20) // 1Mb pool, should be enough.
 	GetBuf     = _pool.Get
 	ReleaseBuf = _pool.Release
 )

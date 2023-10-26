@@ -34,13 +34,10 @@ import (
 	"time"
 
 	"github.com/IrineSistiana/mosdns/v5/mlog"
-	"github.com/IrineSistiana/mosdns/v5/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v5/pkg/upstream/bootstrap"
 	"github.com/IrineSistiana/mosdns/v5/pkg/upstream/doh"
-	"github.com/IrineSistiana/mosdns/v5/pkg/upstream/doq"
 	"github.com/IrineSistiana/mosdns/v5/pkg/upstream/transport"
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
-	"github.com/miekg/dns"
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
 	"go.uber.org/zap"
@@ -50,13 +47,20 @@ import (
 
 const (
 	tlsHandshakeTimeout = time.Second * 3
+
+	// Maximum number of concurrent queries in one pipeline connection.
+	// See RFC 7766 7. Response Reordering.
+	// TODO: Make this configurable?
+	pipelineConcurrentLimit = 64
 )
 
 // Upstream represents a DNS upstream.
 type Upstream interface {
 	// ExchangeContext exchanges query message m to the upstream, and returns
 	// response. It MUST NOT keep or modify m.
-	ExchangeContext(ctx context.Context, m *dns.Msg) (*dns.Msg, error)
+	// m MUST be a valid dns msg frame. It MUST be at least 12 bytes
+	// (contain a valid dns header).
+	ExchangeContext(ctx context.Context, m []byte) (*[]byte, error)
 
 	io.Closer
 }
@@ -83,24 +87,17 @@ type Opt struct {
 	BindToDevice string
 
 	// IdleTimeout specifies the idle timeout for long-connections.
-	// Available for TCP, DoT, DoH.
-	// Default: TCP, DoT: 10s , DoH, DoQ: 30s.
+	// Default: TCP, DoT: 10s , DoH, DoH3, Quic: 30s.
 	IdleTimeout time.Duration
 
 	// EnablePipeline enables query pipelining support as RFC 7766 6.2.1.1 suggested.
 	// Available for TCP, DoT upstream with IdleTimeout >= 0.
-	// Note: There is no fallback.
+	// Note: There is no fallback. Make sure the server supports it.
 	EnablePipeline bool
 
-	// EnableHTTP3 enables HTTP/3 protocol for DoH upstream.
-	// Note: There is no fallback.
+	// EnableHTTP3 will use HTTP/3 protocol to connect a DoH upstream. (aka DoH3).
+	// Note: There is no fallback. Make sure the server supports it.
 	EnableHTTP3 bool
-
-	// MaxConns limits the total number of connections, including connections
-	// in the dialing states.
-	// Implemented for TCP/DoT pipeline enabled upstream and DoH upstream.
-	// Default is 2.
-	MaxConns int
 
 	// Bootstrap specifies a plain dns server to solve the
 	// upstream server domain address.
@@ -112,18 +109,21 @@ type Opt struct {
 	BootstrapVer int
 
 	// TLSConfig specifies the tls.Config that the TLS client will use.
-	// Available for DoT, DoH upstream.
+	// Available for DoT, DoH, DoQ upstream.
 	TLSConfig *tls.Config
 
 	// Logger specifies the logger that the upstream will use.
 	Logger *zap.Logger
 
 	// EventObserver can observe connection events.
-	// Not implemented for udp based protocols (dns over udp, http3, quic).
+	// Not implemented for quic based protocol (DoH3, DoQ).
 	EventObserver EventObserver
 }
 
-func NewUpstream(addr string, opt Opt) (Upstream, error) {
+// NewUpstream creates a upstream.
+// addr has the format of: [protocol://]host[:port][/path]
+// Supported protocol: udp/tcp/tls/https/quic. Default protocol is udp.
+func NewUpstream(addr string, opt Opt) (_ Upstream, err error) {
 	if opt.Logger == nil {
 		opt.Logger = mlog.Nop()
 	}
@@ -250,6 +250,12 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 		}
 	}
 
+	closeIfFuncErr := func(c io.Closer) {
+		if err != nil {
+			c.Close()
+		}
+	}
+
 	switch addrURL.Scheme {
 	case "", "udp":
 		const defaultPort = 53
@@ -261,30 +267,33 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 			return nil, fmt.Errorf("addr must be an ip address, %w", err)
 		}
 		dialAddr := joinPort(host, port)
-		uto := transport.IOOpts{
-			DialFunc: func(ctx context.Context) (io.ReadWriteCloser, error) {
-				c, err := dialer.DialContext(ctx, "udp", dialAddr)
-				c = wrapConn(c, opt.EventObserver)
-				return c, err
-			},
-			WriteFunc: dnsutils.WriteMsgToUDP,
-			ReadFunc: func(c io.Reader) (*dns.Msg, int, error) {
-				return dnsutils.ReadMsgFromUDP(c, 4096)
-			},
-			IdleTimeout: time.Minute * 5,
+
+		dialUdpPipeline := func(ctx context.Context) (transport.DnsConn, error) {
+			c, err := dialer.DialContext(ctx, "udp", dialAddr)
+			if err != nil {
+				return nil, err
+			}
+			to := transport.TraditionalDnsConnOpts{
+				WithLengthHeader: false,
+				IdleTimeout:      time.Minute * 5,
+			}
+			return transport.NewDnsConn(to, wrapConn(c, opt.EventObserver)), nil
 		}
-		tto := transport.IOOpts{
-			DialFunc: func(ctx context.Context) (io.ReadWriteCloser, error) {
-				c, err := dialer.DialContext(ctx, "tcp", dialAddr)
-				c = wrapConn(c, opt.EventObserver)
-				return c, err
-			},
-			WriteFunc: dnsutils.WriteMsgToTCP,
-			ReadFunc:  dnsutils.ReadMsgFromTCP,
+		dialTcpNetConn := func(ctx context.Context) (transport.NetConn, error) {
+			c, err := dialer.DialContext(ctx, "tcp", dialAddr)
+			if err != nil {
+				return nil, err
+			}
+			return wrapConn(c, opt.EventObserver), nil
 		}
+
 		return &udpWithFallback{
-			u: transport.NewPipelineTransport(transport.PipelineOpts{IOOpts: uto, MaxConn: 1}),
-			t: transport.NewReuseConnTransport(transport.ReuseConnOpts{IOOpts: tto}),
+			u: transport.NewPipelineTransport(transport.PipelineOpts{
+				DialContext:                    dialUdpPipeline,
+				MaxConcurrentQueryWhileDialing: 4096, // Protocol limit is 65535.
+				Logger:                         opt.Logger,
+			}),
+			t: transport.NewReuseConnTransport(transport.ReuseConnOpts{DialContext: dialTcpNetConn}),
 		}, nil
 	case "tcp":
 		const defaultPort = 53
@@ -292,20 +301,38 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to init tcp dialer, %w", err)
 		}
-		to := transport.IOOpts{
-			DialFunc: func(ctx context.Context) (io.ReadWriteCloser, error) {
-				c, err := tcpDialer(ctx)
-				c = wrapConn(c, opt.EventObserver)
-				return c, err
-			},
-			WriteFunc:   dnsutils.WriteMsgToTCP,
-			ReadFunc:    dnsutils.ReadMsgFromTCP,
-			IdleTimeout: opt.IdleTimeout,
+		idleTimeout := opt.IdleTimeout
+		if idleTimeout <= 0 {
+			idleTimeout = time.Second * 10
+		}
+
+		dialNetConn := func(ctx context.Context) (transport.NetConn, error) {
+			c, err := tcpDialer(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return wrapConn(c, opt.EventObserver), nil
 		}
 		if opt.EnablePipeline {
-			return transport.NewPipelineTransport(transport.PipelineOpts{IOOpts: to, MaxConn: opt.MaxConns}), nil
+			to := transport.TraditionalDnsConnOpts{
+				WithLengthHeader:   true,
+				IdleTimeout:        idleTimeout,
+				MaxConcurrentQuery: pipelineConcurrentLimit,
+			}
+			dialDnsConn := func(ctx context.Context) (transport.DnsConn, error) {
+				c, err := dialNetConn(ctx)
+				if err != nil {
+					return nil, err
+				}
+				return transport.NewDnsConn(to, c), nil
+			}
+			return transport.NewPipelineTransport(transport.PipelineOpts{
+				DialContext:                    dialDnsConn,
+				MaxConcurrentQueryWhileDialing: pipelineConcurrentLimit,
+				Logger:                         opt.Logger,
+			}), nil
 		}
-		return transport.NewReuseConnTransport(transport.ReuseConnOpts{IOOpts: to}), nil
+		return transport.NewReuseConnTransport(transport.ReuseConnOpts{DialContext: dialNetConn, IdleTimeout: idleTimeout}), nil
 	case "tls":
 		const defaultPort = 853
 		tlsConfig := opt.TLSConfig.Clone()
@@ -320,37 +347,46 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to init tcp dialer, %w", err)
 		}
-		to := transport.IOOpts{
-			DialFunc: func(ctx context.Context) (io.ReadWriteCloser, error) {
-				conn, err := tcpDialer(ctx)
+
+		dialNetConn := func(ctx context.Context) (transport.NetConn, error) {
+			conn, err := tcpDialer(ctx)
+			if err != nil {
+				return nil, err
+			}
+			conn = wrapConn(conn, opt.EventObserver)
+			tlsConn := tls.Client(conn, tlsConfig)
+			if err := tlsConn.HandshakeContext(ctx); err != nil {
+				tlsConn.Close()
+				return nil, err
+			}
+			return wrapConn(tlsConn, opt.EventObserver), nil
+		}
+
+		if opt.EnablePipeline {
+			to := transport.TraditionalDnsConnOpts{
+				WithLengthHeader: true,
+				IdleTimeout:      opt.IdleTimeout,
+			}
+			dialDnsConn := func(ctx context.Context) (transport.DnsConn, error) {
+				c, err := dialNetConn(ctx)
 				if err != nil {
 					return nil, err
 				}
-				conn = wrapConn(conn, opt.EventObserver)
-				tlsConn := tls.Client(conn, tlsConfig)
-				if err := tlsConn.HandshakeContext(ctx); err != nil {
-					tlsConn.Close()
-					return nil, err
-				}
-				return tlsConn, nil
-			},
-			WriteFunc:   dnsutils.WriteMsgToTCP,
-			ReadFunc:    dnsutils.ReadMsgFromTCP,
-			IdleTimeout: opt.IdleTimeout,
+				return transport.NewDnsConn(to, c), nil
+			}
+			return transport.NewPipelineTransport(transport.PipelineOpts{
+				DialContext:                    dialDnsConn,
+				MaxConcurrentQueryWhileDialing: 16,
+				Logger:                         opt.Logger,
+			}), nil
 		}
-		if opt.EnablePipeline {
-			return transport.NewPipelineTransport(transport.PipelineOpts{IOOpts: to, MaxConn: opt.MaxConns}), nil
-		}
-		return transport.NewReuseConnTransport(transport.ReuseConnOpts{IOOpts: to}), nil
+		return transport.NewReuseConnTransport(transport.ReuseConnOpts{DialContext: dialNetConn}), nil
 	case "https":
 		const defaultPort = 443
+
 		idleConnTimeout := time.Second * 30
 		if opt.IdleTimeout > 0 {
 			idleConnTimeout = opt.IdleTimeout
-		}
-		maxConn := 2
-		if opt.MaxConns > 0 {
-			maxConn = opt.MaxConns
 		}
 
 		var t http.RoundTripper
@@ -364,15 +400,19 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 			lc := net.ListenConfig{Control: getSocketControlFunc(socketOpts{so_mark: opt.SoMark, bind_to_device: opt.BindToDevice})}
 			conn, err := lc.ListenPacket(context.Background(), "udp", "")
 			if err != nil {
-				return nil, fmt.Errorf("failed to init udp socket for quic")
+				return nil, fmt.Errorf("failed to init udp socket for quic, %w", err)
 			}
 			quicTransport := &quic.Transport{
 				Conn: conn,
 			}
+			quicConfig := newDefaultClientQuicConfig()
+			quicConfig.MaxIdleTimeout = idleConnTimeout
+
+			defer closeIfFuncErr(quicTransport)
 			addonCloser = quicTransport
 			t = &http3.RoundTripper{
 				TLSClientConfig: opt.TLSConfig,
-				QuicConfig:      newDefaultQuicConfig(),
+				QuicConfig:      quicConfig,
 				Dial: func(ctx context.Context, _ string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error) {
 					ua, err := udpBootstrap(ctx)
 					if err != nil {
@@ -380,6 +420,7 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 					}
 					return quicTransport.DialEarly(ctx, ua, tlsCfg, cfg)
 				},
+				MaxResponseHeaderBytes: 4 * 1024,
 			}
 		} else {
 			tcpDialer, err := newTcpDialer(false, defaultPort)
@@ -396,23 +437,29 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 				TLSHandshakeTimeout: tlsHandshakeTimeout,
 				IdleConnTimeout:     idleConnTimeout,
 
-				// MaxConnsPerHost and MaxIdleConnsPerHost should be equal.
-				// Otherwise, it might seriously affect the efficiency of connection reuse.
-				MaxConnsPerHost:     maxConn,
-				MaxIdleConnsPerHost: maxConn,
+				// Following opts are for http/1 only.
+				// MaxConnsPerHost:     2,
+				// MaxIdleConnsPerHost: 2,
 			}
 
 			t2, err := http2.ConfigureTransports(t1)
 			if err != nil {
 				return nil, fmt.Errorf("failed to upgrade http2 support, %w", err)
 			}
+			t2.MaxHeaderListSize = 4 * 1024
+			t2.MaxReadFrameSize = 16 * 1024
 			t2.ReadIdleTimeout = time.Second * 30
 			t2.PingTimeout = time.Second * 5
 			t = t1
 		}
 
+		u, err := doh.NewUpstream(addr, t, opt.Logger)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create doh upstream, %w", err)
+		}
+
 		return &dohWithClose{
-			u:      doh.NewUpstream(addr, &http.Client{Transport: t}),
+			u:      u,
 			closer: addonCloser,
 		}, nil
 	case "quic", "doq":
@@ -424,12 +471,15 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 		if len(tlsConfig.ServerName) == 0 {
 			tlsConfig.ServerName = tryRemovePort(addrUrlHost)
 		}
-		tlsConfig.NextProtos = doq.DoqAlpn
+		tlsConfig.NextProtos = []string{"doq"}
 
-		quicConfig := newDefaultQuicConfig()
+		quicConfig := newDefaultClientQuicConfig()
 		if opt.IdleTimeout > 0 {
 			quicConfig.MaxIdleTimeout = opt.IdleTimeout
 		}
+		// Don't accept stream.
+		quicConfig.MaxIncomingStreams = -1
+		quicConfig.MaxIncomingUniStreams = -1
 
 		udpBootstrap, err := newUdpAddrResolveFunc(defaultPort)
 		if err != nil {
@@ -444,7 +494,7 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 		lc := net.ListenConfig{Control: getSocketControlFunc(socketOpts{so_mark: opt.SoMark, bind_to_device: opt.BindToDevice})}
 		uc, err := lc.ListenPacket(context.Background(), "udp", "")
 		if err != nil {
-			return nil, fmt.Errorf("failed to init udp socket for quic")
+			return nil, fmt.Errorf("failed to init udp socket for quic, %w", err)
 		}
 
 		t := &quic.Transport{
@@ -452,21 +502,21 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 			StatelessResetKey: (*quic.StatelessResetKey)(srk),
 		}
 
-		dialer := func(ctx context.Context) (quic.Connection, error) {
+		dialDnsConn := func(ctx context.Context) (transport.DnsConn, error) {
 			ua, err := udpBootstrap(ctx)
 			if err != nil {
 				return nil, fmt.Errorf("bootstrap failed, %w", err)
-			}
-			var c quic.Connection
-			ec, err := t.DialEarly(ctx, ua, tlsConfig, quicConfig)
-			if err != nil {
-				return nil, err
 			}
 
 			// This is a workaround to
 			// 1. recover from strange 0rtt rejected err.
 			// 2. avoid NextConnection might block forever.
 			// TODO: Remove this workaround.
+			var c quic.Connection
+			ec, err := t.DialEarly(ctx, ua, tlsConfig, quicConfig)
+			if err != nil {
+				return nil, err
+			}
 			select {
 			case <-ctx.Done():
 				err := context.Cause(ctx)
@@ -475,13 +525,14 @@ func NewUpstream(addr string, opt Opt) (Upstream, error) {
 			case <-ec.HandshakeComplete():
 				c = ec.NextConnection()
 			}
-			return c, nil
+			return transport.NewQuicDnsConn(c), nil
 		}
 
-		return &doqWithClose{
-			u: doq.NewUpstream(dialer),
-			t: t,
-		}, nil
+		return transport.NewPipelineTransport(transport.PipelineOpts{
+			DialContext:                    dialDnsConn,
+			MaxConcurrentQueryWhileDialing: 32,
+			Logger:                         opt.Logger,
+		}), nil
 	default:
 		return nil, fmt.Errorf("unsupported protocol [%s]", addrURL.Scheme)
 	}
@@ -492,15 +543,16 @@ type udpWithFallback struct {
 	t *transport.ReuseConnTransport
 }
 
-func (u *udpWithFallback) ExchangeContext(ctx context.Context, q *dns.Msg) (*dns.Msg, error) {
-	m, err := u.u.ExchangeContext(ctx, q)
+func (u *udpWithFallback) ExchangeContext(ctx context.Context, q []byte) (*[]byte, error) {
+	r, err := u.u.ExchangeContext(ctx, q)
 	if err != nil {
 		return nil, err
 	}
-	if m.Truncated {
+	if msgTruncated(*r) {
+		transport.ReleaseResp(r)
 		return u.t.ExchangeContext(ctx, q)
 	}
-	return m, nil
+	return r, nil
 }
 
 func (u *udpWithFallback) Close() error {
@@ -509,25 +561,12 @@ func (u *udpWithFallback) Close() error {
 	return nil
 }
 
-type doqWithClose struct {
-	u *doq.Upstream
-	t *quic.Transport
-}
-
-func (u *doqWithClose) ExchangeContext(ctx context.Context, m *dns.Msg) (*dns.Msg, error) {
-	return u.u.ExchangeContext(ctx, m)
-}
-
-func (u *doqWithClose) Close() error {
-	return u.t.Close()
-}
-
 type dohWithClose struct {
 	u      *doh.Upstream
 	closer io.Closer // maybe nil
 }
 
-func (u *dohWithClose) ExchangeContext(ctx context.Context, m *dns.Msg) (*dns.Msg, error) {
+func (u *dohWithClose) ExchangeContext(ctx context.Context, m []byte) (*[]byte, error) {
 	return u.u.ExchangeContext(ctx, m)
 }
 
@@ -538,7 +577,7 @@ func (u *dohWithClose) Close() error {
 	return nil
 }
 
-func newDefaultQuicConfig() *quic.Config {
+func newDefaultClientQuicConfig() *quic.Config {
 	return &quic.Config{
 		TokenStore: quic.NewLRUTokenStore(4, 8),
 

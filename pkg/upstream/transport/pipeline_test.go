@@ -22,51 +22,94 @@ package transport
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/miekg/dns"
+	"github.com/stretchr/testify/require"
 )
 
-// Leak and race tests.
-func Test_PipelineTransport(t *testing.T) {
-	// no error
-	testPipelineTransport(t, IOOpts{
-		DialFunc:  dial,
-		WriteFunc: write,
-		ReadFunc:  read,
-	})
+type dummyEchoDnsConnOpt struct {
+	exchangeErr error
+	mcq         int
 
-	// dnsConn error
-	testPipelineTransport(t, IOOpts{
-		DialFunc:  dialErr,
-		WriteFunc: write,
-		ReadFunc:  read,
-	})
-	testPipelineTransport(t, IOOpts{
-		DialFunc:  dial,
-		WriteFunc: writeErr,
-		ReadFunc:  read,
-	})
-	testPipelineTransport(t, IOOpts{
-		DialFunc:  dial,
-		WriteFunc: write,
-		ReadFunc:  readErr,
-	})
+	closed atomic.Bool
 
-	// random err
-	testPipelineTransport(t, IOOpts{
-		DialFunc:  dialErrP,
-		WriteFunc: writeErrP,
-		ReadFunc:  readErrP,
-	})
+	wantConcurrentExchangeCall int
+	waitingExchangeCall        atomic.Int32
+	unblockOnce                sync.Once
+	unblockExchange            chan struct{}
 }
 
-func testPipelineTransport(t *testing.T, ioOpts IOOpts) {
-	t.Helper()
+type dummyEchoDnsConn struct {
+	opt *dummyEchoDnsConnOpt
+
+	m        sync.Mutex
+	reserved int
+}
+
+func (dc *dummyEchoDnsConn) ExchangeReserved(ctx context.Context, q []byte) (*[]byte, error) {
+	defer dc.WithdrawReserved()
+
+	if dc.opt.waitingExchangeCall.Add(1) == int32(dc.opt.wantConcurrentExchangeCall) {
+		dc.opt.unblockOnce.Do(func() { close(dc.opt.unblockExchange) })
+	}
+	defer dc.opt.waitingExchangeCall.Add(-1)
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-dc.opt.unblockExchange:
+		if dc.opt.exchangeErr != nil {
+			return nil, dc.opt.exchangeErr
+		}
+		return copyMsg(q), nil
+	}
+}
+
+func (dc *dummyEchoDnsConn) WithdrawReserved() {
+	dc.m.Lock()
+	defer dc.m.Unlock()
+	dc.reserved--
+	if dc.reserved < 0 {
+		panic("negative reserved counter")
+	}
+}
+
+func (dc *dummyEchoDnsConn) ReserveNewQuery() (_ ReservedExchanger, closed bool) {
+	if dc.opt.closed.Load() {
+		return nil, true
+	}
+	dc.m.Lock()
+	defer dc.m.Unlock()
+	if dc.reserved >= dc.opt.mcq {
+		return nil, false
+	}
+	dc.reserved++
+	return dc, false
+}
+
+func (dc *dummyEchoDnsConn) Close() error {
+	return nil
+}
+
+func Test_PipelineTransport(t *testing.T) {
+	const (
+		mcq                           = 100
+		wantConn                      = 10
+		wantMaxConcurrentExchangeCall = mcq * wantConn
+	)
+
+	r := require.New(t)
+	dcControl := &dummyEchoDnsConnOpt{
+		mcq:                        mcq,
+		unblockExchange:            make(chan struct{}),
+		wantConcurrentExchangeCall: wantMaxConcurrentExchangeCall,
+	}
 	po := PipelineOpts{
-		IOOpts:  ioOpts,
-		MaxConn: 4,
+		DialContext:                    func(ctx context.Context) (DnsConn, error) { return &dummyEchoDnsConn{opt: dcControl}, nil },
+		MaxConcurrentQueryWhileDialing: mcq,
 	}
 	pt := NewPipelineTransport(po)
 	defer pt.Close()
@@ -75,20 +118,35 @@ func testPipelineTransport(t *testing.T, ioOpts IOOpts) {
 	defer cancel()
 	q := new(dns.Msg)
 	q.SetQuestion("test.", dns.TypeA)
+	queryPayload, err := q.Pack()
+	r.NoError(err)
 	wg := new(sync.WaitGroup)
-	for i := 0; i < po.MaxConn*pipelineBusyQueueLen*2; i++ { // *2 ensures a new connection will be opened.
+	for i := 0; i < wantMaxConcurrentExchangeCall; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _ = pt.ExchangeContext(ctx, q)
+			_, err := pt.ExchangeContext(ctx, queryPayload)
+			if err != nil {
+				t.Error(err)
+			}
 		}()
+		if t.Failed() {
+			break
+		}
 	}
 	wg.Wait()
 
 	pt.m.Lock()
-	pl := len(pt.activeConns)
+	pl := len(pt.conns)
 	pt.m.Unlock()
-	if pl > po.MaxConn {
-		t.Fatalf("max %d active conn, but got %d active conn(s)", po.MaxConn, pl)
-	}
+
+	r.Equal(wantConn, pl)
+
+	dcControl.closed.Store(true)
+	_, _ = pt.ExchangeContext(ctx, queryPayload) // remove all closed conn
+
+	pt.m.Lock()
+	pl = len(pt.conns)
+	pt.m.Unlock()
+	r.Equal(1, pl, "all connection should be remove then one will be opened")
 }

@@ -21,11 +21,10 @@ package transport
 
 import (
 	"context"
-	"math/rand"
 	"sync"
 	"time"
 
-	"github.com/miekg/dns"
+	"go.uber.org/zap"
 )
 
 // PipelineTransport will pipeline queries as RFC 7766 6.2.1.1 suggested.
@@ -33,61 +32,58 @@ import (
 type PipelineTransport struct {
 	PipelineOpts
 
-	m           sync.Mutex // protect following fields
-	closed      bool
-	r           *rand.Rand
-	activeConns []*pipelineConn
-	conns       map[*pipelineConn]struct{}
+	m      sync.Mutex // protect following fields
+	closed bool
+	conns  map[*lazyDnsConn]struct{}
+
+	logger *zap.Logger // not nil
 }
 
 type PipelineOpts struct {
-	IOOpts
+	// DialContext specifies the method to dial a connection to the server.
+	// DialContext MUST NOT be nil.
+	DialContext func(ctx context.Context) (DnsConn, error)
 
-	// MaxConns controls the maximum pipeline connections Transport can open.
-	// It includes dialing connections.
-	// Default is defaultPipelineMaxConns.
-	// Users that have heavy traffic flow should consider to increase
-	// this for better load-balancing and latency.
-	MaxConn int
-}
+	// DialTimeout specifies the timeout for DialFunc.
+	// Default is defaultDialTimeout.
+	DialTimeout time.Duration
 
-type pipelineConn struct {
-	dc *dnsConn
-	wg sync.WaitGroup
+	// When connection is dialing, how many queries can be queued up in that
+	// connection. Default is defaultLazyConnMaxConcurrentQuery.
+	// Note: If the connection turns out having a smaller limit, part of queued up
+	// queries will fail.
+	MaxConcurrentQueryWhileDialing int
 
-	// Note: this field is protected by PipelineTransport.m.
-	servedLocked uint16
-}
-
-func newPipelineConn(c *dnsConn) *pipelineConn {
-	return &pipelineConn{dc: c}
+	Logger *zap.Logger
 }
 
 func NewPipelineTransport(opt PipelineOpts) *PipelineTransport {
-	return &PipelineTransport{
+	t := &PipelineTransport{
 		PipelineOpts: opt,
-		r:            rand.New(rand.NewSource(time.Now().Unix())),
-		conns:        make(map[*pipelineConn]struct{}),
+		conns:        make(map[*lazyDnsConn]struct{}),
 	}
+	if opt.Logger != nil {
+		t.logger = opt.Logger
+	} else {
+		t.logger = nopLogger
+	}
+	return t
 }
 
-func (t *PipelineTransport) ExchangeContext(ctx context.Context, m *dns.Msg) (*dns.Msg, error) {
-	const maxAttempt = 3
-	attempt := 0
+func (t *PipelineTransport) ExchangeContext(ctx context.Context, m []byte) (*[]byte, error) {
+	const maxRetry = 2
+	retry := 0
 	for {
-		pc, allocatedQid, isNewConn, err := t.getPipelineConn()
+		dc, isNewConn, err := t.getReservedExchanger()
 		if err != nil {
 			return nil, err
 		}
-
-		r, err := pc.dc.exchangePipeline(ctx, m, allocatedQid)
-		pc.wg.Done()
-
+		r, err := dc.ExchangeReserved(ctx, m)
 		if err != nil {
 			// Reused connection may not stable.
 			// Try to re-send this query if it failed on a reused connection.
-			if !isNewConn && attempt < maxAttempt && ctx.Err() == nil {
-				attempt++
+			if !isNewConn && retry < maxRetry && ctx.Err() == nil {
+				retry++
 				continue
 			}
 			return nil, err
@@ -106,79 +102,55 @@ func (t *PipelineTransport) Close() error {
 	}
 	t.closed = true
 	for conn := range t.conns {
-		conn.dc.closeWithErr(errClosedTransport)
+		conn.Close()
 	}
 	return nil
 }
 
-// getPipelineConn returns a dnsConn for pipelining queries.
-// Caller must call wg.Done() after dnsConn.exchangePipeline.
-// The returned dnsConn is ready to serve queries.
-func (t *PipelineTransport) getPipelineConn() (
-	pc *pipelineConn,
-	allocatedQid uint16,
-	isNewConn bool,
-	err error,
-) {
+func (t *PipelineTransport) getReservedExchanger() (_ ReservedExchanger, isNewConn bool, err error) {
+	maxConcurrentQueryWhileDialing := t.MaxConcurrentQueryWhileDialing
+	if maxConcurrentQueryWhileDialing <= 0 {
+		maxConcurrentQueryWhileDialing = defaultLazyConnMaxConcurrentQuery
+	}
+
 	t.m.Lock()
 	if t.closed {
-		err = errClosedTransport
+		err = ErrClosedTransport
 		t.m.Unlock()
 		return
 	}
 
-	pci, pc := t.pickPipelineConnLocked()
-
-	// Dial a new connection if (conn pool is empty), or
-	// (the picked conn is busy, and we are allowed to dial more connections).
-	maxConn := t.MaxConn
-	if maxConn <= 0 {
-		maxConn = defaultPipelineMaxConns
+	var rxc ReservedExchanger
+	const maxReserveAttempt = 16
+	reserveAttempt := 0
+	for c := range t.conns {
+		var closed bool
+		rxc, closed = c.ReserveNewQuery()
+		if closed {
+			delete(t.conns, c)
+		}
+		if rxc != nil {
+			break
+		} else {
+			reserveAttempt++
+			if reserveAttempt > maxReserveAttempt {
+				break
+			}
+		}
 	}
-	if pc == nil || (pc.dc.queueLen() > pipelineBusyQueueLen && len(t.activeConns) < maxConn) {
-		dc := newDnsConn(t.IOOpts)
-		pc = newPipelineConn(dc)
+
+	// Dial a new connection
+	if rxc == nil {
+		c := newLazyDnsConn(t.DialContext, t.DialTimeout, t.MaxConcurrentQueryWhileDialing, t.logger)
+		rxc, _ = c.ReserveNewQuery() // ignore the closed error for new lazy connection
 		isNewConn = true
-		pci = sliceAdd(&t.activeConns, pc)
-		t.conns[pc] = struct{}{}
-	}
-
-	pc.wg.Add(1)
-	pc.servedLocked++
-	eol := pc.servedLocked == 65535
-	allocatedQid = pc.servedLocked
-	if eol {
-		// This connection has served too many queries.
-		// Note: the connection should be closed only after all its queries finished.
-		// We can't close it here. Some queries may still on that connection.
-		sliceDel(&t.activeConns, pci) // remove from active conns
+		t.conns[c] = struct{}{}
 	}
 	t.m.Unlock()
 
-	if eol {
-		// Cleanup when all queries is finished.
-		go func() {
-			pc.wg.Wait()
-			pc.dc.closeWithErr(errEOL)
-			t.m.Lock()
-			delete(t.conns, pc)
-			t.m.Unlock()
-		}()
+	if rxc == nil {
+		isNewConn = false
+		err = ErrNewConnCannotReserveQueryExchanger
 	}
-	return
-}
-
-// pickPipelineConn picks up a random alive pipelineConn from pool.
-// If pool is empty, it returns nil.
-// Require holding PipelineTransport.m.
-func (t *PipelineTransport) pickPipelineConnLocked() (int, *pipelineConn) {
-	for {
-		pci, pc := sliceRandGet(t.activeConns, t.r)
-		if pc != nil && pc.dc.isClosed() { // closed conn, delete it and retry
-			sliceDel(&t.activeConns, pci)
-			delete(t.conns, pc)
-			continue
-		}
-		return pci, pc // conn pool is empty or we got a pc
-	}
+	return rxc, isNewConn, err
 }

@@ -25,45 +25,63 @@ import (
 	"io"
 	"time"
 
-	"github.com/miekg/dns"
+	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
+	"go.uber.org/zap"
 )
 
 var (
-	errEOL             = errors.New("end of life")
-	errClosedTransport = errors.New("transport has been closed")
+	ErrClosedTransport                     = errors.New("transport has been closed")
+	ErrPayloadOverFlow                     = errors.New("payload is too large")
+	ErrNewConnCannotReserveQueryExchanger  = errors.New("new connection failed to reserve query exchanger")
+	ErrLazyConnCannotReserveQueryExchanger = errors.New("lazy connection failed to reserve query exchanger")
 )
 
+var nopLogger = zap.NewNop()
+
+func ReleaseResp(b *[]byte) {
+	pool.ReleaseBuf(b)
+}
+
 const (
-	defaultIdleTimeout      = time.Second * 10
-	defaultDialTimeout      = time.Second * 5
-	defaultPipelineMaxConns = 2
+	defaultIdleTimeout = time.Second * 10
+	defaultDialTimeout = time.Second * 5
+
+	// Most servers will send SERVFAIL after 3s/5s.
+	reuseConnQueryTimeout = time.Second * 6
+	quicQueryTimeout      = time.Second * 6
 
 	// If a pipeline connection sent a query but did not see any reply (include replies that
 	// for other queries) from the server after waitingReplyTimeout. It assumes that
 	// something goes wrong with the connection or the server. The connection will be closed.
 	waitingReplyTimeout = time.Second * 10
 
-	pipelineBusyQueueLen = 8
+	defaultTdcMaxConcurrentQuery      = 32
+	defaultLazyConnMaxConcurrentQuery = 16
 )
 
-type IOOpts struct {
-	// DialFunc specifies the method to dial a connection to the server.
-	// DialFunc MUST NOT be nil.
-	DialFunc func(ctx context.Context) (io.ReadWriteCloser, error)
-	// WriteFunc specifies the method to write a wire dns msg to the connection
-	// opened by the DialFunc.
-	// WriteFunc MUST NOT be nil.
-	WriteFunc func(c io.Writer, m *dns.Msg) (int, error)
-	// ReadFunc specifies the method to read a wire dns msg from the connection
-	// opened by the DialFunc.
-	// ReadFunc MUST NOT be nil.
-	ReadFunc func(c io.Reader) (*dns.Msg, int, error)
+// One method MUST be called in ReservedExchanger.
+type ReservedExchanger interface {
+	// ExchangeReserved sends q to the server and returns it's response.
+	// ExchangeReserved MUST not modify nor keep the q.
+	// q MUST be a valid dns message.
+	// resp (if no err) should be released by ReleaseResp().
+	ExchangeReserved(ctx context.Context, q []byte) (resp *[]byte, err error)
 
-	// DialTimeout specifies the timeout for DialFunc.
-	// Default is defaultDialTimeout.
-	DialTimeout time.Duration
+	// WithdrawReserved aborts the query.
+	WithdrawReserved()
+}
 
-	// IdleTimeout controls the maximum idle time for each connection.
-	// Default is defaultIdleTimeout.
-	IdleTimeout time.Duration
+type DnsConn interface {
+	// ReserveNewQuery reserves a query. It MUST be fast and non-block. If DnsConn
+	// cannot serve more query due to its capacity, ReserveNewQuery returns nil.
+	// If DnsConn is closed and can no longer serve more query, returns closed = true.
+	ReserveNewQuery() (_ ReservedExchanger, closed bool)
+	io.Closer
+}
+
+type NetConn interface {
+	io.ReadWriteCloser
+	SetDeadline(t time.Time) error
+	SetReadDeadline(t time.Time) error
+	SetWriteDeadline(t time.Time) error
 }

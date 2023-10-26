@@ -98,6 +98,9 @@ func StartServer(bp *coremain.BP, args *Args) (*QuicServer, error) {
 		InitialConnectionReceiveWindow: 8 * 1024,
 		MaxConnectionReceiveWindow:     16 * 1024,
 		Allow0RTT:                      false,
+
+		// UniStream is not allowed.
+		MaxIncomingUniStreams: -1,
 	}
 
 	srk, _, err := utils.InitQUICSrkFromIfaceMac()

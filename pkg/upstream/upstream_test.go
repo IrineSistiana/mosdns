@@ -131,7 +131,6 @@ func Test_fastUpstream(t *testing.T) {
 							scheme+"://"+addr,
 							Opt{
 								IdleTimeout: time.Second,
-								MaxConns:    5,
 								TLSConfig:   &tls.Config{InsecureSkipVerify: true},
 							},
 						)
@@ -176,16 +175,31 @@ func testUpstream(u Upstream) error {
 			q := new(dns.Msg)
 			q.SetQuestion("example.com.", dns.TypeA)
 			q.Id = i
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			defer cancel()
-			r, err := u.ExchangeContext(ctx, q)
-
+			queryPayload, err := q.Pack()
 			if err != nil {
 				logErr(err)
 				return
 			}
-			if r.Id != q.Id {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			r, err := u.ExchangeContext(ctx, queryPayload)
+			if err != nil {
+				logErr(err)
+				return
+			}
+
+			resp := new(dns.Msg)
+			err = resp.Unpack(*r)
+			if err != nil {
+				logErr(err)
+				return
+			}
+			if q.Id != resp.Id {
 				logErr(dns.ErrId)
+				return
+			}
+			if !resp.Response {
+				logErr(fmt.Errorf("resp is not a resp bit"))
 				return
 			}
 		}()

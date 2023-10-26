@@ -20,17 +20,53 @@
 package transport
 
 import (
+	"encoding/binary"
+	"io"
 	"math/rand"
 	"sync"
 	"time"
 
+	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
 	"github.com/miekg/dns"
 )
 
-func shadowCopy(m *dns.Msg) *dns.Msg {
-	nm := new(dns.Msg)
-	*nm = *m
-	return nm
+const (
+	dnsHeaderLen = 12 // minimum dns msg size
+)
+
+func copyMsgWithLenHdr(m []byte) (*[]byte, error) {
+	l := len(m)
+	if l > dns.MaxMsgSize {
+		return nil, ErrPayloadOverFlow
+	}
+	bp := pool.GetBuf(l + 2)
+	binary.BigEndian.PutUint16(*bp, uint16(l))
+	copy((*bp)[2:], m)
+	return bp, nil
+}
+
+func copyMsg(m []byte) *[]byte {
+	bp := pool.GetBuf(len(m))
+	copy((*bp), m)
+	return bp
+}
+
+var respChanPool = sync.Pool{
+	New: func() any {
+		return make(chan *[]byte, 1)
+	},
+}
+
+func getRespChan() chan *[]byte {
+	return respChanPool.Get().(chan *[]byte)
+}
+func releaseRespChan(c chan *[]byte) {
+	select {
+	case payload := <-c:
+		ReleaseResp(payload)
+	default:
+	}
+	respChanPool.Put(c)
 }
 
 // sliceAdd adds v to s and returns its index in s.
@@ -42,10 +78,12 @@ func sliceAdd[T any](s *[]T, v T) int {
 // sliceDel deletes the value at index i.
 // sliceDel will automatically reduce the cap of the s.
 func sliceDel[T any](s *[]T, i int) {
+	var zeroT T
 	c := cap(*s)
 	l := len(*s)
 
 	(*s)[i] = (*s)[l-1]
+	(*s)[l-1] = zeroT
 	*s = (*s)[:l-1]
 	l--
 
@@ -134,4 +172,25 @@ func (t *idleTimer) stop() {
 	}
 	t.stopped = true
 	t.t.Stop()
+}
+
+// readMsgUdp reads dns frame from r. r typically should be a udp connection.
+// It uses a 4kb rx buffer and ignores any payload that is too small for a dns msg.
+// If no error, the length of payload always >= 12 bytes.
+func readMsgUdp(r io.Reader) (*[]byte, error) {
+	// TODO: Make this configurable?
+	// 4kb should be enough.
+	payload := pool.GetBuf(4095)
+
+readAgain:
+	n, err := r.Read(*payload)
+	if err != nil {
+		pool.ReleaseBuf(payload)
+		return nil, err
+	}
+	if n < dnsHeaderLen {
+		goto readAgain
+	}
+	*payload = (*payload)[:n]
+	return payload, err
 }

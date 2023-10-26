@@ -29,8 +29,12 @@ import (
 	"github.com/miekg/dns"
 )
 
+const (
+	DnsHeaderLen = 12 // minimum dns msg size
+)
+
 var (
-	errZeroLenMsg = errors.New("zero length msg")
+	ErrPayloadTooSmall = errors.New("payload is to small for a valid dns msg")
 )
 
 // ReadRawMsgFromTCP reads msg from c in RFC 1035 format (msg is prefixed
@@ -48,8 +52,8 @@ func ReadRawMsgFromTCP(c io.Reader) (*[]byte, error) {
 
 	// dns length
 	length := binary.BigEndian.Uint16(*h)
-	if length == 0 {
-		return nil, errZeroLenMsg
+	if length <= DnsHeaderLen {
+		return nil, ErrPayloadTooSmall
 	}
 
 	b := pool.GetBuf(int(length))

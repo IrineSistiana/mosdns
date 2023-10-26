@@ -98,3 +98,7 @@ func tryTrimIpv6Brackets(s string) string {
 	}
 	return s
 }
+
+func msgTruncated(b []byte) bool {
+	return b[2]&(1<<1) != 0
+}

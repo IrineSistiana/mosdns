@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/IrineSistiana/mosdns/v5/coremain"
+	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v5/pkg/upstream"
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
@@ -62,14 +63,17 @@ type Args struct {
 }
 
 type UpstreamConfig struct {
-	Tag                string `yaml:"tag"`
-	Addr               string `yaml:"addr"` // Required.
-	DialAddr           string `yaml:"dial_addr"`
-	IdleTimeout        int    `yaml:"idle_timeout"`
-	MaxConns           int    `yaml:"max_conns"`
-	EnablePipeline     bool   `yaml:"enable_pipeline"`
-	EnableHTTP3        bool   `yaml:"enable_http3"`
-	InsecureSkipVerify bool   `yaml:"insecure_skip_verify"`
+	Tag         string `yaml:"tag"`
+	Addr        string `yaml:"addr"` // Required.
+	DialAddr    string `yaml:"dial_addr"`
+	IdleTimeout int    `yaml:"idle_timeout"`
+
+	// Deprecated: This option has no affect.
+	// TODO: (v6) Remove this option.
+	MaxConns           int  `yaml:"max_conns"`
+	EnablePipeline     bool `yaml:"enable_pipeline"`
+	EnableHTTP3        bool `yaml:"enable_http3"`
+	InsecureSkipVerify bool `yaml:"insecure_skip_verify"`
 
 	Socks5       string `yaml:"socks5"`
 	SoMark       int    `yaml:"so_mark"`
@@ -143,7 +147,6 @@ func NewForward(args *Args, opt Opts) (*Forward, error) {
 			SoMark:         c.SoMark,
 			BindToDevice:   c.BindToDevice,
 			IdleTimeout:    time.Duration(c.IdleTimeout) * time.Second,
-			MaxConns:       c.MaxConns,
 			EnablePipeline: c.EnablePipeline,
 			EnableHTTP3:    c.EnableHTTP3,
 			Bootstrap:      c.Bootstrap,
@@ -235,20 +238,22 @@ func (f *Forward) exchange(ctx context.Context, qCtx *query_context.Context, us 
 		return nil, errors.New("no upstream to exchange")
 	}
 
-	mcq := f.args.Concurrent
-	if mcq <= 0 {
-		mcq = 1
+	queryPayload, err := pool.PackBuffer(qCtx.Q())
+	if err != nil {
+		return nil, err
 	}
-	if mcq > len(us) {
-		mcq = len(us)
+	defer pool.ReleaseBuf(queryPayload)
+
+	concurrent := f.args.Concurrent
+	if concurrent <= 0 {
+		concurrent = 1
 	}
-	if mcq > maxConcurrentQueries {
-		mcq = maxConcurrentQueries
+	if concurrent > maxConcurrentQueries {
+		concurrent = maxConcurrentQueries
 	}
 
 	type res struct {
 		r   *dns.Msg
-		u   *upstreamWrapper
 		err error
 	}
 
@@ -256,32 +261,42 @@ func (f *Forward) exchange(ctx context.Context, qCtx *query_context.Context, us 
 	done := make(chan struct{})
 	defer close(done)
 
-	qc := qCtx.Q().Copy()
-	uqid := qCtx.Id()
-	for i := 0; i < mcq; i++ {
+	for i := 0; i < concurrent; i++ {
 		u := randPick(us)
-		go func() {
+		qc := copyPayload(queryPayload)
+		go func(uqid uint32, question dns.Question) {
+			defer pool.ReleaseBuf(qc)
 			// Give each upstream a fixed timeout to finish the query.
 			upstreamCtx, cancel := context.WithTimeout(context.Background(), queryTimeout)
 			defer cancel()
-			r, err := u.ExchangeContext(upstreamCtx, qc)
+
+			var r *dns.Msg
+			respPayload, err := u.ExchangeContext(upstreamCtx, *qc)
 			if err != nil {
 				f.logger.Warn(
 					"upstream error",
 					zap.Uint32("uqid", uqid),
-					zap.Inline((*queryInfo)(qc)),
+					zap.String("qname", question.Name),
+					zap.Uint16("qclass", question.Qclass),
+					zap.Uint16("qtype", question.Qtype),
 					zap.String("upstream", u.name()),
 					zap.Error(err),
 				)
+			} else {
+				r = new(dns.Msg)
+				err = r.Unpack(*respPayload)
+				if err != nil {
+					r = nil
+				}
 			}
 			select {
-			case resChan <- res{r: r, err: err, u: u}:
+			case resChan <- res{r: r, err: err}:
 			case <-done:
 			}
-		}()
+		}(qCtx.Id(), qCtx.QQuestion())
 	}
 
-	for i := 0; i < mcq; i++ {
+	for i := 0; i < concurrent; i++ {
 		select {
 		case res := <-resChan:
 			r, err := res.r, res.err
@@ -290,7 +305,7 @@ func (f *Forward) exchange(ctx context.Context, qCtx *query_context.Context, us 
 			}
 
 			// Retry until the last
-			if i < mcq-1 && r.Rcode != dns.RcodeSuccess && r.Rcode != dns.RcodeNameError {
+			if i < concurrent-1 && r.Rcode != dns.RcodeSuccess && r.Rcode != dns.RcodeNameError {
 				continue
 			}
 			return r, nil
