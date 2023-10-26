@@ -21,13 +21,14 @@ package dual_selector
 
 import (
 	"context"
+	"time"
+
 	"github.com/IrineSistiana/mosdns/v5/pkg/dnsutils"
 	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
-	"time"
 )
 
 const (
@@ -112,7 +113,7 @@ func (s *Selector) Exec(ctx context.Context, qCtx *query_context.Context, next s
 
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return context.Cause(ctx)
 	case <-shouldBlock: // Reference indicates we should block this query before the original query finished.
 		r := dnsutils.GenEmptyReply(q, dns.RcodeSuccess)
 		qCtx.SetResponse(r)
@@ -122,7 +123,7 @@ func (s *Selector) Exec(ctx context.Context, qCtx *query_context.Context, next s
 		defer pool.ReleaseTimer(waitTimeoutTimer)
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return context.Cause(ctx)
 		case <-shouldBlock:
 			r := dnsutils.GenEmptyReply(q, dns.RcodeSuccess)
 			qCtx.SetResponse(r)

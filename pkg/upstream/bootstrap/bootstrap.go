@@ -90,7 +90,7 @@ func (sp *Bootstrap) GetAddrPortStr(ctx context.Context) (string, error) {
 
 	select {
 	case <-ctx.Done():
-		return "", ctx.Err()
+		return "", context.Cause(ctx)
 	case <-sp.readyNotify:
 	}
 
@@ -200,7 +200,7 @@ func (sp *Bootstrap) resolve(ctx context.Context, qt uint16) (netip.Addr, uint32
 
 	select {
 	case <-ctx.Done():
-		return netip.Addr{}, 0, ctx.Err()
+		return netip.Addr{}, 0, context.Cause(ctx)
 	case err := <-writeErrC:
 		return netip.Addr{}, 0, fmt.Errorf("failed to write query, %w", err)
 	case r := <-readResC:

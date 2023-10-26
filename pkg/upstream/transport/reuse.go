@@ -35,7 +35,7 @@ type ReuseConnTransport struct {
 
 	logger    *zap.Logger // non-nil
 	ctx       context.Context
-	ctxCancel context.CancelFunc
+	ctxCancel context.CancelCauseFunc
 
 	m         sync.Mutex // protect following fields
 	closed    bool
@@ -59,7 +59,7 @@ type ReuseConnOpts struct {
 }
 
 func NewReuseConnTransport(opt ReuseConnOpts) *ReuseConnTransport {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancelCause(context.Background())
 	t := &ReuseConnTransport{
 		ctx:           ctx,
 		ctxCancel:     cancel,
@@ -112,7 +112,7 @@ func (t *ReuseConnTransport) ExchangeContext(ctx context.Context, m []byte) (*[]
 
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, context.Cause(ctx)
 		case res := <-resChan:
 			r, err := res.resp, res.err
 			if err != nil {
@@ -169,7 +169,7 @@ func (t *ReuseConnTransport) wantNewConn(ctx context.Context) (*reusableConn, er
 
 	select {
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return nil, context.Cause(ctx)
 	case res := <-dialChan:
 		return res.c, res.err
 	}
@@ -210,7 +210,7 @@ func (t *ReuseConnTransport) Close() error {
 		delete(t.idleConns, c)
 		c.Close()
 	}
-	t.ctxCancel()
+	t.ctxCancel(ErrClosedTransport)
 	return nil
 }
 

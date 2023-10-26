@@ -59,7 +59,7 @@ func (dc *dummyEchoDnsConn) ExchangeReserved(ctx context.Context, q []byte) (*[]
 
 	select {
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return nil, context.Cause(ctx)
 	case <-dc.opt.unblockExchange:
 		if dc.opt.exchangeErr != nil {
 			return nil, dc.opt.exchangeErr

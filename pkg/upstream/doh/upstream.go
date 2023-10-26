@@ -120,7 +120,7 @@ func (u *Upstream) ExchangeContext(ctx context.Context, q []byte) (*[]byte, erro
 
 	select {
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return nil, context.Cause(ctx)
 	case res := <-resChan:
 		r := res.r
 		err := res.err

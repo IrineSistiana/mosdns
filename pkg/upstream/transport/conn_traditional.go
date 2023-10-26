@@ -123,7 +123,7 @@ func (dc *TraditionalDnsConn) exchange(ctx context.Context, q []byte) (*[]byte, 
 
 	select {
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return nil, context.Cause(ctx)
 	case r := <-respChan:
 		orgId := binary.BigEndian.Uint16(q)
 		binary.BigEndian.PutUint16(*r, orgId)

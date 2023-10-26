@@ -137,7 +137,7 @@ func (ote *lazyDnsConnEarlyReservedExchanger) ExchangeReserved(ctx context.Conte
 
 	select {
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return nil, context.Cause(ctx)
 	case <-ote.dialFinished:
 		dc, err := ote.c, ote.dialErr
 		if err != nil {

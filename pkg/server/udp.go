@@ -42,8 +42,8 @@ func ServeUDP(c *net.UDPConn, h Handler, opts UDPServerOpts) error {
 		logger = nopLogger
 	}
 
-	listenerCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	listenerCtx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(errListenerCtxCanceled)
 
 	rb := pool.GetBuf(dns.MaxMsgSize)
 	defer pool.ReleaseBuf(rb)

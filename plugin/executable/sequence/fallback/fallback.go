@@ -23,13 +23,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
+
 	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
-	"time"
 )
 
 const PluginType = "fallback"
@@ -172,7 +173,7 @@ func (f *fallback) doFallback(ctx context.Context, qCtx *query_context.Context) 
 	for i := 0; i < 2; i++ {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return context.Cause(ctx)
 		case r := <-respChan:
 			if r == nil { // One of goroutines finished but failed.
 				continue

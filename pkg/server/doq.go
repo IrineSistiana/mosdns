@@ -55,8 +55,8 @@ func ServeDoQ(l *quic.Listener, h Handler, opts DoQServerOpts) error {
 		idleTimeout = defaultQuicIdleTimeout
 	}
 
-	listenerCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	listenerCtx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(errListenerCtxCanceled)
 	for {
 		c, err := l.Accept(listenerCtx)
 		if err != nil {
@@ -64,10 +64,10 @@ func ServeDoQ(l *quic.Listener, h Handler, opts DoQServerOpts) error {
 		}
 
 		// handle connection
-		connCtx, cancelConn := context.WithCancel(listenerCtx)
+		connCtx, cancelConn := context.WithCancelCause(listenerCtx)
 		go func() {
 			defer c.CloseWithError(0, "")
-			defer cancelConn()
+			defer cancelConn(errConnectionCtxCanceled)
 
 			var clientAddr netip.Addr
 			ta, ok := c.RemoteAddr().(*net.UDPAddr)
@@ -94,10 +94,10 @@ func ServeDoQ(l *quic.Listener, h Handler, opts DoQServerOpts) error {
 				// Handle stream.
 				// For doq, one stream, one query.
 				go func() {
-					defer func (){
+					defer func() {
 						stream.Close()
 						stream.CancelRead(0) // TODO: Needs a proper error code.
-					}() 
+					}()
 					// Avoid fragmentation attack.
 					stream.SetReadDeadline(time.Now().Add(streamReadTimeout))
 					req, _, err := dnsutils.ReadMsgFromTCP(stream)

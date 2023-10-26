@@ -310,7 +310,7 @@ func (f *Forward) exchange(ctx context.Context, qCtx *query_context.Context, us 
 			}
 			return r, nil
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, context.Cause(ctx)
 		}
 	}
 	return nil, errors.New("all upstream servers failed")

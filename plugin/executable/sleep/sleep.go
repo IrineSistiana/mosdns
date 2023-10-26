@@ -21,12 +21,13 @@ package sleep
 
 import (
 	"context"
+	"strconv"
+	"time"
+
 	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
-	"strconv"
-	"time"
 )
 
 const PluginType = "sleep"
@@ -68,7 +69,7 @@ func (s *sleep) Exec(ctx context.Context, qCtx *query_context.Context) error {
 		select {
 		case <-timer.C:
 		case <-ctx.Done():
-			return ctx.Err()
+			return context.Cause(ctx)
 		}
 	}
 	return nil
