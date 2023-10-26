@@ -31,11 +31,12 @@ import (
 
 // ReuseConnTransport is for old tcp protocol. (no pipelining)
 type ReuseConnTransport struct {
-	ReuseConnOpts
-
-	logger    *zap.Logger // non-nil
-	ctx       context.Context
-	ctxCancel context.CancelCauseFunc
+	dialFunc    func(ctx context.Context) (NetConn, error)
+	dialTimeout time.Duration
+	idleTimeout time.Duration
+	logger      *zap.Logger // non-nil
+	ctx         context.Context
+	ctxCancel   context.CancelCauseFunc
 
 	m         sync.Mutex // protect following fields
 	closed    bool
@@ -61,17 +62,16 @@ type ReuseConnOpts struct {
 func NewReuseConnTransport(opt ReuseConnOpts) *ReuseConnTransport {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	t := &ReuseConnTransport{
-		ctx:           ctx,
-		ctxCancel:     cancel,
-		ReuseConnOpts: opt,
-		idleConns:     make(map[*reusableConn]struct{}),
-		conns:         make(map[*reusableConn]struct{}),
+		ctx:       ctx,
+		ctxCancel: cancel,
+		idleConns: make(map[*reusableConn]struct{}),
+		conns:     make(map[*reusableConn]struct{}),
 	}
-	if opt.Logger != nil {
-		t.logger = opt.Logger
-	} else {
-		t.logger = nopLogger
-	}
+	t.dialFunc = opt.DialContext
+	setDefaultGZ(&t.dialTimeout, opt.DialTimeout, defaultDialTimeout)
+	setDefaultGZ(&t.idleTimeout, opt.IdleTimeout, defaultIdleTimeout)
+	setNonNilLogger(&t.logger, opt.Logger)
+
 	return t
 }
 
@@ -136,25 +136,16 @@ func (t *ReuseConnTransport) wantNewConn(ctx context.Context) (*reusableConn, er
 
 	dialChan := make(chan dialRes)
 	go func() {
-		dialTimeout := t.DialTimeout
-		if dialTimeout <= 0 {
-			dialTimeout = defaultDialTimeout
-		}
-		idleTimeout := t.IdleTimeout
-		if idleTimeout <= 0 {
-			idleTimeout = defaultIdleTimeout
-		}
-
-		ctx, cancel := context.WithTimeout(t.ctx, dialTimeout)
+		ctx, cancel := context.WithTimeout(t.ctx, t.dialTimeout)
 		defer cancel()
 
 		var rc *reusableConn
-		c, err := t.DialContext(ctx)
+		c, err := t.dialFunc(ctx)
 		if err != nil {
 			t.logger.Check(zap.WarnLevel, "fail to dial reusable conn").Write(zap.Error(err))
 		}
 		if c != nil {
-			rc = newReusableConn(c, idleTimeout)
+			rc = newReusableConn(c, t.idleTimeout)
 			t.trackNewReusableConn(rc)
 		}
 

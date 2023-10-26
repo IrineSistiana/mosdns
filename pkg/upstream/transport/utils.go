@@ -26,6 +26,8 @@ import (
 
 	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
 	"github.com/miekg/dns"
+	"go.uber.org/zap"
+	"golang.org/x/exp/constraints"
 )
 
 const (
@@ -86,4 +88,22 @@ readAgain:
 	}
 	*payload = (*payload)[:n]
 	return payload, err
+}
+
+func setDefaultGZ[T constraints.Float | constraints.Integer](i *T, s, d T) {
+	if s > 0 {
+		*i = s
+	} else {
+		*i = d
+	}
+}
+
+var nopLogger = zap.NewNop()
+
+func setNonNilLogger(i **zap.Logger, s *zap.Logger) {
+	if s != nil {
+		*i = s
+	} else {
+		*i = nopLogger
+	}
 }

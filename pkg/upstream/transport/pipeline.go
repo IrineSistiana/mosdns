@@ -30,13 +30,14 @@ import (
 // PipelineTransport will pipeline queries as RFC 7766 6.2.1.1 suggested.
 // It also can reuse udp socket. Since dns over udp is some kind of "pipeline".
 type PipelineTransport struct {
-	PipelineOpts
-
 	m      sync.Mutex // protect following fields
 	closed bool
 	conns  map[*lazyDnsConn]struct{}
 
-	logger *zap.Logger // not nil
+	dialFunc         func(ctx context.Context) (DnsConn, error)
+	dialTimeout      time.Duration
+	maxLazyConnQueue int
+	logger           *zap.Logger // not nil
 }
 
 type PipelineOpts struct {
@@ -59,14 +60,13 @@ type PipelineOpts struct {
 
 func NewPipelineTransport(opt PipelineOpts) *PipelineTransport {
 	t := &PipelineTransport{
-		PipelineOpts: opt,
-		conns:        make(map[*lazyDnsConn]struct{}),
+		conns: make(map[*lazyDnsConn]struct{}),
 	}
-	if opt.Logger != nil {
-		t.logger = opt.Logger
-	} else {
-		t.logger = nopLogger
-	}
+	t.dialFunc = opt.DialContext
+	setDefaultGZ(&t.dialTimeout, opt.DialTimeout, defaultDialTimeout)
+	setDefaultGZ(&t.maxLazyConnQueue, opt.MaxConcurrentQueryWhileDialing, defaultMaxLazyConnQueue)
+	setNonNilLogger(&t.logger, opt.Logger)
+
 	return t
 }
 
@@ -108,11 +108,6 @@ func (t *PipelineTransport) Close() error {
 }
 
 func (t *PipelineTransport) getReservedExchanger() (_ ReservedExchanger, isNewConn bool, err error) {
-	maxConcurrentQueryWhileDialing := t.MaxConcurrentQueryWhileDialing
-	if maxConcurrentQueryWhileDialing <= 0 {
-		maxConcurrentQueryWhileDialing = defaultLazyConnMaxConcurrentQuery
-	}
-
 	t.m.Lock()
 	if t.closed {
 		err = ErrClosedTransport
@@ -141,7 +136,7 @@ func (t *PipelineTransport) getReservedExchanger() (_ ReservedExchanger, isNewCo
 
 	// Dial a new connection
 	if rxc == nil {
-		c := newLazyDnsConn(t.DialContext, t.DialTimeout, t.MaxConcurrentQueryWhileDialing, t.logger)
+		c := newLazyDnsConn(t.dialFunc, t.dialTimeout, t.maxLazyConnQueue, t.logger)
 		rxc, _ = c.ReserveNewQuery() // ignore the closed error for new lazy connection
 		isNewConn = true
 		t.conns[c] = struct{}{}

@@ -26,7 +26,6 @@ import (
 	"time"
 
 	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
-	"go.uber.org/zap"
 )
 
 var (
@@ -35,8 +34,6 @@ var (
 	ErrNewConnCannotReserveQueryExchanger  = errors.New("new connection failed to reserve query exchanger")
 	ErrLazyConnCannotReserveQueryExchanger = errors.New("lazy connection failed to reserve query exchanger")
 )
-
-var nopLogger = zap.NewNop()
 
 func ReleaseResp(b *[]byte) {
 	pool.ReleaseBuf(b)
@@ -55,8 +52,8 @@ const (
 	// something goes wrong with the connection or the server. The connection will be closed.
 	waitingReplyTimeout = time.Second * 10
 
-	defaultTdcMaxConcurrentQuery      = 32
-	defaultLazyConnMaxConcurrentQuery = 16
+	defaultTdcMaxConcurrentQuery = 32
+	defaultMaxLazyConnQueue      = 16
 )
 
 // One method MUST be called in ReservedExchanger.
