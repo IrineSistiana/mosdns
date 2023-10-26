@@ -87,7 +87,7 @@ func (t *ReuseConnTransport) ExchangeContext(ctx context.Context, m []byte) (*[]
 		}
 		if c == nil {
 			isNewConn = true
-			c, err = t.wantNewConn(ctx)
+			c, err = t.getNewConn(ctx)
 			if err != nil {
 				return nil, err
 			}
@@ -128,7 +128,9 @@ func (t *ReuseConnTransport) ExchangeContext(ctx context.Context, m []byte) (*[]
 	}
 }
 
-func (t *ReuseConnTransport) wantNewConn(ctx context.Context) (*reusableConn, error) {
+// getNewConn dial a *reusableConn.
+// The caller must call releaseReusableConn to release the reusableConn.
+func (t *ReuseConnTransport) getNewConn(ctx context.Context) (*reusableConn, error) {
 	type dialRes struct {
 		c   *reusableConn
 		err error
@@ -136,11 +138,11 @@ func (t *ReuseConnTransport) wantNewConn(ctx context.Context) (*reusableConn, er
 
 	dialChan := make(chan dialRes)
 	go func() {
-		ctx, cancel := context.WithTimeout(t.ctx, t.dialTimeout)
-		defer cancel()
+		dialCtx, cancelDial := context.WithTimeout(t.ctx, t.dialTimeout)
+		defer cancelDial()
 
 		var rc *reusableConn
-		c, err := t.dialFunc(ctx)
+		c, err := t.dialFunc(dialCtx)
 		if err != nil {
 			t.logger.Check(zap.WarnLevel, "fail to dial reusable conn").Write(zap.Error(err))
 		}
@@ -151,8 +153,8 @@ func (t *ReuseConnTransport) wantNewConn(ctx context.Context) (*reusableConn, er
 
 		select {
 		case dialChan <- dialRes{c: rc, err: err}:
-		case <-ctx.Done():
-			if rc != nil {
+		case <-ctx.Done(): // caller canceled getNewConn() call
+			if rc != nil { // put this conn to pool
 				t.releaseReusableConn(rc, false)
 			}
 		}
