@@ -22,9 +22,10 @@ package domain
 import (
 	"errors"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 	"regexp"
 	"strings"
+
+	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 )
 
 var _ WriteableMatcher[any] = (*MixMatcher[any])(nil)
@@ -45,8 +46,7 @@ func (m *SubDomainMatcher[T]) Match(s string) (T, bool) {
 	s = NormalizeDomain(s)
 	ds := NewReverseDomainScanner(s)
 	currentNode := m.root
-	var v T
-	var ok bool
+	v, ok := currentNode.getValue()
 	for ds.Scan() {
 		label := ds.NextLabel()
 		if nextNode := currentNode.getChild(label); nextNode != nil {

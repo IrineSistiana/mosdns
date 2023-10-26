@@ -90,6 +90,10 @@ func TestDomainMatcher(t *testing.T) {
 	// test case-insensitive
 	add("UPpER", 1)
 	assert("LowER.Upper", true, 1)
+
+	// root match
+	add(".", 9)
+	assert("any.domain", true, 9)
 }
 
 func assertInt(t testing.TB, want, got int) {
