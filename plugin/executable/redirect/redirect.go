@@ -23,14 +23,15 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"strings"
+
 	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/matcher/domain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
-	"os"
-	"strings"
 )
 
 const PluginType = "redirect"
@@ -99,6 +100,9 @@ func (r *Redirect) Exec(ctx context.Context, qCtx *query_context.Context, next s
 	}
 
 	q.Question[0].Name = redirectTarget
+	defer func() {
+		q.Question[0].Name = orgQName
+	}()
 	err := next.ExecNext(ctx, qCtx)
 	if r := qCtx.R(); r != nil {
 		// Restore original query name.
