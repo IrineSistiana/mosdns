@@ -110,15 +110,17 @@ func (sp *Bootstrap) tryUpdate() {
 				start := time.Now()
 				addr, ttl, err := sp.updateAddr(ctx)
 				if err != nil {
-					sp.logger.Warn("failed to update bootstrap addr", zap.String("fqdn", sp.fqdn), zap.Error(err))
+					sp.logger.Check(zap.WarnLevel, "failed to update bootstrap addr").Write(
+						zap.String("fqdn", sp.fqdn),
+						zap.Error(err),
+					)
 					sp.nextUpdate = time.Now().Add(retryInterval)
 				} else {
 					updateInterval := time.Second * time.Duration(ttl)
 					if updateInterval < minimumUpdateInterval {
 						updateInterval = minimumUpdateInterval
 					}
-					sp.logger.Info(
-						"bootstrap addr updated",
+					sp.logger.Check(zap.DebugLevel, "bootstrap addr updated").Write(
 						zap.String("fqdn", sp.fqdn),
 						zap.Stringer("addr", addr),
 						zap.Duration("ttl", updateInterval),
