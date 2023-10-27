@@ -42,9 +42,10 @@ var _ DnsConn = (*TraditionalDnsConn)(nil)
 // TraditionalDnsConn is a low-level connection for traditional dns protocol, where
 // dns frames transport in a single and simple connection. (e.g. udp, tcp, tls)
 type TraditionalDnsConn struct {
-	TraditionalDnsConnOpts
-
-	c NetConn
+	c           NetConn
+	isTcp       bool
+	idleTimeout time.Duration
+	maxCq       int
 
 	closeOnce   sync.Once
 	closeNotify chan struct{}
@@ -78,11 +79,13 @@ type TraditionalDnsConnOpts struct {
 
 func NewDnsConn(opt TraditionalDnsConnOpts, conn NetConn) *TraditionalDnsConn {
 	dc := &TraditionalDnsConn{
-		TraditionalDnsConnOpts: opt,
-		c:                      conn,
-		closeNotify:            make(chan struct{}),
-		queue:                  make(map[uint32]chan *[]byte),
+		c:           conn,
+		isTcp:       opt.WithLengthHeader,
+		closeNotify: make(chan struct{}),
+		queue:       make(map[uint32]chan *[]byte),
 	}
+	setDefaultGZ(&dc.idleTimeout, opt.IdleTimeout, defaultIdleTimeout)
+	setDefaultGZ(&dc.maxCq, opt.MaxConcurrentQuery, defaultTdcMaxConcurrentQuery)
 
 	go dc.readLoop()
 	return dc
@@ -135,7 +138,7 @@ func (dc *TraditionalDnsConn) exchange(ctx context.Context, q []byte) (*[]byte, 
 
 func (dc *TraditionalDnsConn) writeQuery(q []byte, assignedQid uint16) error {
 	var payload *[]byte
-	if dc.WithLengthHeader {
+	if dc.isTcp {
 		var err error
 		payload, err = copyMsgWithLenHdr(q)
 		if err != nil {
@@ -152,7 +155,7 @@ func (dc *TraditionalDnsConn) writeQuery(q []byte, assignedQid uint16) error {
 }
 
 func (dc *TraditionalDnsConn) readResp() (payload *[]byte, err error) {
-	if dc.WithLengthHeader {
+	if dc.isTcp {
 		return dnsutils.ReadRawMsgFromTCP(dc.c)
 	}
 	return readMsgUdp(dc.c)
@@ -160,13 +163,9 @@ func (dc *TraditionalDnsConn) readResp() (payload *[]byte, err error) {
 
 // readLoop reads DnsConn until there was a read error.
 func (dc *TraditionalDnsConn) readLoop() {
-	idleTimeout := dc.IdleTimeout
-	if idleTimeout <= 0 {
-		idleTimeout = defaultIdleTimeout
-	}
 
 	for {
-		dc.c.SetReadDeadline(time.Now().Add(idleTimeout))
+		dc.c.SetReadDeadline(time.Now().Add(dc.idleTimeout))
 		r, err := dc.readResp()
 		if err != nil {
 			dc.CloseWithErr(fmt.Errorf("read err, %w", err)) // abort this connection.
@@ -261,14 +260,9 @@ func (dc *TraditionalDnsConn) ReserveNewQuery() (_ ReservedExchanger, closed boo
 		return nil, true
 	}
 
-	maxConcurrentQuery := dc.MaxConcurrentQuery
-	if maxConcurrentQuery <= 0 {
-		maxConcurrentQuery = defaultTdcMaxConcurrentQuery
-	}
-
 	dc.queueMu.Lock()
 	defer dc.queueMu.Unlock()
-	if len(dc.queue)+dc.reservedQuery >= maxConcurrentQuery {
+	if len(dc.queue)+dc.reservedQuery >= dc.maxCq {
 		return nil, false
 	}
 	dc.reservedQuery++
