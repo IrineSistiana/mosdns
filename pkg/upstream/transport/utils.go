@@ -22,7 +22,6 @@ package transport
 import (
 	"encoding/binary"
 	"io"
-	"sync"
 
 	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
 	"github.com/miekg/dns"
@@ -49,24 +48,6 @@ func copyMsg(m []byte) *[]byte {
 	bp := pool.GetBuf(len(m))
 	copy((*bp), m)
 	return bp
-}
-
-var respChanPool = sync.Pool{
-	New: func() any {
-		return make(chan *[]byte, 1)
-	},
-}
-
-func getRespChan() chan *[]byte {
-	return respChanPool.Get().(chan *[]byte)
-}
-func releaseRespChan(c chan *[]byte) {
-	select {
-	case payload := <-c:
-		ReleaseResp(payload)
-	default:
-	}
-	respChanPool.Put(c)
 }
 
 // readMsgUdp reads dns frame from r. r typically should be a udp connection.

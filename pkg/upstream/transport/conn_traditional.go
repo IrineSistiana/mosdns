@@ -103,7 +103,7 @@ func (dc *TraditionalDnsConn) exchange(ctx context.Context, q []byte) (*[]byte, 
 	if respChan == nil {
 		return nil, ErrTDCTooManyQueries
 	}
-	defer dc.deleteQueueC(assignedQid, respChan)
+	defer dc.deleteQueueC(assignedQid)
 
 	// Reminder: Set write deadline here is not very useful to avoid dead connections.
 	// Typically, a write operation will time out only if its socket buffer is full.
@@ -229,7 +229,7 @@ func (dc *TraditionalDnsConn) queueLen() int {
 // It returns a nil c if queue has too many queries.
 // Caller must call deleteQueueC to release the qid in queue.
 func (dc *TraditionalDnsConn) addQueueC() (qid uint16, c chan *[]byte) {
-	c = getRespChan()
+	c = make(chan *[]byte)
 	dc.queueMu.Lock()
 	for i := 0; i < 100; i++ {
 		qid = dc.nextQid
@@ -244,15 +244,13 @@ func (dc *TraditionalDnsConn) addQueueC() (qid uint16, c chan *[]byte) {
 	dc.queueMu.Unlock()
 
 	// Too many queries in queue. Can't assign qid.
-	releaseRespChan(c)
 	return 0, nil
 }
 
-func (dc *TraditionalDnsConn) deleteQueueC(qid uint16, c chan *[]byte) {
+func (dc *TraditionalDnsConn) deleteQueueC(qid uint16) {
 	dc.queueMu.Lock()
 	delete(dc.queue, uint32(qid))
 	dc.queueMu.Unlock()
-	releaseRespChan(c)
 }
 
 func (dc *TraditionalDnsConn) ReserveNewQuery() (_ ReservedExchanger, closed bool) {
