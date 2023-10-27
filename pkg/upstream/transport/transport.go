@@ -43,8 +43,7 @@ const (
 	defaultIdleTimeout = time.Second * 10
 	defaultDialTimeout = time.Second * 5
 
-	// Most servers will send SERVFAIL after 3s/5s.
-	reuseConnQueryTimeout = time.Second * 6
+
 	quicQueryTimeout      = time.Second * 6
 
 	// If a pipeline connection sent a query but did not see any reply (include replies that

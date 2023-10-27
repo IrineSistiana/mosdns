@@ -41,11 +41,16 @@ type dummyEchoNetConn struct {
 	rErrProb float64
 	rLatency time.Duration
 	wErrProb float64
+
+	closeOnce   sync.Once
+	closeNotify chan struct{}
 }
 
 func newDummyEchoNetConn(rErrProb float64, rLatency time.Duration, wErrProb float64) NetConn {
 	c1, c2 := net.Pipe()
 	go func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		defer c1.Close()
 		defer c2.Close()
 		for {
@@ -53,6 +58,15 @@ func newDummyEchoNetConn(rErrProb float64, rLatency time.Duration, wErrProb floa
 			if m != nil {
 				go func() {
 					defer pool.ReleaseBuf(m)
+					if rLatency > 0 {
+						t := time.NewTimer(rLatency)
+						defer t.Stop()
+						select {
+						case <-t.C:
+						case <-ctx.Done():
+							return
+						}
+					}
 					latency := time.Millisecond * time.Duration(rand.Intn(20))
 					time.Sleep(latency)
 					_, _ = dnsutils.WriteRawMsgToTCP(c2, *m)
@@ -64,10 +78,11 @@ func newDummyEchoNetConn(rErrProb float64, rLatency time.Duration, wErrProb floa
 		}
 	}()
 	return &dummyEchoNetConn{
-		Conn:     c1,
-		rErrProb: rErrProb,
-		rLatency: rLatency,
-		wErrProb: wErrProb,
+		Conn:        c1,
+		rErrProb:    rErrProb,
+		rLatency:    rLatency,
+		wErrProb:    wErrProb,
+		closeNotify: make(chan struct{}),
 	}
 }
 
@@ -76,9 +91,6 @@ func probTrue(p float64) bool {
 }
 
 func (d *dummyEchoNetConn) Read(p []byte) (n int, err error) {
-	if d.rLatency > 0 {
-		time.Sleep(d.rLatency)
-	}
 	if probTrue(d.rErrProb) {
 		return 0, errors.New("read err")
 	}
@@ -90,6 +102,13 @@ func (d *dummyEchoNetConn) Write(p []byte) (n int, err error) {
 		return 0, errors.New("write err")
 	}
 	return d.Conn.Write(p)
+}
+
+func (d *dummyEchoNetConn) Close() error {
+	d.closeOnce.Do(func() {
+		close(d.closeNotify)
+	})
+	return d.Conn.Close()
 }
 
 func Test_dnsConn_exchange(t *testing.T) {
