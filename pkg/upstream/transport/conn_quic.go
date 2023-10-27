@@ -10,6 +10,10 @@ import (
 	"github.com/quic-go/quic-go"
 )
 
+const (
+	quicQueryTimeout = time.Second * 6
+)
+
 var _ DnsConn = (*QuicDnsConn)(nil)
 
 type QuicDnsConn struct {
@@ -46,7 +50,11 @@ type quicReservedExchanger struct {
 var _ ReservedExchanger = (*quicReservedExchanger)(nil)
 
 func (ote *quicReservedExchanger) ExchangeReserved(ctx context.Context, q []byte) (resp *[]byte, err error) {
-	defer ote.WithdrawReserved()
+	stream := ote.stream
+	defer func() {
+		stream.CancelRead(0)
+		stream.Close()
+	}()
 
 	payload, err := copyMsgWithLenHdr(q)
 	if err != nil {
@@ -61,18 +69,28 @@ func (ote *quicReservedExchanger) ExchangeReserved(ctx context.Context, q []byte
 	orgQid := binary.BigEndian.Uint16((*payload)[2:])
 	binary.BigEndian.PutUint16((*payload)[2:], 0)
 
-	// TODO: use single goroutine.
-	// See RFC9250 4.3.1. Transaction Cancellation
+	stream.SetDeadline(time.Now().Add(quicQueryTimeout))
+	_, err = stream.Write(*payload)
+	pool.ReleaseBuf(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	// RFC 9250 4.2
+	//    The client MUST send the DNS query over the selected stream and MUST
+	//    indicate through the STREAM FIN mechanism that no further data will
+	//    be sent on that stream.
+	//
+	// Call Close() here will send the STREAM FIN. It won't close Read.
+	stream.Close()
+
 	type res struct {
 		resp *[]byte
 		err  error
 	}
 	rc := make(chan res, 1)
 	go func() {
-		defer func() {
-			pool.ReleaseBuf(payload)
-		}()
-		r, err := exchangeTroughQuicStream(ote.stream, *payload)
+		r, err := dnsutils.ReadRawMsgFromTCP(stream)
 		rc <- res{resp: r, err: err}
 	}()
 
@@ -91,24 +109,6 @@ func (ote *quicReservedExchanger) ExchangeReserved(ctx context.Context, q []byte
 
 func (ote *quicReservedExchanger) WithdrawReserved() {
 	s := ote.stream
+	s.CancelRead(0)
 	s.Close()
-	s.CancelRead(0) // TODO: Needs a proper error code.
-}
-
-func exchangeTroughQuicStream(s quic.Stream, payload []byte) (*[]byte, error) {
-	s.SetDeadline(time.Now().Add(quicQueryTimeout))
-
-	_, err := s.Write(payload)
-	if err != nil {
-		return nil, err
-	}
-
-	// RFC 9250 4.2
-	//    The client MUST send the DNS query over the selected stream and MUST
-	//    indicate through the STREAM FIN mechanism that no further data will
-	//    be sent on that stream.
-	//
-	// Call Close() here will send the STREAM FIN. It won't close Read.
-	s.Close()
-	return dnsutils.ReadRawMsgFromTCP(s)
 }

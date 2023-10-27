@@ -43,9 +43,6 @@ const (
 	defaultIdleTimeout = time.Second * 10
 	defaultDialTimeout = time.Second * 5
 
-
-	quicQueryTimeout      = time.Second * 6
-
 	// If a pipeline connection sent a query but did not see any reply (include replies that
 	// for other queries) from the server after waitingReplyTimeout. It assumes that
 	// something goes wrong with the connection or the server. The connection will be closed.
