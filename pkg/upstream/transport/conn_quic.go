@@ -14,6 +14,13 @@ const (
 	quicQueryTimeout = time.Second * 6
 )
 
+const (
+	// RFC 9250 4.3. DoQ Error Codes
+	_DOQ_NO_ERROR          = quic.StreamErrorCode(0x0)
+	_DOQ_INTERNAL_ERROR    = quic.StreamErrorCode(0x1)
+	_DOQ_REQUEST_CANCELLED = quic.StreamErrorCode(0x3)
+)
+
 var _ DnsConn = (*QuicDnsConn)(nil)
 
 type QuicDnsConn struct {
@@ -51,13 +58,11 @@ var _ ReservedExchanger = (*quicReservedExchanger)(nil)
 
 func (ote *quicReservedExchanger) ExchangeReserved(ctx context.Context, q []byte) (resp *[]byte, err error) {
 	stream := ote.stream
-	defer func() {
-		stream.CancelRead(0)
-		stream.Close()
-	}()
 
 	payload, err := copyMsgWithLenHdr(q)
 	if err != nil {
+		stream.CancelWrite(_DOQ_REQUEST_CANCELLED)
+		stream.CancelRead(_DOQ_REQUEST_CANCELLED)
 		return nil, err
 	}
 
@@ -73,6 +78,8 @@ func (ote *quicReservedExchanger) ExchangeReserved(ctx context.Context, q []byte
 	_, err = stream.Write(*payload)
 	pool.ReleaseBuf(payload)
 	if err != nil {
+		stream.CancelRead(_DOQ_REQUEST_CANCELLED)
+		stream.CancelWrite(_DOQ_REQUEST_CANCELLED)
 		return nil, err
 	}
 
@@ -96,6 +103,7 @@ func (ote *quicReservedExchanger) ExchangeReserved(ctx context.Context, q []byte
 
 	select {
 	case <-ctx.Done():
+		stream.CancelRead(_DOQ_REQUEST_CANCELLED)
 		return nil, context.Cause(ctx)
 	case r := <-rc:
 		resp := r.resp
@@ -103,12 +111,13 @@ func (ote *quicReservedExchanger) ExchangeReserved(ctx context.Context, q []byte
 		if resp != nil {
 			binary.BigEndian.PutUint16((*resp), orgQid)
 		}
+		stream.CancelRead(_DOQ_NO_ERROR)
 		return resp, err
 	}
 }
 
 func (ote *quicReservedExchanger) WithdrawReserved() {
 	s := ote.stream
-	s.CancelRead(0)
-	s.Close()
+	s.CancelRead(_DOQ_REQUEST_CANCELLED)
+	s.CancelWrite(_DOQ_REQUEST_CANCELLED)
 }
