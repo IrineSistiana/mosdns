@@ -529,8 +529,9 @@ func NewUpstream(addr string, opt Opt) (_ Upstream, err error) {
 		}
 
 		return transport.NewPipelineTransport(transport.PipelineOpts{
-			DialContext:                    dialDnsConn,
-			MaxConcurrentQueryWhileDialing: 32,
+			DialContext: dialDnsConn,
+			// Quic rfc recommendation is 100. Some implications use 65535.
+			MaxConcurrentQueryWhileDialing: 90,
 			Logger:                         opt.Logger,
 		}), nil
 	default:
