@@ -34,8 +34,8 @@ import (
 
 const (
 	defaultQuicIdleTimeout = time.Second * 30
-	streamReadTimeout      = time.Second * 1
-	quicFirstReadTimeout   = time.Millisecond * 500
+	streamReadTimeout      = time.Second * 2
+	quicFirstReadTimeout   = time.Second * 2
 )
 
 type DoQServerOpts struct {

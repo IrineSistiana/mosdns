@@ -34,7 +34,7 @@ import (
 
 const (
 	defaultTCPIdleTimeout = time.Second * 10
-	tcpFirstReadTimeout   = time.Millisecond * 500
+	tcpFirstReadTimeout   = time.Second * 2
 )
 
 type TCPServerOpts struct {
