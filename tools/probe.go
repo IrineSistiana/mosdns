@@ -23,13 +23,14 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"fmt"
+	"net"
+	"strconv"
+	"time"
+
 	"github.com/IrineSistiana/mosdns/v5/mlog"
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 	"github.com/miekg/dns"
 	"github.com/spf13/cobra"
-	"net"
-	"strconv"
-	"time"
 )
 
 func newIdleTimeoutCmd() *cobra.Command {
@@ -159,21 +160,20 @@ func ProbServerPipeline(addr string) error {
 		return err
 	}
 	defer conn.Close()
+
 	domains := make([]string, 0)
-	for i := 0; i < 4; i++ {
-		b := make([]byte, 8)
-		if _, err := rand.Read(b); err != nil {
-			return err
-		}
-		domains = append(domains, fmt.Sprintf("www.%x.com.", b))
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return err
 	}
-	domains = append(domains, "www.cloudflare.com.")
+	domains = append(domains, fmt.Sprintf("%x.com.", b))
+	domains = append(domains, ".")
 
 	for i, d := range domains {
-		conn.SetDeadline(time.Now().Add(time.Second * 10))
+		conn.SetDeadline(time.Now().Add(time.Second * 3))
 
 		q := new(dns.Msg)
-		q.SetQuestion(d, dns.TypeA)
+		q.SetQuestion(d, dns.TypeNS)
 		q.Id = uint16(i)
 
 		err = conn.WriteMsg(q)
