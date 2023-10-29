@@ -1,0 +1,9 @@
+*
+!go.mod
+!go.sum
+!coremain
+!mlog
+!main.go
+!pkg
+!plugin
+!tools
