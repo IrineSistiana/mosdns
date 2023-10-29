@@ -21,10 +21,10 @@ package tools
 
 import (
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v4/mlog"
-	"github.com/IrineSistiana/mosdns/v4/pkg/matcher/domain"
-	"github.com/IrineSistiana/mosdns/v4/pkg/matcher/netlist"
-	"github.com/IrineSistiana/mosdns/v4/pkg/matcher/v2data"
+	"github.com/sieveLau/mosdns/v4-maintenance/mlog"
+	"github.com/sieveLau/mosdns/v4-maintenance/pkg/matcher/domain"
+	"github.com/sieveLau/mosdns/v4-maintenance/pkg/matcher/netlist"
+	"github.com/sieveLau/mosdns/v4-maintenance/pkg/matcher/v2data"
 	"github.com/spf13/cobra"
 	"io"
 	"net"

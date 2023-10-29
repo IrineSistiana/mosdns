@@ -1,4 +1,4 @@
-module github.com/IrineSistiana/mosdns/v4
+module github.com/sieveLau/mosdns/v4-maintenance
 
 go 1.21
 

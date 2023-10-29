@@ -20,7 +20,7 @@
 package coremain
 
 import (
-	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
+	"github.com/sieveLau/mosdns/v4-maintenance/pkg/executable_seq"
 	"io"
 )
 

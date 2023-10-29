@@ -21,8 +21,8 @@ package blackhole
 
 import (
 	"context"
-	"github.com/IrineSistiana/mosdns/v4/coremain"
-	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
+	"github.com/sieveLau/mosdns/v4-maintenance/coremain"
+	"github.com/sieveLau/mosdns/v4-maintenance/pkg/query_context"
 	"github.com/miekg/dns"
 	"net"
 	"testing"

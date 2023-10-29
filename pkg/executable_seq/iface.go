@@ -21,7 +21,7 @@ package executable_seq
 
 import (
 	"context"
-	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
+	"github.com/sieveLau/mosdns/v4-maintenance/pkg/query_context"
 )
 
 // Executable represents something that is executable.

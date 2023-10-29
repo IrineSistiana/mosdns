@@ -21,11 +21,11 @@ package msg_matcher
 
 import (
 	"context"
-	"github.com/IrineSistiana/mosdns/v4/pkg/dnsutils"
-	"github.com/IrineSistiana/mosdns/v4/pkg/matcher/domain"
-	"github.com/IrineSistiana/mosdns/v4/pkg/matcher/elem"
-	"github.com/IrineSistiana/mosdns/v4/pkg/matcher/netlist"
-	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
+	"github.com/sieveLau/mosdns/v4-maintenance/pkg/dnsutils"
+	"github.com/sieveLau/mosdns/v4-maintenance/pkg/matcher/domain"
+	"github.com/sieveLau/mosdns/v4-maintenance/pkg/matcher/elem"
+	"github.com/sieveLau/mosdns/v4-maintenance/pkg/matcher/netlist"
+	"github.com/sieveLau/mosdns/v4-maintenance/pkg/query_context"
 	"github.com/miekg/dns"
 	"net"
 	"net/netip"

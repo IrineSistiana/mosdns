@@ -20,9 +20,9 @@
 package coremain
 
 import (
-	"github.com/IrineSistiana/mosdns/v4/mlog"
-	"github.com/IrineSistiana/mosdns/v4/pkg/data_provider"
-	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
+	"github.com/sieveLau/mosdns/v4-maintenance/mlog"
+	"github.com/sieveLau/mosdns/v4-maintenance/pkg/data_provider"
+	"github.com/sieveLau/mosdns/v4-maintenance/pkg/utils"
 )
 
 type Config struct {

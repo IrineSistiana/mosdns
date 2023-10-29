@@ -22,11 +22,11 @@ package hosts
 import (
 	"bytes"
 	"context"
-	"github.com/IrineSistiana/mosdns/v4/coremain"
-	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
-	"github.com/IrineSistiana/mosdns/v4/pkg/hosts"
-	"github.com/IrineSistiana/mosdns/v4/pkg/matcher/domain"
-	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
+	"github.com/sieveLau/mosdns/v4-maintenance/coremain"
+	"github.com/sieveLau/mosdns/v4-maintenance/pkg/executable_seq"
+	"github.com/sieveLau/mosdns/v4-maintenance/pkg/hosts"
+	"github.com/sieveLau/mosdns/v4-maintenance/pkg/matcher/domain"
+	"github.com/sieveLau/mosdns/v4-maintenance/pkg/query_context"
 	"io"
 )
 

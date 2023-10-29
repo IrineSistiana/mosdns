@@ -21,7 +21,7 @@ package coremain
 
 import (
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v4/mlog"
+	"github.com/sieveLau/mosdns/v4-maintenance/mlog"
 	"github.com/kardianos/service"
 	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/cobra"

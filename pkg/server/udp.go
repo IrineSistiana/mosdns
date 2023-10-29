@@ -22,9 +22,9 @@ package server
 import (
 	"context"
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v4/pkg/pool"
-	"github.com/IrineSistiana/mosdns/v4/pkg/query_context"
-	"github.com/IrineSistiana/mosdns/v4/pkg/utils"
+	"github.com/sieveLau/mosdns/v4-maintenance/pkg/pool"
+	"github.com/sieveLau/mosdns/v4-maintenance/pkg/query_context"
+	"github.com/sieveLau/mosdns/v4-maintenance/pkg/utils"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"io"

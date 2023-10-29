@@ -20,7 +20,7 @@
 package tools
 
 import (
-	"github.com/IrineSistiana/mosdns/v4/mlog"
+	"github.com/sieveLau/mosdns/v4-maintenance/mlog"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"strings"

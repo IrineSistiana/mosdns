@@ -21,7 +21,7 @@ package fastforward
 
 import (
 	"context"
-	"github.com/IrineSistiana/mosdns/v4/pkg/dnsutils"
+	"github.com/sieveLau/mosdns/v4-maintenance/pkg/dnsutils"
 	"net"
 	"time"
 
