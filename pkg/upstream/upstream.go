@@ -91,7 +91,7 @@ type Opt struct {
 	IdleTimeout time.Duration
 
 	// EnablePipeline enables query pipelining support as RFC 7766 6.2.1.1 suggested.
-	// Available for TCP, DoT upstream with IdleTimeout >= 0.
+	// Available for TCP, DoT upstream.
 	// Note: There is no fallback. Make sure the server supports it.
 	EnablePipeline bool
 
@@ -121,8 +121,12 @@ type Opt struct {
 }
 
 // NewUpstream creates a upstream.
-// addr has the format of: [protocol://]host[:port][/path]
+// addr has the format of: [protocol://]host[:port][/path].
 // Supported protocol: udp/tcp/tls/https/quic. Default protocol is udp.
+//
+// Helper protocol:
+//   - tcp+pipeline/tls+pipeline: Automatically set opt.EnablePipeline to true.
+//   - h3: Automatically set opt.EnableHTTP3 to true.
 func NewUpstream(addr string, opt Opt) (_ Upstream, err error) {
 	if opt.Logger == nil {
 		opt.Logger = mlog.Nop()
@@ -138,6 +142,16 @@ func NewUpstream(addr string, opt Opt) (_ Upstream, err error) {
 	addrURL, err := url.Parse(addr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid server address, %w", err)
+	}
+
+	// Apply helper protocol
+	switch addrURL.Scheme {
+	case "tcp+pipeline", "tls+pipeline":
+		addrURL.Scheme = addrURL.Scheme[:3]
+		opt.EnablePipeline = true
+	case "h3":
+		addrURL.Scheme = "https"
+		opt.EnableHTTP3 = true
 	}
 
 	// If host is a ipv6 without port, it will be in []. This will cause err when
@@ -453,7 +467,7 @@ func NewUpstream(addr string, opt Opt) (_ Upstream, err error) {
 			t = t1
 		}
 
-		u, err := doh.NewUpstream(addr, t, opt.Logger)
+		u, err := doh.NewUpstream(addrURL.String(), t, opt.Logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create doh upstream, %w", err)
 		}
