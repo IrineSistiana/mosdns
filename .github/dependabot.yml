@@ -8,4 +8,10 @@ updates:
   - package-ecosystem: "gomod" # See documentation for possible values
     directory: "/" # Location of package manifests
     schedule:
-      interval: "daily"
+      interval: "weekly"
+    groups:
+      # This is the name of your group, it will be used in PR titles and branch names
+      dependencies:
+        # A pattern can be...
+        patterns:
+          - '*'
