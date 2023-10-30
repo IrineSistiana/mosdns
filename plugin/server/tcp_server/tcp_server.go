@@ -24,6 +24,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/IrineSistiana/mosdns/v5/coremain"
@@ -86,7 +87,11 @@ func StartServer(bp *coremain.BP, args *Args) (*TcpServer, error) {
 		SO_RCVBUF:    64 * 1024,
 	}
 	lc := net.ListenConfig{Control: server_utils.ListenerControl(socketOpt)}
-	l, err := lc.Listen(context.Background(), "tcp", args.Listen)
+	listenerNetwork := "tcp"
+	if strings.HasPrefix(args.Listen, "@") {
+		listenerNetwork = "unix"
+	}
+	l, err := lc.Listen(context.Background(), listenerNetwork, args.Listen)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen socket, %w", err)
 	}

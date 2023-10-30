@@ -75,12 +75,6 @@ func ServeTCP(l net.Listener, h Handler, opts TCPServerOpts) error {
 			defer c.Close()
 			defer cancelConn(errConnectionCtxCanceled)
 
-			var clientAddr netip.Addr
-			ta, ok := c.RemoteAddr().(*net.TCPAddr)
-			if ok {
-				clientAddr = ta.AddrPort().Addr()
-			}
-
 			firstRead := true
 			for {
 				if firstRead {
@@ -102,6 +96,11 @@ func ServeTCP(l net.Listener, h Handler, opts TCPServerOpts) error {
 
 				// handle query
 				go func() {
+					var clientAddr netip.Addr
+					ta, ok := c.RemoteAddr().(*net.TCPAddr)
+					if ok {
+						clientAddr = ta.AddrPort().Addr()
+					}
 					r := h.Handle(tcpConnCtx, req, QueryMeta{ClientAddr: clientAddr, ServerName: serverName}, pool.PackTCPBuffer)
 					if r == nil {
 						c.Close() // abort the connection
