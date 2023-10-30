@@ -20,6 +20,7 @@
 package udp_server
 
 import (
+	"context"
 	"fmt"
 	"net"
 
@@ -64,7 +65,12 @@ func StartServer(bp *coremain.BP, args *Args) (*UdpServer, error) {
 		return nil, fmt.Errorf("failed to init dns handler, %w", err)
 	}
 
-	c, err := net.ListenPacket("udp", args.Listen)
+	socketOpt := server_utils.ListenerSocketOpts{
+		SO_REUSEPORT: true,
+		SO_RCVBUF:    64 * 1024,
+	}
+	lc := net.ListenConfig{Control: server_utils.ListenerControl(socketOpt)}
+	c, err := lc.ListenPacket(context.Background(), "udp", args.Listen)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create socket, %w", err)
 	}

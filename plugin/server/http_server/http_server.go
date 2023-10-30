@@ -20,7 +20,9 @@
 package tcp_server
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 
@@ -82,8 +84,17 @@ func StartServer(bp *coremain.BP, args *Args) (*HttpServer, error) {
 		mux.Handle(entry.Path, hh)
 	}
 
+	socketOpt := server_utils.ListenerSocketOpts{
+		SO_REUSEPORT: true,
+		SO_RCVBUF:    64 * 1024,
+	}
+	lc := net.ListenConfig{Control: server_utils.ListenerControl(socketOpt)}
+	l, err := lc.Listen(context.Background(), "tcp", args.Listen)
+	if err != nil {
+		return nil, fmt.Errorf("failed to listen socket, %w", err)
+	}
+
 	hs := &http.Server{
-		Addr:           args.Listen,
 		Handler:        mux,
 		ReadTimeout:    time.Second,
 		IdleTimeout:    time.Duration(args.IdleTimeout) * time.Second,
@@ -101,9 +112,9 @@ func StartServer(bp *coremain.BP, args *Args) (*HttpServer, error) {
 	go func() {
 		var err error
 		if len(args.Key)+len(args.Cert) > 0 {
-			err = hs.ListenAndServeTLS(args.Cert, args.Key)
+			err = hs.ServeTLS(l, args.Cert, args.Key)
 		} else {
-			err = hs.ListenAndServe()
+			err = hs.Serve(l)
 		}
 		bp.M().GetSafeClose().SendCloseSignal(err)
 	}()

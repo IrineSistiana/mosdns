@@ -20,6 +20,7 @@
 package tcp_server
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net"
@@ -79,7 +80,12 @@ func StartServer(bp *coremain.BP, args *Args) (*TcpServer, error) {
 		}
 	}
 
-	l, err := net.Listen("tcp", args.Listen)
+	socketOpt := server_utils.ListenerSocketOpts{
+		SO_REUSEPORT: true,
+		SO_RCVBUF:    64 * 1024,
+	}
+	lc := net.ListenConfig{Control: server_utils.ListenerControl(socketOpt)}
+	l, err := lc.Listen(context.Background(), "tcp", args.Listen)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen socket, %w", err)
 	}
