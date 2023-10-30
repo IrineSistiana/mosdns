@@ -30,6 +30,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v5/pkg/server"
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 	"github.com/IrineSistiana/mosdns/v5/plugin/server/server_utils"
+	"go.uber.org/zap"
 	"golang.org/x/net/http2"
 )
 
@@ -93,6 +94,7 @@ func StartServer(bp *coremain.BP, args *Args) (*HttpServer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen socket, %w", err)
 	}
+	bp.L().Info("http server started", zap.Stringer("addr", l.Addr()))
 
 	hs := &http.Server{
 		Handler:        mux,

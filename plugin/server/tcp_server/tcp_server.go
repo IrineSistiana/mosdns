@@ -30,6 +30,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v5/pkg/server"
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 	"github.com/IrineSistiana/mosdns/v5/plugin/server/server_utils"
+	"go.uber.org/zap"
 )
 
 const PluginType = "tcp_server"
@@ -92,6 +93,7 @@ func StartServer(bp *coremain.BP, args *Args) (*TcpServer, error) {
 	if tc != nil {
 		l = tls.NewListener(l, tc)
 	}
+	bp.L().Info("tcp server started", zap.Stringer("addr", l.Addr()), zap.Bool("tls", tc != nil))
 
 	go func() {
 		defer l.Close()
