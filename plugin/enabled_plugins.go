@@ -49,6 +49,7 @@ import (
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/executable/dual_selector"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/executable/ecs_handler"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/executable/forward"
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/executable/forward_edns0opt"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/executable/hosts"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/executable/ipset"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/executable/metrics_collector"
