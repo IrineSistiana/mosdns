@@ -267,16 +267,17 @@ func (c *reusableConn) readLoop() {
 			return
 		}
 
+		// This connection is idled again.
+		c.c.SetReadDeadline(time.Now().Add(c.t.idleTimeout))
+		// Note: calling setIdle before sending resp back to make sure this connection is idle
+		// before Exchange call returning. Otherwise, Test_ReuseConnTransport may fail.
+		c.t.setIdle(c)
+
 		select {
 		case respChan <- resp:
 		default:
 			panic("bug: respChan has buffer, we shouldn't reach here")
 		}
-
-		// this connection is idled again
-		c.c.SetReadDeadline(time.Now().Add(c.t.idleTimeout))
-		c.t.setIdle(c)
-
 	}
 }
 
