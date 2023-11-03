@@ -71,4 +71,7 @@ import (
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/server/quic_server"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/server/tcp_server"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/server/udp_server"
+
+	// ui
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/statistics/simple"
 )
