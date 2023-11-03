@@ -133,7 +133,7 @@ func makeHflags(h dns.MsgHdr) (flags []any) {
 func makeDnsMsg(m *dns.Msg) (data map[string][]any) {
 	data = make(map[string][]any)
 	data["flags"] = makeHflags(m.MsgHdr)
-	if len(m.Question) == 0 {
+	if len(m.Question) > 0 {
 		data["Question"] = []any{}
 		for _, q := range m.Question {
 			data["Question"] = append(data["Question"], makeQuestion(q))
