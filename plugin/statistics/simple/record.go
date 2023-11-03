@@ -15,14 +15,6 @@ var recordPool = sync.Pool{
 	},
 }
 
-func NewRecord() *record {
-	r := recordPool.Get()
-	if r == nil {
-		return &record{}
-	}
-	return r.(*record)
-}
-
 type record struct {
 	ID       uint32
 	StartAt  time.Time
@@ -36,10 +28,8 @@ type record struct {
 
 	Consuming string
 
-	QueryFlags []string `json:",omitempty"`
-	RespFlags  []string `json:",omitempty"`
-	Op         string   `json:",omitempty"`
-	Status     string   `json:",omitempty"`
+	Op     string `json:",omitempty"`
+	Status string `json:",omitempty"`
 
 	QOpt      string `json:",omitempty"`
 	ClientOpt string `json:",omitempty"`
@@ -58,6 +48,9 @@ func (m *record) release() {
 	m.ForwardName = ""
 	m.Fallback = 0
 	m.CacheID = 0
+
+	m.QOpt = ""
+	m.ClientOpt = ""
 
 	recordPool.Put(m)
 }
@@ -164,7 +157,6 @@ func makeDnsMsg(m *dns.Msg) (data map[string][]any) {
 			data["Extra"] = append(data["Extra"], makeRR(extra))
 		}
 	}
-
 	return
 }
 

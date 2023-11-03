@@ -21,6 +21,7 @@ package simple
 
 import (
 	"container/list"
+	"time"
 
 	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
@@ -28,9 +29,9 @@ import (
 	"go.uber.org/zap"
 )
 
-const PluginType = "ui_simple"
+const PluginType = "statistics_simple"
 
-var _ sequence.RecursiveExecutable = (*UiServer)(nil)
+var _ sequence.RecursiveExecutable = (*simpleServer)(nil)
 
 func init() {
 	coremain.RegNewPluginFunc(PluginType, Init, func() any { return new(Args) })
@@ -46,10 +47,10 @@ type Args struct {
 
 func (a *Args) init() {
 	utils.SetDefaultUnsignNum(&a.Size, 128)
-	utils.SetDefaultUnsignNum(&a.Size, 5)
+	utils.SetDefaultUnsignNum(&a.WebHookTimeout, 5)
 }
 
-type UiServer struct {
+type simpleServer struct {
 	args   *Args
 	logger *zap.Logger
 
@@ -57,24 +58,29 @@ type UiServer struct {
 }
 
 func Init(bp *coremain.BP, args any) (any, error) {
-	c := NewUiServer(args.(*Args), bp.L())
-	bp.RegAPI(c.Api())
-	return c, nil
+	ss, err := NewUiServer(args.(*Args), bp.L())
+	if err != nil {
+		return nil, err
+	}
+	bp.RegAPI(ss.Api())
+	return ss, nil
 }
 
-func NewUiServer(args *Args, l *zap.Logger) *UiServer {
+func NewUiServer(args *Args, l *zap.Logger) (ss *simpleServer, err error) {
 	args.init()
+
+	httpClient.Timeout = time.Second * time.Duration(args.WebHookTimeout)
 
 	logger := l
 	if logger == nil {
 		logger = zap.NewNop()
 	}
 
-	p := &UiServer{
+	ss = &simpleServer{
 		backend: list.New(),
 		args:    args,
 		logger:  logger,
 	}
 
-	return p
+	return
 }

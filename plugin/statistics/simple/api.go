@@ -8,13 +8,13 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-func (c *UiServer) Api() *chi.Mux {
+func (c *simpleServer) Api() *chi.Mux {
 	r := chi.NewRouter()
 	r.Get("/statistics", c.statistics)
 	return r
 }
 
-func (c *UiServer) statistics(w http.ResponseWriter, r *http.Request) {
+func (c *simpleServer) statistics(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(200)
 	if _, ok := w.(http.Flusher); !ok {
