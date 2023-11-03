@@ -13,8 +13,20 @@ import (
 	"go.uber.org/zap"
 )
 
-func (m *UiServer) Exec(ctx context.Context, qCtx *query_context.Context, next sequence.ChainWalker) (err error) {
-	record := NewRecord()
+var (
+	httpClient = &http.Client{
+		Transport: &http.Transport{
+			TLSHandshakeTimeout: time.Second * 5,
+			IdleConnTimeout:     time.Second * 60,
+			MaxIdleConns:        5,
+			MaxIdleConnsPerHost: 5,
+			DisableCompression:  true,
+		},
+	}
+)
+
+func (m *simpleServer) Exec(ctx context.Context, qCtx *query_context.Context, next sequence.ChainWalker) (err error) {
+	record := recordPool.Get().(*record)
 	defer record.release()
 
 	record.SetQuery(qCtx)
@@ -31,7 +43,7 @@ func (m *UiServer) Exec(ctx context.Context, qCtx *query_context.Context, next s
 	return
 }
 
-func (m *UiServer) push(d []byte) {
+func (m *simpleServer) push(d []byte) {
 	if m.backend.Len() > m.args.Size {
 		_ = m.backend.Remove(m.backend.Front())
 	}
@@ -39,17 +51,13 @@ func (m *UiServer) push(d []byte) {
 	m.send(d)
 }
 
-func (m *UiServer) send(d []byte) (err error) {
+func (m *simpleServer) send(d []byte) (err error) {
 	if m.args.WebHook == "" {
 		return
 	}
-
-	client := &http.Client{
-		Timeout: time.Second * time.Duration(m.args.WebHookTimeout),
-	}
-	resp, err := client.Post(m.args.WebHook, "application/json", bytes.NewBuffer(d))
+	resp, err := httpClient.Post(m.args.WebHook, "application/json", bytes.NewBuffer(d))
 	if err != nil {
-		m.logger.Debug("HTTP request failed", zap.String("request URL", m.args.WebHook))
+		m.logger.Debug("HTTP request failed", zap.Error(err))
 		return
 	}
 
