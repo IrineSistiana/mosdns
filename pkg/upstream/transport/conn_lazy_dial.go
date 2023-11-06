@@ -133,10 +133,15 @@ type lazyDnsConnEarlyReservedExchanger lazyDnsConn
 var _ ReservedExchanger = (*lazyDnsConnEarlyReservedExchanger)(nil)
 
 func (ote *lazyDnsConnEarlyReservedExchanger) ExchangeReserved(ctx context.Context, q []byte) (resp *[]byte, err error) {
-	defer ote.WithdrawReserved()
+	defer func() {
+		ote.mu.Lock()
+		ote.reservedQuery--
+		ote.mu.Unlock()
+	}()
 
 	select {
 	case <-ctx.Done():
+		ote.earlyReserveCallWg.Done()
 		return nil, context.Cause(ctx)
 	case <-ote.dialFinished:
 		dc, err := ote.c, ote.dialErr
@@ -153,7 +158,8 @@ func (ote *lazyDnsConnEarlyReservedExchanger) ExchangeReserved(ctx context.Conte
 }
 
 func (ote *lazyDnsConnEarlyReservedExchanger) WithdrawReserved() {
+	ote.earlyReserveCallWg.Done()
 	ote.mu.Lock()
-	defer ote.mu.Unlock()
 	ote.reservedQuery--
+	ote.mu.Unlock()
 }
