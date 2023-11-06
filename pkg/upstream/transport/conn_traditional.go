@@ -179,10 +179,10 @@ func (dc *TraditionalDnsConn) readLoop() {
 			select {
 			case resChan <- r: // resChan has buffer
 			default:
-				ReleaseResp(r)
+				pool.ReleaseBuf(r)
 			}
 		} else {
-			ReleaseResp(r)
+			pool.ReleaseBuf(r)
 		}
 	}
 }

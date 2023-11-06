@@ -24,8 +24,6 @@ import (
 	"errors"
 	"io"
 	"time"
-
-	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
 )
 
 var (
@@ -34,10 +32,6 @@ var (
 	ErrNewConnCannotReserveQueryExchanger  = errors.New("new connection failed to reserve query exchanger")
 	ErrLazyConnCannotReserveQueryExchanger = errors.New("lazy connection failed to reserve query exchanger")
 )
-
-func ReleaseResp(b *[]byte) {
-	pool.ReleaseBuf(b)
-}
 
 const (
 	defaultIdleTimeout = time.Second * 10

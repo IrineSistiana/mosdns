@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/IrineSistiana/mosdns/v5/mlog"
+	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
 	"github.com/IrineSistiana/mosdns/v5/pkg/upstream/bootstrap"
 	"github.com/IrineSistiana/mosdns/v5/pkg/upstream/doh"
 	"github.com/IrineSistiana/mosdns/v5/pkg/upstream/transport"
@@ -567,7 +568,7 @@ func (u *udpWithFallback) ExchangeContext(ctx context.Context, q []byte) (*[]byt
 		return nil, err
 	}
 	if msgTruncated(*r) {
-		transport.ReleaseResp(r)
+		pool.ReleaseBuf(r)
 		return u.t.ExchangeContext(ctx, q)
 	}
 	return r, nil

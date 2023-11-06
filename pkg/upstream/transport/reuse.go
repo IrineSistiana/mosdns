@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/IrineSistiana/mosdns/v5/pkg/dnsutils"
+	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
 	"go.uber.org/zap"
 )
 
@@ -262,7 +263,7 @@ func (c *reusableConn) readLoop() {
 		c.m.Unlock()
 
 		if respChan == nil {
-			ReleaseResp(resp)
+			pool.ReleaseBuf(resp)
 			c.closeWithErr(errUnexpectedResp)
 			return
 		}
