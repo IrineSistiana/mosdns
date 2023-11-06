@@ -285,6 +285,7 @@ func (f *Forward) exchange(ctx context.Context, qCtx *query_context.Context, us 
 			} else {
 				r = new(dns.Msg)
 				err = r.Unpack(*respPayload)
+				pool.ReleaseBuf(respPayload)
 				if err != nil {
 					r = nil
 				}
