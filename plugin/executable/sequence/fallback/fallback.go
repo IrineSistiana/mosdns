@@ -29,6 +29,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
+	"github.com/IrineSistiana/mosdns/v5/plugin/statistics"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 )
@@ -131,6 +132,7 @@ func (f *fallback) doFallback(ctx context.Context, qCtx *query_context.Context) 
 			close(primDone)
 			respChan <- r
 		}
+		qCtx.StoreValue(statistics.FallbackStoreKey, uint(1))
 	}()
 
 	// Secondary goroutine.
@@ -168,6 +170,7 @@ func (f *fallback) doFallback(ctx context.Context, qCtx *query_context.Context) 
 			}
 		}
 		respChan <- r
+		qCtx.StoreValue(statistics.FallbackStoreKey, uint(2))
 	}()
 
 	for i := 0; i < 2; i++ {
