@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"go.uber.org/zap"
 )
 
 func (c *simpleServer) Api() *chi.Mux {
@@ -17,41 +18,34 @@ func (c *simpleServer) Api() *chi.Mux {
 func (c *simpleServer) statistics(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(200)
-	if _, ok := w.(http.Flusher); !ok {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
 		w.Write([]byte("Unsupported connection method"))
 		return
 	}
-	requestOver := make(chan struct{})
 
-	go func() {
-		select {
-		case <-requestOver:
-		case <-r.Context().Done():
-		}
-
-	}()
-
-	var elem, lastElem *list.Element
+	var elem *list.Element // maybe nil
+	var lastElem *list.Element
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		default:
-			if elem != nil {
-				lastElem = elem
-				if _, err := w.Write(append(elem.Value.([]byte), '\n')); err != nil {
-					close(requestOver)
-					return
-				}
-				w.(http.Flusher).Flush()
-			} else {
-				time.Sleep(time.Second)
-			}
-
 			if lastElem != nil {
 				elem = lastElem.Next()
 			} else {
 				elem = c.backend.Front()
+			}
+
+			if elem != nil {
+				lastElem = elem
+				if _, err := w.Write(append(elem.Value.([]byte), '\n')); err != nil {
+					c.logger.Warn("Http write error", zap.Error(err))
+					return
+				}
+				flusher.Flush()
+			} else {
+				time.Sleep(time.Second)
 			}
 		}
 	}
