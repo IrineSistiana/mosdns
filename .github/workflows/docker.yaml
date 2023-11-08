@@ -1,6 +1,7 @@
 name: Push to DockerHub
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - "v4-maintenance"
