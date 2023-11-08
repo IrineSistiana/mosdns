@@ -5,6 +5,17 @@ on:
   push:
     branches:
       - "v4-maintenance"
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "go.mod"
+      - "main.go"
+      - "pkg/**"
+      - "tools/**"
+      - "coremain/**"
+      - "go.sum"
+      - "mlog/**"
+      - "plugin/**"
 
 jobs:
   test:
@@ -40,5 +51,5 @@ jobs:
         with:
           push: true
           tags: sievelau/mosdns:latest
-    
-  
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
