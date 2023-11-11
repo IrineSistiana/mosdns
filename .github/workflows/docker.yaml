@@ -50,6 +50,8 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           push: true
-          tags: sievelau/mosdns:latest
+          tags: |
+            sievelau/mosdns:latest
+            sievelau/mosdns:4
           cache-from: type=gha
           cache-to: type=gha,mode=max
