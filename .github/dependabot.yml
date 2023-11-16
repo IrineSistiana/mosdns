@@ -15,10 +15,11 @@ updates:
         # A pattern can be...
         patterns:
           - '*'
-        ignore:
+    ignore:
           # Starting from v0.58.0, the upstream module removes ServerIPAddrs,
           # introducing breaking change to us.
           # If we try to adapt to the change, we can only use one ip for every upstream
           # Considering no security fixes are related, we will stick to the last version 
           # before v0.58 which is v0.57.3
-          - 'github.com/AdguardTeam/dnsproxy'
+      - dependency-name: 'github.com/AdguardTeam/dnsproxy'
+        versions: ["*"]
