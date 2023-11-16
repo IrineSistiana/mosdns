@@ -12,7 +12,7 @@ require (
 	github.com/golang/snappy v0.0.4
 	github.com/google/nftables v0.1.0
 	github.com/kardianos/service v1.2.2
-	github.com/miekg/dns v1.1.56
+	github.com/miekg/dns v1.1.57
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/nadoo/ipset v0.5.0
 	github.com/pires/go-proxyproto v0.7.0
