@@ -35,8 +35,10 @@ func init() {
 type Args struct {
 	SetName4 string `yaml:"set_name4"`
 	SetName6 string `yaml:"set_name6"`
-	Mask4    int    `yaml:"mask4"` // default 24
-	Mask6    int    `yaml:"mask6"` // default 32
+	Mask4    int    `yaml:"mask4"`    // default 24
+	Mask6    int    `yaml:"mask6"`    // default 32
+	Timeout4 int    `yaml:"timeout4"` // default -1, not use
+	Timeout6 int    `yaml:"timeout6"` // default -1, not use
 }
 
 var _ sequence.Executable = (*ipSetPlugin)(nil)
@@ -52,21 +54,30 @@ func QuickSetup(_ sequence.BQ, s string) (any, error) {
 	args := new(Args)
 	for _, argsStr := range fs {
 		ss := strings.Split(argsStr, ",")
-		if len(ss) != 3 {
-			return nil, fmt.Errorf("invalid args, expect 5 fields, got %d", len(ss))
+		if len(ss) != 3 && len(ss) != 4 {
+			return nil, fmt.Errorf("invalid args, expect 3 or 4 fields, got %d", len(ss))
 		}
 
 		m, err := strconv.Atoi(ss[2])
 		if err != nil {
 			return nil, fmt.Errorf("invalid mask, %w", err)
 		}
+		ttl := -1
+		if len(ss) == 4 {
+			if ttl, err = strconv.Atoi(ss[3]); err != nil {
+				return nil, fmt.Errorf("invalid timeout, %w", err)
+			}
+		}
+
 		switch ss[1] {
 		case "inet":
 			args.Mask4 = m
 			args.SetName4 = ss[0]
+			args.Timeout4 = ttl
 		case "inet6":
 			args.Mask6 = m
 			args.SetName6 = ss[0]
+			args.Timeout6 = ttl
 		default:
 			return nil, fmt.Errorf("invalid set family, %s", ss[0])
 		}
