@@ -17,7 +17,7 @@ require (
 	github.com/nadoo/ipset v0.5.0
 	github.com/pires/go-proxyproto v0.7.0
 	github.com/prometheus/client_golang v1.18.0
-	github.com/quic-go/quic-go v0.40.1
+	github.com/quic-go/quic-go v0.41.0
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/viper v1.18.2
 	github.com/stretchr/testify v1.8.4
@@ -60,7 +60,6 @@ require (
 	github.com/prometheus/common v0.45.0 // indirect
 	github.com/prometheus/procfs v0.12.0 // indirect
 	github.com/quic-go/qpack v0.4.0 // indirect
-	github.com/quic-go/qtls-go1-20 v0.4.1 // indirect
 	github.com/sagikazarmark/locafero v0.4.0 // indirect
 	github.com/sagikazarmark/slog-shim v0.1.0 // indirect
 	github.com/sourcegraph/conc v0.3.0 // indirect
