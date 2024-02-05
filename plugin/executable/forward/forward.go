@@ -21,15 +21,18 @@ package forward
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
+	"net"
+	"os"
+	"time"
+
 	"github.com/AdguardTeam/dnsproxy/upstream"
+	"github.com/miekg/dns"
 	"github.com/sieveLau/mosdns/v4-maintenance/coremain"
 	"github.com/sieveLau/mosdns/v4-maintenance/pkg/executable_seq"
 	"github.com/sieveLau/mosdns/v4-maintenance/pkg/query_context"
-	"github.com/miekg/dns"
-	"net"
-	"time"
 )
 
 const PluginType = "forward"
@@ -52,6 +55,7 @@ type Args struct {
 	Timeout            int              `yaml:"timeout"`
 	InsecureSkipVerify bool             `yaml:"insecure_skip_verify"`
 	Bootstrap          []string         `yaml:"bootstrap"`
+	TrustCA            string           `yaml:"trust_ca"`
 }
 
 type UpstreamConfig struct {
@@ -99,6 +103,28 @@ func newForwarder(bp *coremain.BP, args *Args) (*forwardPlugin, error) {
 		}
 
 		opt.InsecureSkipVerify = args.InsecureSkipVerify
+
+		// Get the SystemCertPool, continue with an empty pool on error
+		rootCAs, _ := x509.SystemCertPool()
+		if rootCAs == nil {
+			rootCAs = x509.NewCertPool()
+		}
+
+		// Read in the cert file
+		if args.TrustCA != "" {
+			cert, err := os.ReadFile(args.TrustCA)
+			if err != nil {
+				return nil, fmt.Errorf("Failed to read custom CA file: %q", args.TrustCA)
+			}
+
+			// Append our cert to the system pool
+			if ok := rootCAs.AppendCertsFromPEM(cert); !ok {
+				return nil, fmt.Errorf("Failed to append %s to RootCAs", args.TrustCA)
+			}
+		}
+
+		// set upstream's CA option
+		opt.RootCAs = rootCAs
 
 		u, err := upstream.AddressToUpstream(conf.Addr, opt)
 		if err != nil {

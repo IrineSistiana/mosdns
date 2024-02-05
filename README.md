@@ -6,6 +6,26 @@
 
 docker 镜像: [sievelau/mosdns](https://hub.docker.com/r/sievelau/mosdns)
 
+# 改动/Changes
+
+现在对upstream新增了一个配置项`trust_ca`，可以指定一个CA文件的路径，该CA所颁发的证书在**该插件**的范围内会被信任；系统已经信任的证书也会被信任。例如：
+
+Now the upstream plugin has a new option `trust_ca`, in which you can set the path to a CA cert which will be trusted in addition to those trusted by the OS. For example:
+
+```yaml
+plugins:
+  - tag: ""
+    type: "forward"
+    args:
+      upstream:
+        - addr: "quic://192.168.1.1"
+      trust_ca: "/etc/mosdns/rootCA.crt"
+```
+
+那么用`rootCA.crt`所签发的证书将会被信任。
+
+Certificates issued by `rootCA.crt` will be trusted.
+
 ## Compile from source
 
 Build dependencies:
