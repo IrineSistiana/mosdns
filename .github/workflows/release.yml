@@ -1,7 +1,8 @@
 name: Release mosdns
 
 on:
-  workflow_dispatch:
+  release:
+    types: [created]
 
 permissions:
     contents: write
@@ -21,10 +22,6 @@ jobs:
             goos: windows
     steps:
       - uses: actions/checkout@v4
-      - name: Set env variables
-        run: |
-          echo "RELEASE_NAME=Released on $(date +%Y%m%d%H%M)" >> $GITHUB_ENV
-          echo "TAG_NAME=$(date +%Y%m%d%H%M)" >> $GITHUB_ENV
       - uses: wangyoucao577/go-release-action@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -32,5 +29,3 @@ jobs:
           goarch: ${{ matrix.goarch }}
           goversion: "https://go.dev/dl/go1.21.7.linux-amd64.tar.gz"
           binary_name: "mosdns"
-          release_name: ${{ env.RELEASE_NAME }}
-          release_tag: ${{ env.TAG_NAME }}
