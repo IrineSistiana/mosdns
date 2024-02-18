@@ -1,20 +1,19 @@
 name: Test mosdns
 
 on:
-  push:
-    branches-ignore:
-      - "v4-maintenance"
+  pull_request:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version-file: 'go.mod'
+
 
       - name: Build
         run: go build -v ./...
