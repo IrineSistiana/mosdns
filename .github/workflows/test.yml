@@ -2,6 +2,8 @@ name: Test mosdns
 
 on:
   push:
+    branches-ignore:
+      - "v4-maintenance"
 
 jobs:
   build:
