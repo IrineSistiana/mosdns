@@ -13,6 +13,8 @@ jobs:
       
       - name: Set up Go
         uses: actions/setup-go@v4
+        with:
+          go-version-file: 'go.mod'
 
       - name: Build
         run: go build -v ./...
