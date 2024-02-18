@@ -1,15 +1,35 @@
 name: Release mosdns
 
+# on:
+#   release:
+#     types: [created]
 on:
-  release:
-    types: [created]
+  workflow_dispatch:
+  push:
+    branches:
+      - "v4-maintenance"
 
 permissions:
     contents: write
     packages: write
     
 jobs:
+  createRelease:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set env variables
+        run: |
+          echo "RELEASE_NAME=Release" >> $GITHUB_ENV
+          echo "TAG_NAME=$(date +%Y%m%d%H%M)" >> $GITHUB_ENV
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: ${{ env.RELEASE_NAME }}
+          tag_name: ${{ env.TAG_NAME }}
+          draft: false
+          prerelease: false
   releases-matrix:
+    needs: createRelease
     name: Release Go Binary
     runs-on: ubuntu-latest
     strategy:
@@ -29,3 +49,4 @@ jobs:
           goarch: ${{ matrix.goarch }}
           goversion: "https://go.dev/dl/go1.21.7.linux-amd64.tar.gz"
           binary_name: "mosdns"
+          release_name: "Release"
