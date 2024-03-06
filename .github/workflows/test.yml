@@ -4,6 +4,7 @@ on:
   push:
     branches-ignore:
       - "v4-maintenance"
+      - "dependabot/**"
 
 jobs:
   build:
