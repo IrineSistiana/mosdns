@@ -21,9 +21,10 @@ package nftset
 
 import (
 	"fmt"
-	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
 	"strconv"
 	"strings"
+
+	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
 )
 
 const PluginType = "nftset"
@@ -48,7 +49,7 @@ type SetArgs struct {
 
 // QuickSetup format: [{ip|ip6|inet},table_name,set_name,{ipv4_addr|ipv6_addr},mask] *2 (can repeat once)
 // e.g. "inet,my_table,my_set,ipv4_addr,24 inet,my_table,my_set,ipv6_addr,48"
-func QuickSetup(_ sequence.BQ, s string) (any, error) {
+func QuickSetup(bq sequence.BQ, s string) (any, error) {
 	fs := strings.Fields(s)
 	if len(fs) > 2 {
 		return nil, fmt.Errorf("expect no more than 2 fields, got %d", len(fs))
@@ -80,5 +81,5 @@ func QuickSetup(_ sequence.BQ, s string) (any, error) {
 			return nil, fmt.Errorf("invalid ip type, %s", ss[0])
 		}
 	}
-	return newNftSetPlugin(args)
+	return newNftSetPlugin(bq.L(), args)
 }
