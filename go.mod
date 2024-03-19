@@ -10,14 +10,14 @@ require (
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/golang/snappy v0.0.4
-	github.com/google/nftables v0.1.0
+	github.com/google/nftables v0.2.0
 	github.com/kardianos/service v1.2.2
 	github.com/miekg/dns v1.1.58
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/nadoo/ipset v0.5.0
 	github.com/pires/go-proxyproto v0.7.0
 	github.com/prometheus/client_golang v1.19.0
-	github.com/quic-go/quic-go v0.41.0
+	github.com/quic-go/quic-go v0.42.0
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/viper v1.18.2
 	github.com/stretchr/testify v1.9.0
@@ -67,7 +67,7 @@ require (
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/vishvananda/netns v0.0.0-20211101163701-50045581ed74 // indirect
-	go.uber.org/mock v0.3.0 // indirect
+	go.uber.org/mock v0.4.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/crypto v0.21.0 // indirect
 	golang.org/x/mod v0.14.0 // indirect
