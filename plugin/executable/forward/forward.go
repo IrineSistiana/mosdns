@@ -28,7 +28,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/AdguardTeam/dnsproxy/upstream"
+	"github.com/sieveLau/dnsproxy/upstream"
 	"github.com/miekg/dns"
 	"github.com/sieveLau/mosdns/v4-maintenance/coremain"
 	"github.com/sieveLau/mosdns/v4-maintenance/pkg/executable_seq"
