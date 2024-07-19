@@ -5,9 +5,9 @@ name: Release mosdns
 #     types: [created]
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - "v4-maintenance"
+  # push:
+  #   branches:
+  #     - "v4-maintenance"
 
 permissions:
     contents: write
