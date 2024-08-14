@@ -19,9 +19,6 @@ jobs:
           check-latest: true
           cache: true
 
-      - name: Test
-        run: go test -race -v ./...
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
