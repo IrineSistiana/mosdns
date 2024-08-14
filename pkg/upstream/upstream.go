@@ -430,7 +430,7 @@ func NewUpstream(addr string, opt Opt) (_ Upstream, err error) {
 			addonCloser = quicTransport
 			t = &http3.RoundTripper{
 				TLSClientConfig: opt.TLSConfig,
-				QuicConfig:      quicConfig,
+				QUICConfig:      quicConfig,
 				Dial: func(ctx context.Context, _ string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error) {
 					ua, err := udpBootstrap(ctx)
 					if err != nil {
@@ -535,13 +535,9 @@ func NewUpstream(addr string, opt Opt) (_ Upstream, err error) {
 			if err != nil {
 				return nil, err
 			}
-			select {
-			case <-ctx.Done():
-				err := context.Cause(ctx)
-				ec.CloseWithError(0, "")
+			c, err = ec.NextConnection(ctx)
+			if err != nil {
 				return nil, err
-			case <-ec.HandshakeComplete():
-				c = ec.NextConnection()
 			}
 			return transport.NewQuicDnsConn(c), nil
 		}
