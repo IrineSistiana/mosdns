@@ -23,12 +23,14 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"strings"
+
 	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v5/pkg/zone_file"
 	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
-	"os"
-	"strings"
+	"github.com/IrineSistiana/mosdns/v5/plugin/statistics"
 )
 
 const PluginType = "arbitrary"
@@ -72,6 +74,7 @@ func NewArbitrary(args *Args) (*Arbitrary, error) {
 func (a *Arbitrary) Exec(_ context.Context, qCtx *query_context.Context) error {
 	if r := a.m.Reply(qCtx.Q()); r != nil {
 		qCtx.SetResponse(r)
+		qCtx.StoreValue(statistics.ArbitraryStoreKey, true)
 	}
 	return nil
 }

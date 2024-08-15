@@ -33,6 +33,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v5/pkg/upstream"
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
+	"github.com/IrineSistiana/mosdns/v5/plugin/statistics"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
@@ -193,11 +194,12 @@ func (f *Forward) RegisterMetricsTo(r prometheus.Registerer) error {
 }
 
 func (f *Forward) Exec(ctx context.Context, qCtx *query_context.Context) (err error) {
-	r, err := f.exchange(ctx, qCtx, f.us)
+	r, name, err := f.exchange(ctx, qCtx, f.us)
 	if err != nil {
 		return err
 	}
 	qCtx.SetResponse(r)
+	qCtx.StoreValue(statistics.ForwardStoreKey, name)
 	return nil
 }
 
@@ -216,11 +218,12 @@ func (f *Forward) QuickConfigureExec(args string) (any, error) {
 		}
 	}
 	var execFunc sequence.ExecutableFunc = func(ctx context.Context, qCtx *query_context.Context) error {
-		r, err := f.exchange(ctx, qCtx, us)
+		r, name, err := f.exchange(ctx, qCtx, us)
 		if err != nil {
 			return err
 		}
 		qCtx.SetResponse(r)
+		qCtx.StoreValue(statistics.ForwardStoreKey, name)
 		return nil
 	}
 	return execFunc, nil
@@ -233,14 +236,14 @@ func (f *Forward) Close() error {
 	return nil
 }
 
-func (f *Forward) exchange(ctx context.Context, qCtx *query_context.Context, us []*upstreamWrapper) (*dns.Msg, error) {
+func (f *Forward) exchange(ctx context.Context, qCtx *query_context.Context, us []*upstreamWrapper) (*dns.Msg, string, error) {
 	if len(us) == 0 {
-		return nil, errors.New("no upstream to exchange")
+		return nil, "", errors.New("no upstream to exchange")
 	}
 
 	queryPayload, err := pool.PackBuffer(qCtx.Q())
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer pool.ReleaseBuf(queryPayload)
 
@@ -255,6 +258,7 @@ func (f *Forward) exchange(ctx context.Context, qCtx *query_context.Context, us 
 	type res struct {
 		r   *dns.Msg
 		err error
+		u   string
 	}
 
 	resChan := make(chan res)
@@ -291,7 +295,7 @@ func (f *Forward) exchange(ctx context.Context, qCtx *query_context.Context, us 
 				}
 			}
 			select {
-			case resChan <- res{r: r, err: err}:
+			case resChan <- res{r: r, u: u.name(), err: err}:
 			case <-done:
 			}
 		}(qCtx.Id(), qCtx.QQuestion())
@@ -309,12 +313,12 @@ func (f *Forward) exchange(ctx context.Context, qCtx *query_context.Context, us 
 			if i < concurrent-1 && r.Rcode != dns.RcodeSuccess && r.Rcode != dns.RcodeNameError {
 				continue
 			}
-			return r, nil
+			return r, res.u, nil
 		case <-ctx.Done():
-			return nil, context.Cause(ctx)
+			return nil, "", context.Cause(ctx)
 		}
 	}
-	return nil, errors.New("all upstream servers failed")
+	return nil, "", errors.New("all upstream servers failed")
 }
 
 func quickSetup(bq sequence.BQ, s string) (any, error) {
