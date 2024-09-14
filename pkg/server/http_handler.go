@@ -67,12 +67,10 @@ func (h *HttpHandler) warnErr(req *http.Request, msg string, err error) {
 }
 
 func (h *HttpHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	addrPort, err := netip.ParseAddrPort(req.RemoteAddr)
-	if err != nil {
-		h.logger.Error("failed to parse request remote addr", zap.String("addr", req.RemoteAddr), zap.Error(err))
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
+	// If server is on unix domain socket, RemoteAddr is not ip:port.
+	// Just ignore it.
+	// https://github.com/IrineSistiana/mosdns/issues/830
+	addrPort, _ := netip.ParseAddrPort(req.RemoteAddr)
 	clientAddr := addrPort.Addr()
 
 	// read remote addr from header
