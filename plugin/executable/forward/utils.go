@@ -21,7 +21,6 @@ package fastforward
 
 import (
 	"context"
-	"math/rand"
 	"time"
 
 	"github.com/IrineSistiana/mosdns/v5/pkg/pool"
@@ -151,10 +150,6 @@ func (q *queryInfo) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
 		encoder.AddUint16("qclass", question.Qclass)
 	}
 	return nil
-}
-
-func randPick[T any](s []T) T {
-	return s[rand.Intn(len(s))]
 }
 
 func copyPayload(b *[]byte) *[]byte {
