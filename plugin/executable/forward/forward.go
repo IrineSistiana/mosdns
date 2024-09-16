@@ -24,6 +24,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"math/rand"
 	"strings"
 	"time"
 
@@ -251,6 +252,9 @@ func (f *Forward) exchange(ctx context.Context, qCtx *query_context.Context, us 
 	if concurrent > maxConcurrentQueries {
 		concurrent = maxConcurrentQueries
 	}
+	if concurrent > len(us) {
+		concurrent = len(us)
+	}
 
 	type res struct {
 		r   *dns.Msg
@@ -261,8 +265,9 @@ func (f *Forward) exchange(ctx context.Context, qCtx *query_context.Context, us 
 	done := make(chan struct{})
 	defer close(done)
 
+	p := rand.Perm(len(us))
 	for i := 0; i < concurrent; i++ {
-		u := randPick(us)
+		u := us[p[i]]
 		qc := copyPayload(queryPayload)
 		go func(uqid uint32, question dns.Question) {
 			defer pool.ReleaseBuf(qc)
