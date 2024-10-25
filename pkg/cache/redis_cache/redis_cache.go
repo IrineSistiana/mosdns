@@ -69,7 +69,7 @@ type RedisCache struct {
 }
 
 func NewRedisCache(opts RedisCacheOpts) (*RedisCache, error) {
-	if err := opts.Init(); err != nil {
+	if err := opts.Init(); err!= nil {
 		return nil, err
 	}
 	return &RedisCache{
@@ -78,7 +78,7 @@ func NewRedisCache(opts RedisCacheOpts) (*RedisCache, error) {
 }
 
 func (r *RedisCache) disabled() bool {
-	return atomic.LoadUint32(&r.clientDisabled) != 0
+	return atomic.LoadUint32(&r.clientDisabled)!= 0
 }
 
 func (r *RedisCache) disableClient() {
@@ -92,7 +92,7 @@ func (r *RedisCache) disableClient() {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*500)
 				err := r.opts.Client.Ping(ctx).Err()
 				cancel()
-				if err != nil {
+				if err!= nil {
 					if backoff >= maxBackoff {
 						backoff = maxBackoff
 					} else {
@@ -116,8 +116,8 @@ func (r *RedisCache) Get(key string) (v []byte, storedTime, expirationTime time.
 	ctx, cancel := context.WithTimeout(context.Background(), r.opts.ClientTimeout)
 	defer cancel()
 	b, err := r.opts.Client.Get(ctx, key).Bytes()
-	if err != nil {
-		if err != redis.Nil {
+	if err!= nil {
+		if err!= redis.Nil {
 			r.opts.Logger.Warn("redis get", zap.Error(err))
 			r.disableClient()
 		}
@@ -125,7 +125,7 @@ func (r *RedisCache) Get(key string) (v []byte, storedTime, expirationTime time.
 	}
 
 	storedTime, expirationTime, m, err := unpackRedisValue(b)
-	if err != nil {
+	if err!= nil {
 		r.opts.Logger.Warn("redis data unpack error", zap.Error(err))
 		return nil, time.Time{}, time.Time{}
 	}
@@ -148,7 +148,7 @@ func (r *RedisCache) Store(key string, v []byte, storedTime, expirationTime time
 	defer data.Release()
 	ctx, cancel := context.WithTimeout(context.Background(), r.opts.ClientTimeout)
 	defer cancel()
-	if err := r.opts.Client.Set(ctx, key, data.Bytes(), ttl).Err(); err != nil {
+	if err := r.opts.Client.Set(ctx, key, data.Bytes(), ttl).Err(); err!= nil {
 		r.opts.Logger.Warn("redis set", zap.Error(err))
 		r.disableClient()
 	}
@@ -183,7 +183,7 @@ func (r *RedisCache) BatchStore(b []KV) {
 		pipeline.Set(ctx, kv.Key, data.Bytes(), ttl)
 	}
 
-	if _, err := pipeline.Exec(ctx); err != nil {
+	if _, err := pipeline.Exec(ctx); err!= nil {
 		r.opts.Logger.Warn("redis pipeline set", zap.Error(err))
 		r.disableClient()
 	}
@@ -194,7 +194,7 @@ func (r *RedisCache) BatchStore(b []KV) {
 
 // Close closes the redis client.
 func (r *RedisCache) Close() error {
-	if f := r.opts.ClientCloser; f != nil {
+	if f := r.opts.ClientCloser; f!= nil {
 		return f.Close()
 	}
 	return nil
@@ -204,7 +204,7 @@ func (r *RedisCache) Len() int {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*50)
 	defer cancel()
 	i, err := r.opts.Client.DBSize(ctx).Result()
-	if err != nil {
+	if err!= nil {
 		r.opts.Logger.Error("dbsize", zap.Error(err))
 		return 0
 	}

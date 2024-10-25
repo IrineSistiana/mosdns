@@ -136,7 +136,7 @@ func GenEmptyReply(q *dns.Msg, rcode int) *dns.Msg {
 	r.RecursionAvailable = true
 
 	var name string
-	if len(q.Question) > 1 {
+	if len(q.Question) > 0 {
 		name = q.Question[0].Name
 	} else {
 		name = "."
@@ -186,7 +186,7 @@ func GetMsgKeyWithBytesSalt(m *dns.Msg, salt []byte) (string, error) {
 	wireMsg[0] = 0
 	wireMsg[1] = 0
 
-	sb := new(strings.Builder)
+	sb := strings.Builder{}
 	sb.Grow(len(wireMsg) + len(salt))
 	sb.Write(wireMsg)
 	sb.Write(salt)
@@ -196,7 +196,7 @@ func GetMsgKeyWithBytesSalt(m *dns.Msg, salt []byte) (string, error) {
 
 // GetMsgKeyWithInt64Salt unpacks m and appends salt to the string.
 func GetMsgKeyWithInt64Salt(m *dns.Msg, salt int64) (string, error) {
-	b := make([]byte, 8)
-	binary.BigEndian.PutUint64(b, uint64(salt))
-	return GetMsgKeyWithBytesSalt(m, b)
+	b := [8]byte{}
+	binary.BigEndian.PutUint64(b[:], uint64(salt))
+	return GetMsgKeyWithBytesSalt(m, b[:])
 }

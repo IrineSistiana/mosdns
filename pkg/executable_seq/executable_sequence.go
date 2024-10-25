@@ -47,64 +47,50 @@ func BuildExecutableLogicTree(
 		return WrapExecutable(v), nil
 
 	case []interface{}:
-		var rootNode ExecutableChainNode
-		var tailNode ExecutableChainNode
+		nodes := make([]ExecutableChainNode, len(v))
 		for i, elem := range v {
-			nodeLogger := logger.Named("node_" + strconv.Itoa(i))
+			nodeLogger := logger.Named(fmt.Sprintf("node_%d", i))
 			n, err := BuildExecutableLogicTree(elem, nodeLogger, execs, matchers)
 			if err != nil {
 				return nil, fmt.Errorf("invalid cmd at #%d: %w", i, err)
 			}
-
-			if rootNode == nil {
-				rootNode = n
-			}
-			if tailNode != nil {
-				tailNode.LinkNext(n)
-			}
-			tailNode = n
+			nodes[i] = n
 		}
-		return rootNode, nil
+		return linkNodes(nodes), nil
 
 	case string:
 		exec := execs[v]
 		if exec == nil {
-			return nil, fmt.Errorf("can not find execuable %s", v)
+			return nil, fmt.Errorf("can not find executable %s", v)
 		}
 		return WrapExecutable(exec), nil
 
 	case map[string]interface{}:
 		switch {
 		case hasKey(v, "if") || hasKey(v, "if_and"): // if block
-			ec, err := parseIfBlockFromMap(v, logger, execs, matchers)
-			if err != nil {
-				return nil, fmt.Errorf("invalid if section: %w", err)
-			}
-			return ec, nil
+			return parseIfBlockFromMap(v, logger, execs, matchers)
 		case hasKey(v, "parallel"): // parallel
-			ec, err := parseParallelNodeFromMap(v, logger, execs, matchers)
-			if err != nil {
-				return nil, fmt.Errorf("invalid parallel section: %w", err)
-			}
-			return ec, nil
+			return parseParallelNodeFromMap(v, logger, execs, matchers)
 		case hasKey(v, "load_balance"): // load balance
-			ec, err := parseLBNodeFromMap(v, logger, execs, matchers)
-			if err != nil {
-				return nil, fmt.Errorf("invalid load balance section: %w", err)
-			}
-			return ec, nil
+			return parseLBNodeFromMap(v, logger, execs, matchers)
 		case hasKey(v, "primary") || hasKey(v, "secondary"): // fallback
-			ec, err := parseFallbackNodeFromMap(v, logger, execs, matchers)
-			if err != nil {
-				return nil, fmt.Errorf("invalid fallback section: %w", err)
-			}
-			return ec, nil
+			return parseFallbackNodeFromMap(v, logger, execs, matchers)
 		default:
 			return nil, errors.New("unknown section")
 		}
 	default:
 		return nil, fmt.Errorf("unexpected type: %s", reflect.TypeOf(in).String())
 	}
+}
+
+func linkNodes(nodes []ExecutableChainNode) ExecutableChainNode {
+	if len(nodes) == 0 {
+		return nil
+	}
+	for i := 0; i < len(nodes)-1; i++ {
+		nodes[i].LinkNext(nodes[i+1])
+	}
+	return nodes[0]
 }
 
 func parseIfBlockFromMap(
@@ -114,17 +100,10 @@ func parseIfBlockFromMap(
 	matchers map[string]Matcher,
 ) (ExecutableChainNode, error) {
 	conf := new(ConditionNodeConfig)
-	err := utils.WeakDecode(m, conf)
-	if err != nil {
+	if err := utils.WeakDecode(m, conf); err != nil {
 		return nil, err
 	}
-
-	e, err := ParseConditionNode(conf, logger, execs, matchers)
-	if err != nil {
-		return nil, err
-	}
-
-	return e, nil
+	return ParseConditionNode(conf, logger, execs, matchers)
 }
 
 func parseParallelNodeFromMap(
@@ -134,16 +113,10 @@ func parseParallelNodeFromMap(
 	matchers map[string]Matcher,
 ) (ExecutableChainNode, error) {
 	conf := new(ParallelConfig)
-	err := utils.WeakDecode(m, conf)
-	if err != nil {
+	if err := utils.WeakDecode(m, conf); err != nil {
 		return nil, err
 	}
-	e, err := ParseParallelNode(conf, logger, execs, matchers)
-	if err != nil {
-		return nil, err
-	}
-
-	return WrapExecutable(e), nil
+	return WrapExecutable(ParseParallelNode(conf, logger, execs, matchers))
 }
 
 func parseFallbackNodeFromMap(
@@ -153,16 +126,10 @@ func parseFallbackNodeFromMap(
 	matchers map[string]Matcher,
 ) (ExecutableChainNode, error) {
 	conf := new(FallbackConfig)
-	err := utils.WeakDecode(m, conf)
-	if err != nil {
+	if err := utils.WeakDecode(m, conf); err != nil {
 		return nil, err
 	}
-	e, err := ParseFallbackNode(conf, logger, execs, matchers)
-	if err != nil {
-		return nil, err
-	}
-
-	return WrapExecutable(e), nil
+	return WrapExecutable(ParseFallbackNode(conf, logger, execs, matchers))
 }
 
 func parseLBNodeFromMap(
@@ -172,16 +139,10 @@ func parseLBNodeFromMap(
 	matchers map[string]Matcher,
 ) (ExecutableChainNode, error) {
 	conf := new(LBConfig)
-	err := utils.WeakDecode(m, conf)
-	if err != nil {
+	if err := utils.WeakDecode(m, conf); err != nil {
 		return nil, err
 	}
-	e, err := ParseLBNode(conf, logger, execs, matchers)
-	if err != nil {
-		return nil, err
-	}
-
-	return e, nil
+	return ParseLBNode(conf, logger, execs, matchers)
 }
 
 func hasKey(m map[string]interface{}, key string) bool {

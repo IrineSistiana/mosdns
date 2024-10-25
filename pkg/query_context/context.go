@@ -167,7 +167,7 @@ func (ctx *Context) CopyTo(d *Context) *Context {
 	d.reqMeta = ctx.reqMeta
 	d.id = ctx.id
 
-	if r := ctx.r; r != nil {
+	if r := ctx.r; r!= nil {
 		d.r = r.Copy()
 	}
 	for m := range ctx.marks {
@@ -179,7 +179,7 @@ func (ctx *Context) CopyTo(d *Context) *Context {
 // AddMark adds mark m to this Context.
 func (ctx *Context) AddMark(m uint) {
 	if ctx.marks == nil {
-		ctx.marks = make(map[uint]struct{})
+		ctx.marks = make(map[uint]struct{}, 1)
 	}
 	ctx.marks[m] = struct{}{}
 }

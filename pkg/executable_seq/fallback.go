@@ -143,11 +143,7 @@ func ParseFallbackNode(
 		fallbackECS.primaryST = newStatusTracker(c.Threshold, c.StatLength)
 	}
 
-	if logger != nil {
-		fallbackECS.logger = logger
-	} else {
-		fallbackECS.logger = zap.NewNop()
-	}
+	fallbackECS.logger = logger
 
 	return fallbackECS, nil
 }
@@ -187,7 +183,6 @@ func (f *FallbackNode) doPrimary(ctx context.Context, qCtx *query_context.Contex
 			f.primaryST.update(0)
 		}
 	}
-
 	return err
 }
 
@@ -271,26 +266,4 @@ func (f *FallbackNode) doFallback(ctx context.Context, qCtx *query_context.Conte
 	qCtxP := qCtx.Copy()
 	go func() {
 		cCtx, cancel := makeDdlCtx(ctx, defaultParallelTimeout)
-		defer cancel()
-		err := f.doPrimary(cCtx, qCtxP)
-		c <- &parallelECSResult{
-			qCtx: qCtxP,
-			err:  err,
-			from: 0,
-		}
-	}()
-
-	qCtxS := qCtx.Copy()
-	go func() {
-		cCtx, cancel := makeDdlCtx(ctx, defaultParallelTimeout)
-		defer cancel()
-		err := f.doSecondary(cCtx, qCtxS)
-		c <- &parallelECSResult{
-			qCtx: qCtxS,
-			err:  err,
-			from: 1,
-		}
-	}()
-
-	return asyncWait(ctx, qCtx, f.logger, c, 2)
-}
+	

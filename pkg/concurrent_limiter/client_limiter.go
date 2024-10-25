@@ -33,20 +33,14 @@ type ClientLimiter interface {
 }
 
 const (
-	counterIdleTimeout = time.Second * 10
+	counterIdleTimeout = 10 * time.Second
 )
 
 type HPLimiterOpts struct {
-	// The rate limit is calculated by Threshold / Interval.
-	// Threshold cannot be negative.
-	Threshold int
-	Interval  time.Duration // Default is 1s.
-
-	// IP masks to aggregate a IP range.
-	IPv4Mask int // Default is 32.
-	IPv6Mask int // Default is 48.
-
-	// Default is 10s. Negative value disables the cleaner.
+	Threshold       int
+	Interval        time.Duration
+	IPv4Mask        int
+	IPv6Mask        int
 	CleanerInterval time.Duration
 }
 
@@ -55,7 +49,7 @@ func (opts *HPLimiterOpts) Init() error {
 		panic("client_limiter: negative rate")
 	}
 	utils.SetDefaultNum(&opts.Interval, time.Second)
-	utils.SetDefaultNum(&opts.CleanerInterval, time.Second*10)
+	utils.SetDefaultNum(&opts.CleanerInterval, 10*time.Second)
 
 	if m := opts.IPv4Mask; m < 0 || m > 32 {
 		return fmt.Errorf("invalid ipv4 mask %d, should be 0~32", m)
@@ -65,14 +59,12 @@ func (opts *HPLimiterOpts) Init() error {
 		return fmt.Errorf("invalid ipv6 mask %d, should be 0~128", m)
 	}
 	utils.SetDefaultNum(&opts.IPv4Mask, 32)
-	utils.SetDefaultNum(&opts.IPv4Mask, 48)
+	utils.SetDefaultNum(&opts.IPv6Mask, 48)
 	return nil
 }
 
 var _ ClientLimiter = (*HPClientLimiter)(nil)
 
-// HPClientLimiter is a ClientLimiter for heavy workload.
-// It uses sharded locks.
 type HPClientLimiter struct {
 	opts        HPLimiterOpts
 	closeOnce   sync.Once
@@ -84,8 +76,8 @@ type netAddrHash netip.Addr
 
 func (h netAddrHash) MapHash() int {
 	s := 0
-	for _, b := range (netip.Addr)(h).As16() {
-		s += (int)(b)
+	for _, b := range h.As16() {
+		s += int(b)
 	}
 	return s
 }
@@ -123,12 +115,11 @@ func (l *HPClientLimiter) cleanerLoop() {
 func (l *HPClientLimiter) AcquireToken(addr netip.Addr) bool {
 	addr = l.ApplyMask(addr).Addr()
 	now := time.Now()
-	res := false
-	f := func(key netAddrHash, v *counter, exist bool) (newV *counter, setV, deleteV bool) {
+	var res bool
+	l.m.TestAndSet(netAddrHash(addr), func(key netAddrHash, v *counter, exist bool) (newV *counter, setV, deleteV bool) {
 		if !exist {
-			v = new(counter)
+			v = &counter{startTime: now}
 		}
-		// Another interval is passed. Reset the counter.
 		if v.startTime.Add(l.opts.Interval).Before(now) {
 			v.startTime = now
 			v.c = 0
@@ -140,12 +131,10 @@ func (l *HPClientLimiter) AcquireToken(addr netip.Addr) bool {
 			res = false
 		}
 		return v, !exist, false
-	}
-	l.m.TestAndSet(netAddrHash(addr), f)
+	})
 	return res
 }
 
-// ApplyMask masks the addr by the mask values in HPLimiterOpts.
 func (l *HPClientLimiter) ApplyMask(addr netip.Addr) netip.Prefix {
 	switch {
 	case addr.Is4():
@@ -154,23 +143,20 @@ func (l *HPClientLimiter) ApplyMask(addr netip.Addr) netip.Prefix {
 		return netip.PrefixFrom(netip.AddrFrom4(addr.As4()), l.opts.IPv4Mask).Masked()
 	case addr.Is6():
 		return netip.PrefixFrom(addr, l.opts.IPv6Mask).Masked()
+	default:
+		return netip.Prefix{}
 	}
-	return netip.Prefix{}
 }
 
-// GC removes expired client ip entries from this HPClientLimiter.
 func (l *HPClientLimiter) GC(now time.Time) {
-	f := func(key netAddrHash, v *counter, ok bool) (newV *counter, setV, deleteV bool) {
+	l.m.RangeDo(func(key netAddrHash, v *counter, ok bool) (newV *counter, setV, deleteV bool) {
 		if !ok {
 			return nil, false, false
 		}
 		return nil, false, v.startTime.Add(counterIdleTimeout).Before(now)
-	}
-	l.m.RangeDo(f)
+	})
 }
 
-// Close closes HPClientLimiter's cleaner (if it was started).
-// Close always returns a nil error.
 func (l *HPClientLimiter) Close() error {
 	l.closeOnce.Do(func() {
 		close(l.closeNotify)

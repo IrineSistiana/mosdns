@@ -83,7 +83,7 @@ type EntryHandler struct {
 }
 
 func NewEntryHandler(opts EntryHandlerOpts) (*EntryHandler, error) {
-	if err := opts.Init(); err != nil {
+	if err := opts.Init(); err!= nil {
 		return nil, err
 	}
 	return &EntryHandler{opts: opts}, nil
@@ -96,7 +96,7 @@ func (h *EntryHandler) ServeDNS(ctx context.Context, req *dns.Msg, meta *query_c
 	// apply timeout to ctx
 	ddl := time.Now().Add(h.opts.QueryTimeout)
 	ctxDdl, ok := ctx.Deadline()
-	if !(ok && ctxDdl.Before(ddl)) {
+	if!(ok && ctxDdl.Before(ddl)) {
 		newCtx, cancel := context.WithDeadline(ctx, ddl)
 		defer cancel()
 		ctx = newCtx
@@ -106,19 +106,19 @@ func (h *EntryHandler) ServeDNS(ctx context.Context, req *dns.Msg, meta *query_c
 	qCtx := query_context.NewContext(req, meta)
 	err := h.opts.Entry.Exec(ctx, qCtx, nil)
 	respMsg := qCtx.R()
-	if err != nil {
+	if err!= nil {
 		h.opts.Logger.Warn("entry returned an err", qCtx.InfoField(), zap.Error(err))
-	} else {
-		h.opts.Logger.Debug("entry returned", qCtx.InfoField())
-	}
-	if err == nil && respMsg == nil {
-		h.opts.Logger.Error("entry returned an nil response", qCtx.InfoField())
-	}
-
-	if respMsg == nil || err != nil {
 		respMsg = new(dns.Msg)
 		respMsg.SetReply(req)
 		respMsg.Rcode = dns.RcodeServerFailure
+	} else {
+		h.opts.Logger.Debug("entry returned", qCtx.InfoField())
+		if respMsg == nil {
+			h.opts.Logger.Error("entry returned an nil response", qCtx.InfoField())
+			respMsg = new(dns.Msg)
+			respMsg.SetReply(req)
+			respMsg.Rcode = dns.RcodeRefused
+		}
 	}
 
 	if h.opts.RecursionAvailable {
@@ -134,12 +134,12 @@ type DummyServerHandler struct {
 }
 
 func (d *DummyServerHandler) ServeDNS(_ context.Context, req *dns.Msg, meta *query_context.RequestMeta) (*dns.Msg, error) {
-	if d.WantErr != nil {
+	if d.WantErr!= nil {
 		return nil, d.WantErr
 	}
 
 	var resp *dns.Msg
-	if d.WantMsg != nil {
+	if d.WantMsg!= nil {
 		resp = d.WantMsg.Copy()
 		resp.Id = req.Id
 	} else {
@@ -147,4 +147,24 @@ func (d *DummyServerHandler) ServeDNS(_ context.Context, req *dns.Msg, meta *que
 		resp.SetReply(req)
 	}
 	return resp, nil
+}
+
+// Optimization: Add a pool for dns.Msg to reduce memory allocation and garbage collection.
+var msgPool = &sync.Pool{
+	New: func() interface{} {
+		return new(dns.Msg)
+	},
+}
+
+func getMsgFromPool() *dns.Msg {
+	return msgPool.Get().(*dns.Msg)
+}
+
+func putMsgToPool(msg *dns.Msg) {
+	msg.Id = 0
+	msg.Question = nil
+	msg.Answer = nil
+	msg.Ns = nil
+	msg.Extra = nil
+	msgPool.Put(msg)
 }

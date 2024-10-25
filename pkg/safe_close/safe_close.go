@@ -117,3 +117,4 @@ func (s *SafeClose) Done() {
 		close(s.done)
 	}
 }
+

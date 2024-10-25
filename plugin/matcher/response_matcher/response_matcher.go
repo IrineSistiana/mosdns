@@ -31,6 +31,7 @@ import (
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"io"
+	"sync"
 )
 
 const PluginType = "response_matcher"
@@ -75,9 +76,10 @@ func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
 }
 
 func newResponseMatcher(bp *coremain.BP, args *Args) (m *responseMatcher, err error) {
-	m = new(responseMatcher)
-	m.BP = bp
-	m.args = args
+	m = &responseMatcher{
+		BP:  bp,
+		args: args,
+	}
 
 	if len(args.RCode) > 0 {
 		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewRCodeMatcher(elem.NewIntMatcher(args.RCode)))
@@ -88,7 +90,7 @@ func newResponseMatcher(bp *coremain.BP, args *Args) (m *responseMatcher, err er
 			args.CNAME,
 			bp.M().GetDataManager(),
 		)
-		if err != nil {
+		if err!= nil {
 			return nil, err
 		}
 		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewCNameMatcher(mg))
@@ -98,7 +100,7 @@ func newResponseMatcher(bp *coremain.BP, args *Args) (m *responseMatcher, err er
 
 	if len(args.IP) > 0 {
 		l, err := netlist.BatchLoadProvider(args.IP, bp.M().GetDataManager())
-		if err != nil {
+		if err!= nil {
 			return nil, err
 		}
 		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewAAAAAIPMatcher(l))
@@ -144,4 +146,55 @@ func (e *hasValidAnswer) match(qCtx *query_context.Context) (matched bool) {
 
 func (e *hasValidAnswer) Match(_ context.Context, qCtx *query_context.Context) (matched bool, err error) {
 	return e.match(qCtx), nil
+}
+
+var responseMatcherPool = &sync.Pool{
+	New: func() interface{} {
+		return &responseMatcher{}
+	},
+}
+
+func getResponseMatcher(bp *coremain.BP, args *Args) (*responseMatcher, error) {
+	m := responseMatcherPool.Get().(*responseMatcher)
+	m.BP = bp
+	m.args = args
+	m.matcherGroup = m.matcherGroup[:0]
+	m.closer = m.closer[:0]
+
+	if len(args.RCode) > 0 {
+		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewRCodeMatcher(elem.NewIntMatcher(args.RCode)))
+	}
+
+	if len(args.CNAME) > 0 {
+		mg, err := domain.BatchLoadDomainProvider(
+			args.CNAME,
+			bp.M().GetDataManager(),
+		)
+		if err!= nil {
+			return nil, err
+		}
+		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewCNameMatcher(mg))
+		m.closer = append(m.closer, mg)
+		bp.L().Info("cname matcher loaded", zap.Int("length", mg.Len()))
+	}
+
+	if len(args.IP) > 0 {
+		l, err := netlist.BatchLoadProvider(args.IP, bp.M().GetDataManager())
+		if err!= nil {
+			return nil, err
+		}
+		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewAAAAAIPMatcher(l))
+		m.closer = append(m.closer, l)
+		bp.L().Info("ip matcher loaded", zap.Int("length", l.Len()))
+	}
+
+	return m, nil
+}
+
+func putResponseMatcher(m *responseMatcher) {
+	m.BP = nil
+	m.args = nil
+	m.matcherGroup = m.matcherGroup[:0]
+	m.closer = m.closer[:0]
+	responseMatcherPool.Put(m)
 }

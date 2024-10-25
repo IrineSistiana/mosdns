@@ -95,48 +95,43 @@ func (c *ShardedLRU[V]) getShard(key string) *ConcurrentLRU[string, V] {
 // ConcurrentLRU is a lru.LRU with a lock.
 // It is concurrent safe.
 type ConcurrentLRU[K comparable, V any] struct {
-	sync.Mutex
-	lru *lru.LRU[K, V]
+	mu   sync.Mutex
+	lru  *lru.LRU[K, V]
 }
 
-func NewConecurrentLRU[K comparable, V any](maxSize int, onEvict func(key K, v V)) *ConcurrentLRU[K, V] {
+func NewConcurrentLRU[K comparable, V any](maxSize int, onEvict func(key K, v V)) *ConcurrentLRU[K, V] {
 	return &ConcurrentLRU[K, V]{
 		lru: lru.NewLRU[K, V](maxSize, onEvict),
 	}
 }
 
 func (c *ConcurrentLRU[K, V]) Add(key K, v V) {
-	c.Lock()
-	defer c.Unlock()
-
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.lru.Add(key, v)
 }
 
 func (c *ConcurrentLRU[K, V]) Del(key K) {
-	c.Lock()
-	defer c.Unlock()
-
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.lru.Del(key)
 }
 
 func (c *ConcurrentLRU[K, V]) Clean(f func(key K, v V) (remove bool)) (removed int) {
-	c.Lock()
-	defer c.Unlock()
-
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.lru.Clean(f)
 }
 
 func (c *ConcurrentLRU[K, V]) Get(key K) (v V, ok bool) {
-	c.Lock()
-	defer c.Unlock()
-
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	v, ok = c.lru.Get(key)
 	return
 }
 
 func (c *ConcurrentLRU[K, V]) Len() int {
-	c.Lock()
-	defer c.Unlock()
-
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.lru.Len()
 }

@@ -52,7 +52,7 @@ func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
 
 func newSequencePlugin(bp *coremain.BP, args *Args) (*sequence, error) {
 	ecs, err := executable_seq.BuildExecutableLogicTree(args.Exec, bp.L(), bp.M().GetExecutables(), bp.M().GetMatchers())
-	if err != nil {
+	if err!= nil {
 		return nil, fmt.Errorf("cannot build sequence: %w", err)
 	}
 
@@ -63,11 +63,7 @@ func newSequencePlugin(bp *coremain.BP, args *Args) (*sequence, error) {
 }
 
 func (s *sequence) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
-	if err := executable_seq.ExecChainNode(ctx, qCtx, s.ecs); err != nil {
-		return err
-	}
-
-	return executable_seq.ExecChainNode(ctx, qCtx, next)
+	return s.ecs.ExecChainNode(ctx, qCtx, next)
 }
 
 var _ coremain.ExecutablePlugin = (*_return)(nil)

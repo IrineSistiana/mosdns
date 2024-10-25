@@ -67,28 +67,37 @@ func newLogger(bp *coremain.BP, args *Args) coremain.Plugin {
 }
 
 func (l *logger) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
+	startTime := time.Now()
 	err := executable_seq.ExecChainNode(ctx, qCtx, next)
 
 	q := qCtx.Q()
-	if len(q.Question) != 1 {
+	if len(q.Question)!= 1 {
 		return nil
 	}
 	question := q.Question[0]
 	respRcode := -1
-	if r := qCtx.R(); r != nil {
+	if r := qCtx.R(); r!= nil {
 		respRcode = r.Rcode
 	}
 
-	l.BP.L().Info(
-		l.args.Msg,
-		zap.Uint32("uqid", qCtx.Id()),
-		zap.String("qname", question.Name),
-		zap.Uint16("qtype", question.Qtype),
-		zap.Uint16("qclass", question.Qclass),
-		zap.Stringer("client", qCtx.ReqMeta().ClientAddr),
-		zap.Int("resp_rcode", respRcode),
-		zap.Duration("elapsed", time.Now().Sub(qCtx.StartTime())),
-		zap.Error(err),
-	)
+	// Use sugared logger for easier logging
+	sugar := l.BP.L().Sugar()
+	defer sugar.Sync()
+
+	// Check the log level before logging
+	if sugar.Desugar().Core().Enabled(zap.InfoLevel) {
+		sugar.Infow(
+			l.args.Msg,
+			"uqid", qCtx.Id(),
+			"qname", question.Name,
+			"qtype", question.Qtype,
+			"qclass", question.Qclass,
+			"client", qCtx.ReqMeta().ClientAddr,
+			"resp_rcode", respRcode,
+			"elapsed", time.Since(startTime),
+			"err", err,
+		)
+	}
+
 	return err
 }

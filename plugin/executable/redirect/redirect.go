@@ -56,7 +56,7 @@ func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
 func newRedirect(bp *coremain.BP, args *Args) (*redirectPlugin, error) {
 	parseFunc := func(s string) (p, v string, err error) {
 		f := strings.Fields(s)
-		if len(f) != 2 {
+		if len(f)!= 2 {
 			return "", "", fmt.Errorf("redirect rule must have 2 fields, but got %d", len(f))
 		}
 		return f[0], dns.Fqdn(f[1]), nil
@@ -71,13 +71,13 @@ func newRedirect(bp *coremain.BP, args *Args) (*redirectPlugin, error) {
 		func(b []byte) (domain.Matcher[string], error) {
 			mixMatcher := domain.NewMixMatcher[string]()
 			mixMatcher.SetDefaultMatcher(domain.MatcherFull)
-			if err := domain.LoadFromTextReader[string](mixMatcher, bytes.NewReader(b), parseFunc); err != nil {
+			if err := domain.LoadFromTextReader[string](mixMatcher, bytes.NewReader(b), parseFunc); err!= nil {
 				return nil, err
 			}
 			return mixMatcher, nil
 		},
 	)
-	if err != nil {
+	if err!= nil {
 		return nil, err
 	}
 	bp.L().Info("redirect rules loaded", zap.Int("length", m.Len()))
@@ -89,19 +89,19 @@ func newRedirect(bp *coremain.BP, args *Args) (*redirectPlugin, error) {
 
 func (r *redirectPlugin) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
 	q := qCtx.Q()
-	if len(q.Question) != 1 || q.Question[0].Qclass != dns.ClassINET {
+	if len(q.Question)!= 1 || q.Question[0].Qclass!= dns.ClassINET {
 		return executable_seq.ExecChainNode(ctx, qCtx, next)
 	}
 
 	orgQName := q.Question[0].Name
 	redirectTarget, ok := r.m.Match(orgQName)
-	if !ok {
+	if!ok {
 		return executable_seq.ExecChainNode(ctx, qCtx, next)
 	}
 
 	q.Question[0].Name = redirectTarget
 	err := executable_seq.ExecChainNode(ctx, qCtx, next)
-	if r := qCtx.R(); r != nil {
+	if r := qCtx.R(); r!= nil {
 		// Restore original query name.
 		for i := range r.Question {
 			if r.Question[i].Name == redirectTarget {
@@ -110,8 +110,8 @@ func (r *redirectPlugin) Exec(ctx context.Context, qCtx *query_context.Context, 
 		}
 
 		// Insert a CNAME record.
-		newAns := make([]dns.RR, 1, len(r.Answer)+1)
-		newAns[0] = &dns.CNAME{
+		newAns := make([]dns.RR, 0, len(r.Answer)+1)
+		newAns = append(newAns, &dns.CNAME{
 			Hdr: dns.RR_Header{
 				Name:   orgQName,
 				Rrtype: dns.TypeCNAME,
@@ -119,7 +119,7 @@ func (r *redirectPlugin) Exec(ctx context.Context, qCtx *query_context.Context, 
 				Ttl:    1,
 			},
 			Target: redirectTarget,
-		}
+		})
 		newAns = append(newAns, r.Answer...)
 		r.Answer = newAns
 	}

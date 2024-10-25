@@ -68,7 +68,7 @@ func NewFilter(bp *coremain.BP, args *Args) *Filter {
 			return nil
 		}
 		m := make(map[uint16]struct{})
-		for _, option := range args.Keep {
+		for _, option := range opts {
 			m[option] = struct{}{}
 		}
 		return m
@@ -89,38 +89,40 @@ func (s *Filter) Exec(ctx context.Context, qCtx *query_context.Context, next exe
 }
 
 func (s *Filter) applyFilter(q *dns.Msg) {
-	switch {
-	case s.args.NoEDNS:
+	opt := q.IsEdns0()
+	if opt == nil || len(opt.Option) == 0 {
+		return
+	}
+
+	if s.args.NoEDNS {
 		dnsutils.RemoveEDNS0(q)
-	case len(s.keep) > 0:
-		opt := q.IsEdns0()
-		if opt == nil || len(opt.Option) == 0 {
-			break
-		}
-		opts := opt.Option[:0]
+		return
+	}
+
+	if len(s.keep) > 0 {
+		j := 0
 		for i := range opt.Option {
 			if _, accept := s.keep[opt.Option[i].Option()]; accept {
-				opts = append(opts, opt.Option[i])
+				opt.Option[j] = opt.Option[i]
+				j++
 			}
 		}
-		opt.Option = opts
-	case len(s.discard) > 0:
-		opt := q.IsEdns0()
-		if opt == nil || len(opt.Option) == 0 {
-			break
-		}
-		opts := opt.Option[:0]
+		opt.Option = opt.Option[:j]
+		return
+	}
+
+	if len(s.discard) > 0 {
+		j := 0
 		for i := range opt.Option {
 			if _, remove := s.discard[opt.Option[i].Option()]; !remove {
-				opts = append(opts, opt.Option[i])
+				opt.Option[j] = opt.Option[i]
+				j++
 			}
 		}
-		opt.Option = opts
-	default: // remove all edns0 options
-		opt := q.IsEdns0()
-		if opt == nil || len(opt.Option) == 0 {
-			break
-		}
-		opt.Option = make([]dns.EDNS0, 0)
+		opt.Option = opt.Option[:j]
+		return
 	}
+
+	// remove all edns0 options
+	opt.Option = opt.Option[:0]
 }

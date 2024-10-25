@@ -129,10 +129,8 @@ func (e *ecsPlugin) Exec(ctx context.Context, qCtx *query_context.Context, next 
 	if r := qCtx.R(); r != nil {
 		if upgraded {
 			dnsutils.RemoveEDNS0(r)
-		} else {
-			if newECS {
-				dnsutils.RemoveMsgECS(r)
-			}
+		} else if newECS {
+			dnsutils.RemoveMsgECS(r)
 		}
 	}
 	return nil
@@ -147,7 +145,6 @@ func (e *ecsPlugin) addECS(qCtx *query_context.Context) (upgraded bool, newECS b
 	opt := q.IsEdns0()
 	hasECS := opt != nil && dnsutils.GetECS(opt) != nil
 	if hasECS && !e.args.ForceOverwrite {
-		// Argument args.ForceOverwrite is disabled. q already has an edns0 subnet. Skip it.
 		return false, false
 	}
 
@@ -186,20 +183,16 @@ func (e *ecsPlugin) addECS(qCtx *query_context.Context) (upgraded bool, newECS b
 
 	if ecs != nil {
 		if opt == nil {
-			upgraded = true
 			opt = dnsutils.UpgradeEDNS0(q)
+			upgraded = true
 		}
 		newECS = dnsutils.AddECS(opt, ecs, true)
-		return upgraded, newECS
 	}
-	return false, false
+	return upgraded, newECS
 }
 
 func checkQueryType(m *dns.Msg, typ uint16) bool {
-	if len(m.Question) > 0 && m.Question[0].Qtype == typ {
-		return true
-	}
-	return false
+	return len(m.Question) > 0 && m.Question[0].Qtype == typ
 }
 
 type noECS struct {
@@ -213,8 +206,8 @@ func (n *noECS) Exec(ctx context.Context, qCtx *query_context.Context, next exec
 	if err := executable_seq.ExecChainNode(ctx, qCtx, next); err != nil {
 		return err
 	}
-	if qCtx.R() != nil {
-		dnsutils.RemoveMsgECS(qCtx.R())
+	if r := qCtx.R(); r != nil {
+		dnsutils.RemoveMsgECS(r)
 	}
 	return nil
 }

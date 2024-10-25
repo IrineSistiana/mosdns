@@ -47,19 +47,16 @@ type ttl struct {
 	args *Args
 }
 
-func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
-	return newTTL(bp, args.(*Args)), nil
-}
-
-func newTTL(bp *coremain.BP, args *Args) coremain.Plugin {
+func Init(bp *coremain.BP, args *Args) (p coremain.Plugin, err error) {
 	return &ttl{
 		BP:   bp,
 		args: args,
-	}
+	}, nil
 }
 
 func (t *ttl) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
-	if r := qCtx.R(); r != nil {
+	r := qCtx.R()
+	if r!= nil {
 		if t.args.MaximumTTL > 0 {
 			dnsutils.ApplyMaximumTTL(r, t.args.MaximumTTL)
 		}

@@ -22,6 +22,7 @@ package querymatcher
 import (
 	"context"
 	"io"
+	"sync"
 
 	"github.com/IrineSistiana/mosdns/v4/coremain"
 	"github.com/IrineSistiana/mosdns/v4/pkg/executable_seq"
@@ -77,6 +78,7 @@ type queryMatcher struct {
 
 	matcherGroup []executable_seq.Matcher
 	closer       []io.Closer
+	mu           sync.Mutex
 }
 
 func (m *queryMatcher) Match(ctx context.Context, qCtx *query_context.Context) (matched bool, err error) {
@@ -88,49 +90,66 @@ func Init(bp *coremain.BP, args interface{}) (p coremain.Plugin, err error) {
 }
 
 func newQueryMatcher(bp *coremain.BP, args *Args) (m *queryMatcher, err error) {
-	m = new(queryMatcher)
-	m.BP = bp
-	m.args = args
-	if len(args.ClientIP) > 0 {
-		l, err := netlist.BatchLoadProvider(args.ClientIP, bp.M().GetDataManager())
-		if err != nil {
-			return nil, err
+	m = &queryMatcher{
+		BP:  bp,
+		args: args,
+	}
+	m.initMatchers()
+	return m, nil
+}
+
+func (m *queryMatcher) initMatchers() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.matcherGroup == nil {
+		m.matcherGroup = make([]executable_seq.Matcher, 0)
+	}
+	if m.closer == nil {
+		m.closer = make([]io.Closer, 0)
+	}
+
+	if len(m.args.ClientIP) > 0 {
+		l, err := netlist.BatchLoadProvider(m.args.ClientIP, m.BP.M().GetDataManager())
+		if err!= nil {
+			m.BP.L().Error("failed to load client ip matcher", zap.Error(err))
+			return
 		}
 		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewClientIPMatcher(l))
 		m.closer = append(m.closer, l)
-		bp.L().Info("client ip matcher loaded", zap.Int("length", l.Len()))
+		m.BP.L().Info("client ip matcher loaded", zap.Int("length", l.Len()))
 	}
-	if len(args.ECS) > 0 {
-		l, err := netlist.BatchLoadProvider(args.ECS, bp.M().GetDataManager())
-		if err != nil {
-			return nil, err
+	if len(m.args.ECS) > 0 {
+		l, err := netlist.BatchLoadProvider(m.args.ECS, m.BP.M().GetDataManager())
+		if err!= nil {
+			m.BP.L().Error("failed to load ecs ip matcher", zap.Error(err))
+			return
 		}
 		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewClientECSMatcher(l))
 		m.closer = append(m.closer, l)
-		bp.L().Info("ecs ip matcher loaded", zap.Int("length", l.Len()))
+		m.BP.L().Info("ecs ip matcher loaded", zap.Int("length", l.Len()))
 	}
-	if len(args.Domain) > 0 {
+	if len(m.args.Domain) > 0 {
 		mg, err := domain.BatchLoadDomainProvider(
-			args.Domain,
-			bp.M().GetDataManager(),
+			m.args.Domain,
+			m.BP.M().GetDataManager(),
 		)
-		if err != nil {
-			return nil, err
+		if err!= nil {
+			m.BP.L().Error("failed to load domain matcher", zap.Error(err))
+			return
 		}
 		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewQNameMatcher(mg))
 		m.closer = append(m.closer, mg)
-		bp.L().Info("domain matcher loaded", zap.Int("length", mg.Len()))
+		m.BP.L().Info("domain matcher loaded", zap.Int("length", mg.Len()))
 	}
-	if len(args.QType) > 0 {
-		elemMatcher := elem.NewIntMatcher(args.QType)
+	if len(m.args.QType) > 0 {
+		elemMatcher := elem.NewIntMatcher(m.args.QType)
 		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewQTypeMatcher(elemMatcher))
 	}
-	if len(args.QClass) > 0 {
-		elemMatcher := elem.NewIntMatcher(args.QClass)
+	if len(m.args.QClass) > 0 {
+		elemMatcher := elem.NewIntMatcher(m.args.QClass)
 		m.matcherGroup = append(m.matcherGroup, msg_matcher.NewQClassMatcher(elemMatcher))
 	}
-
-	return m, nil
 }
 
 var _ coremain.MatcherPlugin = (*queryMatcher)(nil)
@@ -140,5 +159,5 @@ type queryIsEDNS0 struct {
 }
 
 func (q *queryIsEDNS0) Match(_ context.Context, qCtx *query_context.Context) (matched bool, err error) {
-	return qCtx.Q().IsEdns0() != nil, nil
+	return qCtx.Q().IsEdns0()!= nil, nil
 }

@@ -26,6 +26,7 @@ import (
 	"go.uber.org/zap"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -71,15 +72,23 @@ type DataProvider struct {
 	listeners map[DataListener]struct{}
 
 	sc *safe_close.SafeClose
+
+	listenerPool sync.Pool
 }
 
 func NewDataProvider(lg *zap.Logger, cfg DataProviderConfig) (*DataProvider, error) {
-	dp := new(DataProvider)
-	dp.logger = lg
-	dp.file = cfg.File
-	dp.autoReload = cfg.AutoReload
-
-	dp.sc = safe_close.NewSafeClose()
+	dp := &DataProvider{
+		logger:     lg,
+		file:       cfg.File,
+		autoReload: cfg.AutoReload,
+		listeners:  make(map[DataListener]struct{}),
+		sc:         safe_close.NewSafeClose(),
+		listenerPool: sync.Pool{
+			New: func() interface{} {
+				return make([]DataListener, 0, 8) // 预分配容量
+			},
+		},
+	}
 
 	if err := dp.init(); err != nil {
 		return nil, err
@@ -119,9 +128,6 @@ func (ds *DataProvider) LoadAndAddListener(l DataListener) error {
 	}
 
 	ds.lm.Lock()
-	if ds.listeners == nil {
-		ds.listeners = make(map[DataListener]struct{})
-	}
 	ds.listeners[l] = struct{}{}
 	ds.lm.Unlock()
 	return nil
@@ -129,8 +135,8 @@ func (ds *DataProvider) LoadAndAddListener(l DataListener) error {
 
 func (ds *DataProvider) DeleteListener(l DataListener) {
 	ds.lm.Lock()
-	defer ds.lm.Unlock()
 	delete(ds.listeners, l)
+	ds.lm.Unlock()
 }
 
 func (ds *DataProvider) GetData() ([]byte, error) {
@@ -140,7 +146,8 @@ func (ds *DataProvider) GetData() ([]byte, error) {
 // pushData notify the notifier and trigger all listeners.
 func (ds *DataProvider) pushData(newData []byte) {
 	ds.lm.Lock()
-	ls := make([]DataListener, 0, len(ds.listeners))
+	ls := ds.listenerPool.Get().([]DataListener)
+	ls = ls[:0] // 重置切片长度
 	for listener := range ds.listeners {
 		ls = append(ls, listener)
 	}
@@ -154,6 +161,8 @@ func (ds *DataProvider) pushData(newData []byte) {
 			)
 		}
 	}
+
+	ds.listenerPool.Put(ls) // 将切片放回池中
 }
 
 func (ds *DataProvider) loadFromDisk() ([]byte, error) {

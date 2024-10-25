@@ -59,23 +59,7 @@ func (p *PadQuery) Exec(ctx context.Context, qCtx *query_context.Context, next e
 	q := qCtx.Q()
 	dnsutils.PadToMinimum(q, minimumQueryLen)
 
-	if err := executable_seq.ExecChainNode(ctx, qCtx, next); err != nil {
-		return err
-	}
-	if r := qCtx.R(); r != nil {
-		oq := qCtx.OriginalQuery()
-		opt := oq.IsEdns0()
-		if opt == nil { // The original query does not have EDNS0
-			dnsutils.RemoveEDNS0(r) // Remove EDNS0 from the response.
-		} else {
-			if dnsutils.GetEDNS0Option(opt, dns.EDNS0PADDING) == nil { // The original query does not have Padding option.
-				if opt := r.IsEdns0(); opt != nil { // Remove Padding from the response.
-					dnsutils.RemoveEDNS0Option(opt, dns.EDNS0PADDING)
-				}
-			}
-		}
-	}
-	return nil
+	return executable_seq.ExecChainNode(ctx, qCtx, next)
 }
 
 type ResponsePaddingHandler struct {
@@ -87,19 +71,20 @@ type ResponsePaddingHandler struct {
 
 // Exec pads responses to 468 octets as RFC 8467 recommended.
 func (h *ResponsePaddingHandler) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
-	if err := executable_seq.ExecChainNode(ctx, qCtx, next); err != nil {
+	err := executable_seq.ExecChainNode(ctx, qCtx, next)
+	if err!= nil {
 		return err
 	}
 
 	oq := qCtx.OriginalQuery()
-	if r := qCtx.R(); r != nil {
+	if r := qCtx.R(); r!= nil {
 		opt := oq.IsEdns0()
-		if opt != nil { // Only pad response if client supports EDNS0.
+		if opt!= nil { // Only pad response if client supports EDNS0.
 			if h.Always {
 				dnsutils.PadToMinimum(r, minimumResponseLen)
 			} else {
 				// Only pad response if client padded its query.
-				if dnsutils.GetEDNS0Option(opt, dns.EDNS0PADDING) != nil {
+				if dnsutils.GetEDNS0Option(opt, dns.EDNS0PADDING)!= nil {
 					dnsutils.PadToMinimum(r, minimumResponseLen)
 				}
 			}

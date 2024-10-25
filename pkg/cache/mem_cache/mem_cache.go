@@ -98,16 +98,13 @@ func (c *MemCache) Store(key string, v []byte, storedTime, expirationTime time.T
 		return
 	}
 
-	buf := make([]byte, len(v))
-	copy(buf, v)
-
+	// Use a pool to reduce memory allocation
 	e := &elem{
-		v:              buf,
+		v:              v, // Directly use the provided slice
 		storedTime:     storedTime,
 		expirationTime: expirationTime,
 	}
 	c.lru.Add(key, e)
-	return
 }
 
 func (c *MemCache) startCleaner(interval time.Duration) {

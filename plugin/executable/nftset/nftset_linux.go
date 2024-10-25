@@ -51,7 +51,7 @@ func newNftsetPlugin(bp *coremain.BP, args *Args) (*nftsetPlugin, error) {
 	}
 
 	nc, err := nftables.New(nftables.AsLasting())
-	if err != nil {
+	if err!= nil {
 		return nil, fmt.Errorf("failed to connecet netlink, %w", err)
 	}
 
@@ -63,7 +63,7 @@ func newNftsetPlugin(bp *coremain.BP, args *Args) (*nftsetPlugin, error) {
 
 	if len(args.TableFamily4) > 0 && len(args.TableName4) > 0 && len(args.SetName4) > 0 {
 		f, ok := parseTableFamily(args.TableFamily4)
-		if !ok {
+		if!ok {
 			return nil, fmt.Errorf("unsupported nftables family for set4 [%s]", args.TableFamily4)
 		}
 		nftPlugin.v4set = nftset_utils.NewNtSetHandler(nftset_utils.HandlerOpts{
@@ -76,7 +76,7 @@ func newNftsetPlugin(bp *coremain.BP, args *Args) (*nftsetPlugin, error) {
 
 	if len(args.TableFamily6) > 0 && len(args.TableName6) > 0 && len(args.SetName6) > 0 {
 		f, ok := parseTableFamily(args.TableFamily6)
-		if !ok {
+		if!ok {
 			return nil, fmt.Errorf("unsupported nftables family for set6 [%s]", args.TableFamily6)
 		}
 		nftPlugin.v6set = nftset_utils.NewNtSetHandler(nftset_utils.HandlerOpts{
@@ -95,9 +95,9 @@ func newNftsetPlugin(bp *coremain.BP, args *Args) (*nftsetPlugin, error) {
 // Therefore, Exec will never raise its own error.
 func (p *nftsetPlugin) Exec(ctx context.Context, qCtx *query_context.Context, next executable_seq.ExecutableChainNode) error {
 	r := qCtx.R()
-	if r != nil {
+	if r!= nil {
 		er := p.addElems(r)
-		if er != nil {
+		if er!= nil {
 			p.L().Warn("failed to add elems to nftables", qCtx.InfoField(), zap.Error(er))
 		}
 	}
@@ -106,8 +106,8 @@ func (p *nftsetPlugin) Exec(ctx context.Context, qCtx *query_context.Context, ne
 }
 
 func (p *nftsetPlugin) addElems(r *dns.Msg) error {
-	var v4Elems []netip.Prefix
-	var v6Elems []netip.Prefix
+	var v4Addrs []netip.Addr
+	var v6Addrs []netip.Addr
 
 	for i := range r.Answer {
 		switch rr := r.Answer[i].(type) {
@@ -117,37 +117,37 @@ func (p *nftsetPlugin) addElems(r *dns.Msg) error {
 			}
 			addr, ok := netip.AddrFromSlice(rr.A)
 			addr = addr.Unmap()
-			if !ok || !addr.Is4() {
+			if!ok ||!addr.Is4() {
 				return fmt.Errorf("internel: dns.A record [%s] is not a ipv4 address", rr.A)
 			}
-			v4Elems = append(v4Elems, netip.PrefixFrom(addr, p.args.Mask4))
+			v4Addrs = append(v4Addrs, addr)
 
 		case *dns.AAAA:
 			if p.v6set == nil {
 				continue
 			}
 			addr, ok := netip.AddrFromSlice(rr.AAAA)
-			if !ok {
+			if!ok {
 				return fmt.Errorf("internel: dns.AAAA record [%s] is not a ipv6 address", rr.AAAA)
 			}
 			if addr.Is4() {
 				addr = netip.AddrFrom16(addr.As16())
 			}
-			v6Elems = append(v6Elems, netip.PrefixFrom(addr, p.args.Mask6))
+			v6Addrs = append(v6Addrs, addr)
 		default:
 			continue
 		}
 	}
 
-	if p.v4set != nil && len(v4Elems) > 0 {
-		if err := p.v4set.AddElems(v4Elems...); err != nil {
-			return fmt.Errorf("failed to add ipv4 elems %s: %w", v4Elems, err)
+	if p.v4set!= nil && len(v4Addrs) > 0 {
+		if err := p.v4set.AddElems(v4Addrs...); err!= nil {
+			return fmt.Errorf("failed to add ipv4 elems %s: %w", v4Addrs, err)
 		}
 	}
 
-	if p.v6set != nil && len(v6Elems) > 0 {
-		if err := p.v6set.AddElems(v6Elems...); err != nil {
-			return fmt.Errorf("failed to add ipv6 elems %s: %w", v6Elems, err)
+	if p.v6set!= nil && len(v6Addrs) > 0 {
+		if err := p.v6set.AddElems(v6Addrs...); err!= nil {
+			return fmt.Errorf("failed to add ipv6 elems %s: %w", v6Addrs, err)
 		}
 	}
 	return nil

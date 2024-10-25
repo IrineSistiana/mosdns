@@ -40,7 +40,7 @@ func newUnpackDomainCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		Short: "Unpack v2ray domain data file to text files.",
 		Run: func(cmd *cobra.Command, args []string) {
-			if err := UnpackDomainDAT(args[0], ourDir); err != nil {
+			if err := UnpackDomainDAT(args[0], ourDir); err!= nil {
 				mlog.S().Fatal(err)
 			}
 		},
@@ -57,7 +57,7 @@ func newUnpackIPCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		Short: "Unpack v2ray ip data file to text files.",
 		Run: func(cmd *cobra.Command, args []string) {
-			if err := UnpackIPDAT(args[0], ourDir); err != nil {
+			if err := UnpackIPDAT(args[0], ourDir); err!= nil {
 				mlog.S().Fatal(err)
 			}
 		},
@@ -68,12 +68,12 @@ func newUnpackIPCmd() *cobra.Command {
 }
 
 func splitTags(s string) (string, []string) {
-	file, tags, ok := strings.Cut(s, ":")
+	filePath, tags, ok := strings.Cut(s, ":")
 	if ok {
 		t := strings.FieldsFunc(tags, func(r rune) bool {
 			return r == ','
 		})
-		return file, t
+		return filePath, t
 	}
 	return s, nil
 }
@@ -81,11 +81,11 @@ func splitTags(s string) (string, []string) {
 func UnpackDomainDAT(in, outDir string) error {
 	filePath, wantTags := splitTags(in)
 	b, err := os.ReadFile(filePath)
-	if err != nil {
+	if err!= nil {
 		return err
 	}
 	geoSiteList, err := domain.LoadGeoSiteList(b)
-	if err != nil {
+	if err!= nil {
 		return err
 	}
 
@@ -100,7 +100,7 @@ func UnpackDomainDAT(in, outDir string) error {
 		wantEntries = make(map[string]*v2data.GeoSite)
 		for _, tag := range wantTags {
 			entry, ok := entries[tag]
-			if !ok {
+			if!ok {
 				return fmt.Errorf("cannot find entry %s", tag)
 			}
 			wantEntries[tag] = entry
@@ -116,7 +116,7 @@ func UnpackDomainDAT(in, outDir string) error {
 		}
 		mlog.S().Infof("saving %s domain to %s", tag, file)
 		err := convertV2DomainToTextFile(geoSite.GetDomain(), file)
-		if err != nil {
+		if err!= nil {
 			return err
 		}
 	}
@@ -134,7 +134,7 @@ func fileName(f string) string {
 
 func convertV2DomainToTextFile(domain []*v2data.Domain, file string) error {
 	f, err := os.Create(file)
-	if err != nil {
+	if err!= nil {
 		return err
 	}
 	defer f.Close()
@@ -158,7 +158,7 @@ func convertV2DomainToText(domain []*v2data.Domain, w io.Writer) error {
 			return fmt.Errorf("invalid domain type %d", r.Type)
 		}
 		_, err := w.Write([]byte(prefix + r.Value + "\n"))
-		if err != nil {
+		if err!= nil {
 			return err
 		}
 	}
@@ -168,11 +168,11 @@ func convertV2DomainToText(domain []*v2data.Domain, w io.Writer) error {
 func UnpackIPDAT(in, ourDir string) error {
 	filePath, wantTags := splitTags(in)
 	b, err := os.ReadFile(filePath)
-	if err != nil {
+	if err!= nil {
 		return err
 	}
 	geoIPList, err := netlist.LoadGeoIPListFromDAT(b)
-	if err != nil {
+	if err!= nil {
 		return err
 	}
 
@@ -187,7 +187,7 @@ func UnpackIPDAT(in, ourDir string) error {
 		wantEntries = make(map[string]*v2data.GeoIP)
 		for _, tag := range wantTags {
 			entry, ok := entries[tag]
-			if !ok {
+			if!ok {
 				return fmt.Errorf("cannot find entry %s", tag)
 			}
 			wantEntries[tag] = entry
@@ -203,7 +203,7 @@ func UnpackIPDAT(in, ourDir string) error {
 		}
 		mlog.S().Infof("saving %s ip to %s", tag, file)
 		err := convertV2CidrToTextFile(ipList.GetCidr(), file)
-		if err != nil {
+		if err!= nil {
 			return err
 		}
 	}
@@ -213,7 +213,7 @@ func UnpackIPDAT(in, ourDir string) error {
 
 func convertV2CidrToTextFile(cidr []*v2data.CIDR, file string) error {
 	f, err := os.Create(file)
-	if err != nil {
+	if err!= nil {
 		return err
 	}
 	defer f.Close()
@@ -230,12 +230,4 @@ func convertV2CidrToText(cidr []*v2data.CIDR, w io.Writer) error {
 		case 4:
 			n.Mask = net.CIDRMask(int(record.Prefix), 32)
 		case 16:
-			n.Mask = net.CIDRMask(int(record.Prefix), 128)
-		}
-		_, err := w.Write([]byte(n.String() + "\n"))
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
+			n.Mask = net.CIDRMask(int(record.Prefix),
