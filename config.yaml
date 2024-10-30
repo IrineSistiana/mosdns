@@ -1,0 +1,182 @@
+log:
+  level: debug
+  file: "/var/log/mosdns.log"
+
+api:
+  http: "0.0.0.0:8338" # api 监听地址
+
+include:
+  - "/etc/mosdns/dat_exec.yaml"
+  - "/etc/mosdns/dns.yaml"
+
+plugins:
+  - tag: reject_null_domain
+    type: sequence
+    args:
+      - exec: query_summary reject_null_domain
+      - exec: $reject_3
+
+  - tag: reject_qtype65
+    type: sequence
+    args:
+      - exec: query_summary reject_qtype65
+      - exec: $reject_3
+
+  - tag: reject_ad
+    type: sequence
+    args:
+      - exec: query_summary reject_adlist
+      - exec: $reject_3
+
+  ################ 序列 #################
+  - tag: dns_nocn
+    type: "fallback"
+    args:
+      primary: quad9 # 主dns
+      secondary: nextdns # 备用dns
+      threshold: 700 # 无响应切换 毫秒
+      always_standby: true # 副可执行插件始终待命
+  
+  # dns-cn 序列
+  - tag: dns_cn
+    type: "fallback"
+    args:
+      primary: ali # 主dns
+      secondary: dnspod # 备用dns
+      threshold: 500
+      always_standby: true # 副可执行插件始终待命
+
+  - tag: dns_nocn_seq
+    type: sequence
+    args:
+      - exec: query_summary dns_nocn
+      - exec: $dns_nocn
+
+  - tag: dns_cn_seq
+    type: sequence
+    args:
+      - exec: query_summary dns_cn
+      - exec: $dns_cn
+
+  - tag: local_seq
+    type: sequence
+    args:
+      - exec: query_summary local
+      - exec: $local
+
+  - tag: fallback_seq # 其他特殊情况统一使用 dns_cn 处理
+    type: sequence
+    args:
+      - exec: query_summary fallback
+      - exec: $dns_cn
+
+  - tag: other_seq # 其他特殊情况统一使用 dns_cn 处理
+    type: sequence
+    args:
+      - exec: query_summary other
+      - exec: $dns_cn
+
+  - tag: query_gfw
+    type: sequence
+    args:
+      - exec: $forward_remote
+
+  # query fallback
+  - tag: query_fallback
+    type: sequence
+    args:
+      # - exec: $ecs-cn
+      - exec: prefer_ipv4
+      - exec: $fallback_seq
+
+  # query lan
+  - tag: query_lan
+    type: sequence
+    args:
+      - exec: $cache_lan
+      - matches: has_resp # 命中了 lan cache
+        exec: return
+      # - exec: $no_ecs
+      - exec: $local_seq
+
+  # 其他所有情况
+  - tag: query_other 
+    type: sequence
+    args:
+      # - exec: $no_ecs 
+      - exec: $other_seq
+
+  - tag: pre_handle
+    type: sequence
+    args:
+      - exec: $ttl_1h # ttl 1h
+      - exec: accept # 接受响应,终止流程
+
+  - tag: main_handle
+    type: sequence
+    args:
+      - exec: $ttl_5m # ttl 5min
+      - exec: accept # 接受响应,终止流程
+
+  # pre_sequence 结果处理 
+  - tag: has_resp_pre
+    type: sequence
+    args:
+      - matches: has_resp # 如果 pre 序列已有响应
+        exec: goto pre_handle
+
+  # main_sequence 结果处理
+  - tag: has_resp_main
+    type: sequence
+    args:
+      - matches: has_resp
+        exec: goto main_handle
+
+  # pre_sequence
+  - tag: pre_sequence
+    type: sequence
+    args:
+      - matches: qtype 65 # TYPE 65 类型|DNS服务器状态
+        exec: $reject_qtype65
+      - matches: "qname keyword::" # 无效域名
+        exec: $reject_null_domain
+      - matches: qtype 12 # TYPE 12 类型|反查域名 PTR 记录
+        exec: $query_other
+      - matches: qtype 255 # TYPE 255 类型|DNS服务器拓展支持
+        exec: $query_other
+      - matches: ptr_ip $geoip_private # private ip
+        exec: $query_lan
+      - exec: jump has_resp_pre
+
+  # main_sequence
+  - tag: main_sequence
+    type: sequence
+    args:
+      - matches: qname $geosite_ads-all # ad 域名
+        exec: $reject_ad
+      - exec: $cache_wan # cache wan
+      - exec: jump has_resp_main
+      - matches: qname $geosite_cn # cn 域名
+        exec: $query_cn
+      - exec: jump has_resp_main
+      # 其他
+      - exec: $no_ecs
+      - exec: $query_fallback
+      - exec: jump has_resp_main
+
+  - tag: sequence
+    type: sequence
+    args:
+      - exec: metrics_collector metrics
+      - exec: $pre_sequence # 预处理
+      - exec: $main_sequence # 主执行序列
+
+  # 在同一端口启动 udp 和 tcp 服务器。
+  - type: udp_server
+    args:
+      entry: sequence
+      listen: :53
+  - type: tcp_server
+    args:
+      entry: sequence
+      listen: :53

@@ -1,0 +1,166 @@
+plugins:
+  ################ DNS #################
+  # google doh dot h3
+  - tag: google
+    type: forward
+    args:
+      concurrent: 3
+      upstreams:
+        - addr: "https://dns.google/dns-query"
+          dial_addr: "2001:4860:4860::6464"
+        - addr: "https://dns.google/dns-query"
+          dial_addr: "2001:4860:4860::0064"
+        - addr: "https://dns.google/dns-query"
+          dial_addr: "2001:4860:4860::8844"
+        - addr: "https://dns.google/dns-query"
+          dial_addr: "2001:4860:4860::8888"
+        - addr: "https://dns.google/dns-query"
+          dial_addr: "8.8.4.4"
+        - addr: "https://dns.google/dns-query"
+          dial_addr: "8.8.8.8"
+
+        - addr: "tls://dns.google"
+          dial_addr: "8.8.4.4"
+          enable_pipeline: true # TCP/DoT 启用 RFC 7766 新的 query pipelining 连接复用模式
+        - addr: "tls://dns.google"
+          dial_addr: "2001:4860:4860::8888"
+          enable_pipeline: true
+        - addr: "tls://dns.google"
+          dial_addr: "8.8.8.8"
+          enable_pipeline: true
+        # h3
+        - addr: "https://dns.google/dns-query"
+          dial_addr: "2001:4860:4860::8844"
+          enable_http3: true
+        - addr: "https://dns.google/dns-query"
+          dial_addr: "8.8.4.4"
+          enable_http3: true
+        - addr: "https://dns.google/dns-query"
+          dial_addr: "2001:4860:4860::8888"
+          enable_http3: true
+        - addr: "https://dns.google/dns-query"
+          dial_addr: "8.8.8.8"
+          enable_http3: true
+
+  # cloudflare doh dot h3
+  - tag: cloudflare
+    type: forward
+    args:
+      concurrent: 3
+      upstreams:
+        - addr: "https://1.1.1.1/dns-query"
+          dial_addr: "1.1.1.1"
+
+
+        - addr: "tls://1.1.1.1"
+          dial_addr: "1.1.1.1"
+          enable_pipeline: true # TCP/DoT 启用 RFC 7766 新的 query pipelining 连接复用模式
+        - addr: "tls://1.1.1.1"
+          dial_addr: "1.1.1.1"
+          enable_pipeline: true
+
+  - tag: nextdns
+    type: forward
+    args:
+      concurrent: 2
+      upstreams:
+        - addr: "https://dns.nextdns.io"
+          dial_addr: "45.90.28.186"
+          enable_http3: true
+        - addr: "https://dns.nextdns.io"
+          dial_addr: "2a07:a8c0::ae:d5cb"
+          enable_http3: true
+
+        - addr: "tls://dns.nextdns.io"
+          enable_pipeline: true
+          dial_addr: "45.90.28.186"
+
+  - tag: quad9
+    type: forward
+    args:
+      concurrent: 2
+      upstreams:
+        - addr: "https://dns11.quad9.net/dns-query"
+          dial_addr: "9.9.9.11"
+        - addr: "https://dns11.quad9.net/dns-query"
+          dial_addr: "2620:fe::11"
+
+        - addr: "tls://dns11.quad9.net"
+          dial_addr: "9.9.9.11"
+          enable_pipeline: true
+        - addr: "tls://dns11.quad9.net"
+          dial_addr: "2620:fe::11"
+          enable_pipeline: true
+
+  - tag: forward_remote
+    type: forward
+    args:
+      concurrent: 1
+      upstreams:
+        - addr: 127.0.0.1:7874 
+  # ali doh dot h3
+  - tag: ali
+    type: forward
+    args:
+      concurrent: 3
+      upstreams:
+        - addr: "https://dns.alidns.com/dns-query"
+          dial_addr: "223.6.6.6"
+
+        - addr: "tls://dns.alidns.com"
+          dial_addr: "2400:3200:baba::1"
+          enable_pipeline: true
+        - addr: "tls://dns.alidns.com"
+          dial_addr: "223.5.5.5"
+          enable_pipeline: true
+
+        - addr: "https://dns.alidns.com/dns-query"
+          dial_addr: "223.5.5.5"
+          enable_http3: true
+        - addr: "https://dns.alidns.com/dns-query"
+          dial_addr: "2400:3200::1"
+          enable_http3: true
+
+  # dnspod doh dot
+  - tag: dnspod
+    type: forward
+    args:
+      concurrent: 3
+      upstreams:
+        - addr: "https://doh.pub/dns-query"
+          dial_addr: "1.12.12.12"
+        - addr: "https://doh.pub/dns-query"
+          dial_addr: "120.53.53.53"
+
+        - addr: "tls://dot.pub"
+          dial_addr: "1.12.12.12"
+          enable_pipeline: true
+        - addr: "tls://dot.pub"
+          dial_addr: "120.53.53.53"
+          enable_pipeline: true
+
+  # local dns
+  - tag: local
+    type: forward
+    args:
+      concurrent: 1
+      upstreams:
+        - addr: "udp://127.0.0.1:53"
+
+  # server 失败
+  - tag: reject_2
+    type: sequence
+    args:
+      - exec: reject 2
+
+  # 拒绝响应
+  - tag: reject_3
+    type: sequence
+    args:
+      - exec: reject 3
+
+  # 不支持的操作
+  - tag: reject_5
+    type: sequence
+    args:
+      - exec: reject 5
