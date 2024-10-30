@@ -1,0 +1,94 @@
+plugins:
+  ################## 数据源 ################
+  - tag: geoip_private # 私网 ip
+    type: ip_set
+    args:
+      files:
+        - "/etc/mosdns/rules/geoip_private.txt"
+  - tag: geoip_cn # cn ip
+    type: ip_set
+    args:
+      files:
+        - "/etc/mosdns/rules/geoip_cn.txt"
+
+  - tag: geosite_cn # cn 域名
+    type: domain_set
+    args:
+      files:
+        - "/etc/mosdns/rules/geosite_cn.txt"
+  - tag: geosite_gfw # gfw 域名
+    type: domain_set
+    args:
+      files:
+        - "/etc/mosdns/rules/geosite_gfw.txt"
+  - tag: geosite_location-!cn # 非 cn 域名
+    type: domain_set
+    args:
+      files:
+        - "/etc/mosdns/rules/geosite_geolocation-!cn.txt"
+  - tag: geosite_ads-all # 广告域名
+    type: domain_set
+    args:
+      files:
+        - "/etc/mosdns/rules/geosite_category-ads-all.txt"
+
+  ################# 可执行插件 ################
+
+  # 缓存 lan
+  - tag: cache_lan
+    type: cache
+    args:
+      size: 8192
+      lazy_cache_ttl: 86400
+  # 缓存 wan
+  - tag: cache_wan
+    type: cache
+    args:
+      size: 131072
+      lazy_cache_ttl: 86400
+
+  # # exec
+  # - tag: ecs_cn # 附加 ecs-cn 信息
+  #   type: sequence
+  #   args:
+  #     - exec: ecs 202.120.2.100
+
+  # no ecs
+  # - tag: no_ecs # no ecs 信息
+  #   type: sequence
+  #   args:
+  #     - exec: ecs
+
+  # no ecs
+  - tag: no_ecs
+    type: "ecs_handler"
+    args:
+      forward: false # 是否转发来自下游的 ecs
+      preset: "" # 发送预设 ecs
+      send: false # 是否发送 ecs
+      mask4: 24
+      mask6: 48 
+  
+  # 附加 ecs cn 信息
+  - tag: ecs_cn
+    type: "ecs_handler"
+    args:
+      forward: true # 是否转发来自下游的 ecs
+      preset: 114.217.98.237 # 发送预设 ecs
+      send: false # 是否发送 ecs
+      mask4: 24 # ipv4 掩码。默认 24
+      mask6: 48 # ipv6 掩码。默认 48
+
+  # 调整 ttl
+  - tag: ttl_1m
+    type: sequence
+    args:
+      - exec: ttl 60
+  - tag: ttl_5m
+    type: sequence
+    args:
+      - exec: ttl 300
+  - tag: ttl_1h
+    type: sequence
+    args:
+      - exec: ttl 3600
