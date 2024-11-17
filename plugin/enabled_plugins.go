@@ -24,6 +24,7 @@ import (
 	// data provider
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/data_provider/domain_set"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/data_provider/ip_set"
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/data_provider/mmdb"
 
 	// matcher
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/client_ip"
@@ -38,6 +39,7 @@ import (
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/random"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/rcode"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/resp_ip"
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/resp_ip_mmdb"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/string_exp"
 
 	// executable
