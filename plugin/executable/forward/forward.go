@@ -24,6 +24,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"strings"
 	"time"
 
@@ -261,8 +262,9 @@ func (f *Forward) exchange(ctx context.Context, qCtx *query_context.Context, us 
 	done := make(chan struct{})
 	defer close(done)
 
+	r := rand.IntN(len(us))
 	for i := 0; i < concurrent; i++ {
-		u := randPick(us)
+		u := us[(r+i)%len(us)]
 		qc := copyPayload(queryPayload)
 		go func(uqid uint32, question dns.Question) {
 			defer pool.ReleaseBuf(qc)
