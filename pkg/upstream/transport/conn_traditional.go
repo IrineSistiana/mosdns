@@ -124,9 +124,24 @@ func (dc *TraditionalDnsConn) exchange(ctx context.Context, q []byte) (*[]byte, 
 		dc.c.SetReadDeadline(time.Now().Add(waitingReplyTimeout))
 	}
 
+	var resend <-chan time.Time
+	if !dc.isTcp {
+		ticker := time.NewTicker(time.Second)
+		resend = ticker.C
+		defer ticker.Stop()
+	}
+
+wait:
 	select {
 	case <-ctx.Done():
 		return nil, context.Cause(ctx)
+	case <-resend:
+		err := dc.writeQuery(q, assignedQid)
+		if err != nil {
+			dc.CloseWithErr(fmt.Errorf("write err, %w", err))
+			return nil, err
+		}
+		goto wait
 	case r := <-respChan:
 		orgId := binary.BigEndian.Uint16(q)
 		binary.BigEndian.PutUint16(*r, orgId)
