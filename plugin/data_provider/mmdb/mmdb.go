@@ -17,22 +17,45 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package data_provider
+package mmdb
 
 import (
-	"github.com/IrineSistiana/mosdns/v5/pkg/matcher/domain"
-	"github.com/IrineSistiana/mosdns/v5/pkg/matcher/netlist"
+	"github.com/IrineSistiana/mosdns/v5/coremain"
+	"github.com/IrineSistiana/mosdns/v5/plugin/data_provider"
 	"github.com/oschwald/geoip2-golang"
 )
 
-type DomainMatcherProvider interface {
-	GetDomainMatcher() domain.Matcher[struct{}]
+const PluginType = "mmdb"
+
+func init() {
+	coremain.RegNewPluginFunc(PluginType, Init, func() any { return new(Args) })
 }
 
-type IPMatcherProvider interface {
-	GetIPMatcher() netlist.Matcher
+func Init(bp *coremain.BP, args any) (any, error) {
+	return NewMmdb(bp, args.(*Args))
 }
 
-type MmdbMatcherProvider interface {
-	GetMmdbMatcher() *geoip2.Reader
+type Args struct {
+	File string `yaml:"file"`
+}
+
+var _ data_provider.MmdbMatcherProvider = (*Mmdb)(nil)
+
+type Mmdb struct {
+	mmdb *geoip2.Reader
+}
+
+func (m *Mmdb) GetMmdbMatcher() *geoip2.Reader {
+	return m.mmdb
+}
+
+func NewMmdb(bp *coremain.BP, args *Args) (*Mmdb, error) {
+	m := &Mmdb{}
+
+	db, err := geoip2.Open(args.File)
+	if err == nil {
+		m.mmdb = db
+	}
+
+	return m, nil
 }
