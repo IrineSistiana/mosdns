@@ -22,6 +22,7 @@ package fastforward
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -71,10 +72,12 @@ type UpstreamConfig struct {
 
 	// Deprecated: This option has no affect.
 	// TODO: (v6) Remove this option.
-	MaxConns           int  `yaml:"max_conns"`
-	EnablePipeline     bool `yaml:"enable_pipeline"`
-	EnableHTTP3        bool `yaml:"enable_http3"`
-	InsecureSkipVerify bool `yaml:"insecure_skip_verify"`
+	MaxConns           int    `yaml:"max_conns"`
+	EnablePipeline     bool   `yaml:"enable_pipeline"`
+	EnableHTTP3        bool   `yaml:"enable_http3"`
+	InsecureSkipVerify bool   `yaml:"insecure_skip_verify"`
+	ServerName         string `yaml:"server_name"`
+	DisableSNI         bool   `yaml:"disable_sni"`
 
 	Socks5       string `yaml:"socks5"`
 	SoMark       int    `yaml:"so_mark"`
@@ -153,11 +156,36 @@ func NewForward(args *Args, opt Opts) (*Forward, error) {
 			Bootstrap:      c.Bootstrap,
 			BootstrapVer:   c.BootstrapVer,
 			TLSConfig: &tls.Config{
-				InsecureSkipVerify: c.InsecureSkipVerify,
+				InsecureSkipVerify: c.InsecureSkipVerify || c.DisableSNI,
 				ClientSessionCache: tls.NewLRUClientSessionCache(4),
 			},
 			Logger:        opt.Logger,
 			EventObserver: uw,
+		}
+
+		if c.DisableSNI {
+			uOpt.TLSConfig.ServerName = "127.0.0.1"
+			if !c.InsecureSkipVerify {
+				var serverName string
+				if c.ServerName == "" {
+					return nil, errors.New("missing server_name or insecure_skip_verify=true")
+				} else {
+					serverName = c.ServerName
+				}
+				uOpt.TLSConfig.VerifyConnection = func(state tls.ConnectionState) error {
+					verifyOptions := x509.VerifyOptions{
+						DNSName:       serverName,
+						Intermediates: x509.NewCertPool(),
+					}
+					for _, cert := range state.PeerCertificates[1:] {
+						verifyOptions.Intermediates.AddCert(cert)
+					}
+					_, err := state.PeerCertificates[0].Verify(verifyOptions)
+					return err
+				}
+			}
+		} else if c.ServerName != "" {
+			uOpt.TLSConfig.ServerName = c.ServerName
 		}
 
 		u, err := upstream.NewUpstream(c.Addr, uOpt)
