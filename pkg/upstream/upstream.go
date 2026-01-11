@@ -428,10 +428,10 @@ func NewUpstream(addr string, opt Opt) (_ Upstream, err error) {
 
 			defer closeIfFuncErr(quicTransport)
 			addonCloser = quicTransport
-			t = &http3.RoundTripper{
+			t = &http3.Transport{
 				TLSClientConfig: opt.TLSConfig,
 				QUICConfig:      quicConfig,
-				Dial: func(ctx context.Context, _ string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error) {
+				Dial: func(ctx context.Context, _ string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
 					ua, err := udpBootstrap(ctx)
 					if err != nil {
 						return nil, err
@@ -530,7 +530,7 @@ func NewUpstream(addr string, opt Opt) (_ Upstream, err error) {
 			// 1. recover from strange 0rtt rejected err.
 			// 2. avoid NextConnection might block forever.
 			// TODO: Remove this workaround.
-			var c quic.Connection
+			var c *quic.Conn
 			ec, err := t.DialEarly(ctx, ua, tlsConfig, quicConfig)
 			if err != nil {
 				return nil, err

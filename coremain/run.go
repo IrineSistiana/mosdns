@@ -23,7 +23,7 @@ import (
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v5/mlog"
 	"github.com/kardianos/service"
-	"github.com/mitchellh/mapstructure"
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
