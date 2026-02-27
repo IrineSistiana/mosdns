@@ -21,10 +21,15 @@ package mlog
 
 import (
 	"fmt"
+	"time"
+
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"os"
 )
+
+// localTimeEncoder uses local timezone via time.Format.
+var localTimeEncoder = zapcore.TimeEncoderOfLayout(time.RFC3339)
 
 type LogConfig struct {
 	// Level, See also zapcore.ParseLevel.
@@ -65,9 +70,13 @@ func NewLogger(lc LogConfig) (*zap.Logger, error) {
 	}
 
 	if lc.Production {
-		return zap.New(zapcore.NewCore(zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()), out, lvl)), nil
+		cfg := zap.NewProductionEncoderConfig()
+		cfg.EncodeTime = localTimeEncoder
+		return zap.New(zapcore.NewCore(zapcore.NewJSONEncoder(cfg), out, lvl)), nil
 	}
-	return zap.New(zapcore.NewCore(zapcore.NewConsoleEncoder(zap.NewDevelopmentEncoderConfig()), out, lvl)), nil
+	cfg := zap.NewDevelopmentEncoderConfig()
+	cfg.EncodeTime = localTimeEncoder
+	return zap.New(zapcore.NewCore(zapcore.NewConsoleEncoder(cfg), out, lvl)), nil
 }
 
 // L is a global logger.
