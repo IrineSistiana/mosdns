@@ -155,10 +155,6 @@ func NewUpstream(addr string, opt Opt) (_ Upstream, err error) {
 		opt.EnableHTTP3 = true
 	}
 
-	// If host is a ipv6 without port, it will be in []. This will cause err when
-	// split and join address and port. Try to remove brackets now.
-	addrUrlHost := tryTrimIpv6Brackets(addrURL.Host)
-
 	dialer := &net.Dialer{
 		Control: getSocketControlFunc(socketOpts{
 			so_mark:        opt.SoMark,
@@ -175,7 +171,7 @@ func NewUpstream(addr string, opt Opt) (_ Upstream, err error) {
 	}
 
 	newUdpAddrResolveFunc := func(defaultPort uint16) (func(ctx context.Context) (*net.UDPAddr, error), error) {
-		host, port, err := parseDialAddr(addrUrlHost, opt.DialAddr, defaultPort)
+		host, port, err := parseDialAddr(addrURL.Host, opt.DialAddr, defaultPort)
 		if err != nil {
 			return nil, err
 		}
@@ -211,7 +207,7 @@ func NewUpstream(addr string, opt Opt) (_ Upstream, err error) {
 	}
 
 	newTcpDialer := func(dialAddrMustBeIp bool, defaultPort uint16) (func(ctx context.Context) (net.Conn, error), error) {
-		host, port, err := parseDialAddr(addrUrlHost, opt.DialAddr, defaultPort)
+		host, port, err := parseDialAddr(addrURL.Host, opt.DialAddr, defaultPort)
 		if err != nil {
 			return nil, err
 		}
@@ -275,7 +271,7 @@ func NewUpstream(addr string, opt Opt) (_ Upstream, err error) {
 	case "", "udp":
 		const defaultPort = 53
 		const maxConcurrentQueryPreConn = 4096 // Protocol limit is 65535.
-		host, port, err := parseDialAddr(addrUrlHost, opt.DialAddr, defaultPort)
+		host, port, err := parseDialAddr(addrURL.Host, opt.DialAddr, defaultPort)
 		if err != nil {
 			return nil, err
 		}
@@ -357,7 +353,7 @@ func NewUpstream(addr string, opt Opt) (_ Upstream, err error) {
 			tlsConfig = new(tls.Config)
 		}
 		if len(tlsConfig.ServerName) == 0 {
-			tlsConfig.ServerName = tryRemovePort(addrUrlHost)
+			tlsConfig.ServerName = tryExtractHost(addrURL.Host)
 		}
 
 		tcpDialer, err := newTcpDialer(false, defaultPort)
@@ -487,7 +483,7 @@ func NewUpstream(addr string, opt Opt) (_ Upstream, err error) {
 			tlsConfig = new(tls.Config)
 		}
 		if len(tlsConfig.ServerName) == 0 {
-			tlsConfig.ServerName = tryRemovePort(addrUrlHost)
+			tlsConfig.ServerName = tryExtractHost(addrURL.Host)
 		}
 		tlsConfig.NextProtos = []string{"doq"}
 

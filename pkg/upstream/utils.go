@@ -50,12 +50,12 @@ func joinPort(host string, port uint16) string {
 	return net.JoinHostPort(host, strconv.Itoa(int(port)))
 }
 
-func tryRemovePort(s string) string {
-	host, _, err := net.SplitHostPort(s)
-	if err != nil {
-		return s
+func tryExtractHost(s string) string {
+	host, _, err := trySplitHostPort(s)
+	if err == nil {
+		return host
 	}
-	return host
+	return tryTrimIpv6Brackets(s)
 }
 
 // trySplitHostPort splits host and port.
@@ -64,6 +64,8 @@ func trySplitHostPort(s string) (string, uint16, error) {
 	var port uint16
 	host, portS, err := net.SplitHostPort(s)
 	if err == nil {
+		host = tryTrimIpv6Brackets(host)
+
 		n, err := strconv.ParseUint(portS, 10, 16)
 		if err != nil {
 			return "", 0, fmt.Errorf("invalid port, %w", err)
@@ -94,7 +96,7 @@ func tryTrimIpv6Brackets(s string) string {
 		return s
 	}
 	if s[0] == '[' && s[len(s)-1] == ']' {
-		return s[1 : len(s)-2]
+		return s[1 : len(s)-1]
 	}
 	return s
 }
