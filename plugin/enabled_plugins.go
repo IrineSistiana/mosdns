@@ -58,6 +58,7 @@ import (
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/executable/rate_limiter"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/executable/redirect"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/executable/reverse_lookup"
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/executable/ros_addrlist"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence/fallback"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/executable/sleep"
