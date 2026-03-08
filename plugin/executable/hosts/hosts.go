@@ -23,13 +23,15 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
+
 	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/hosts"
 	"github.com/IrineSistiana/mosdns/v5/pkg/matcher/domain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
+	"github.com/IrineSistiana/mosdns/v5/plugin/statistics"
 	"github.com/miekg/dns"
-	"os"
 )
 
 const PluginType = "hosts"
@@ -84,6 +86,7 @@ func (h *Hosts) Exec(_ context.Context, qCtx *query_context.Context) error {
 	r := h.h.LookupMsg(qCtx.Q())
 	if r != nil {
 		qCtx.SetResponse(r)
+		qCtx.StoreValue(statistics.HostStoreKey, true)
 	}
 	return nil
 }

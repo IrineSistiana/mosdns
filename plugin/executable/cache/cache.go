@@ -38,6 +38,7 @@ import (
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
+	"github.com/IrineSistiana/mosdns/v5/plugin/statistics"
 	"github.com/go-chi/chi/v5"
 	"github.com/klauspost/compress/gzip"
 	"github.com/miekg/dns"
@@ -202,6 +203,7 @@ func (c *Cache) Exec(ctx context.Context, qCtx *query_context.Context, next sequ
 	}
 	if cachedResp != nil { // cache hit
 		c.hitTotal.Inc()
+		qCtx.StoreValue(statistics.CacaheStoreKey, cachedResp.Id)
 		cachedResp.Id = q.Id // change msg id
 		qCtx.SetResponse(cachedResp)
 	}
