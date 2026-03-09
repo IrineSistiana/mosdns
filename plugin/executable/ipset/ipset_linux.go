@@ -54,6 +54,13 @@ func newIpSetPlugin(args *Args) (*ipSetPlugin, error) {
 	}, nil
 }
 
+func addIpSet(nl *ipset.NetLink, setName string, prefix netip.Prefix, timeout int) error {
+	if timeout == -1 {
+		return ipset.AddPrefix(nl, setName, prefix)
+	}
+	return ipset.AddPrefix(nl, setName, prefix, ipset.OptTimeout(uint32(timeout)))
+}
+
 func (p *ipSetPlugin) Exec(_ context.Context, qCtx *query_context.Context) error {
 	r := qCtx.R()
 	if r != nil {
@@ -79,7 +86,7 @@ func (p *ipSetPlugin) addIPSet(r *dns.Msg) error {
 			if !ok {
 				return fmt.Errorf("invalid A record with ip: %s", rr.A)
 			}
-			if err := ipset.AddPrefix(p.nl, p.args.SetName4, netip.PrefixFrom(addr, p.args.Mask4)); err != nil {
+			if err := addIpSet(p.nl, p.args.SetName4, netip.PrefixFrom(addr, p.args.Mask4), p.args.Timeout4); err != nil {
 				return err
 			}
 
@@ -91,7 +98,7 @@ func (p *ipSetPlugin) addIPSet(r *dns.Msg) error {
 			if !ok {
 				return fmt.Errorf("invalid AAAA record with ip: %s", rr.AAAA)
 			}
-			if err := ipset.AddPrefix(p.nl, p.args.SetName6, netip.PrefixFrom(addr, p.args.Mask6)); err != nil {
+			if err := addIpSet(p.nl, p.args.SetName6, netip.PrefixFrom(addr, p.args.Mask6), p.args.Timeout6); err != nil {
 				return err
 			}
 		default:

@@ -22,13 +22,17 @@ package hosts
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/hosts"
 	"github.com/IrineSistiana/mosdns/v5/pkg/matcher/domain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
+	"github.com/go-chi/chi/v5"
 	"github.com/miekg/dns"
+	"go.uber.org/zap"
+	"net/http"
 	"os"
 )
 
@@ -49,8 +53,10 @@ type Hosts struct {
 	h *hosts.Hosts
 }
 
-func Init(_ *coremain.BP, args any) (any, error) {
-	return NewHosts(args.(*Args))
+func Init(bp *coremain.BP, args any) (any, error) {
+	h, err := NewHosts(args.(*Args))
+	bp.RegAPI(h.Api(bp.L()))
+	return h, err
 }
 
 func NewHosts(args *Args) (*Hosts, error) {
@@ -84,6 +90,38 @@ func (h *Hosts) Exec(_ context.Context, qCtx *query_context.Context) error {
 	r := h.h.LookupMsg(qCtx.Q())
 	if r != nil {
 		qCtx.SetResponse(r)
+	}
+	return nil
+}
+
+func (h *Hosts) Api(logger *zap.Logger) *chi.Mux {
+	router := chi.NewRouter()
+	router.Post("/update", func(writer http.ResponseWriter, request *http.Request) {
+		b := request.Body
+		payload := map[string]interface{}{}
+		payload["code"] = -1
+		if err := domain.LoadFromTextReader[(*hosts.IPs)](h.h.GetMatcher().(*domain.MixMatcher[*hosts.IPs]), b, hosts.ParseIPs); err != nil {
+			payload["msg"] = err.Error()
+			if err := respondWithJSON(writer, http.StatusOK, payload); err != nil {
+				logger.Error("fail to response hosts update", zap.Error(err))
+			}
+			return
+		}
+		payload["msg"] = "ok"
+		payload["code"] = 0
+		if err := respondWithJSON(writer, http.StatusOK, payload); err != nil {
+			logger.Error("fail to response hosts update", zap.Error(err))
+		}
+	})
+	return router
+}
+
+func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) error {
+	response, _ := json.Marshal(payload)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	if _, err := w.Write(response); err != nil {
+		return err
 	}
 	return nil
 }
