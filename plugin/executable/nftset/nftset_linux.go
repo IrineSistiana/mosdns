@@ -31,15 +31,17 @@ import (
 	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
 	"github.com/google/nftables"
 	"github.com/miekg/dns"
+	"go.uber.org/zap"
 )
 
 type nftSetPlugin struct {
+	l         *zap.Logger
 	args      *Args
 	v4Handler *nftset_utils.NftSetHandler
 	v6Handler *nftset_utils.NftSetHandler
 }
 
-func newNftSetPlugin(args *Args) (*nftSetPlugin, error) {
+func newNftSetPlugin(l *zap.Logger, args *Args) (*nftSetPlugin, error) {
 	utils.SetDefaultUnsignNum(&args.IPv4.Mask, 24)
 	utils.SetDefaultUnsignNum(&args.IPv6.Mask, 48)
 	if m := args.IPv4.Mask; m > 32 {
@@ -50,6 +52,7 @@ func newNftSetPlugin(args *Args) (*nftSetPlugin, error) {
 	}
 
 	p := &nftSetPlugin{
+		l:    l,
 		args: args,
 	}
 
@@ -84,7 +87,11 @@ func (p *nftSetPlugin) Exec(_ context.Context, qCtx *query_context.Context) erro
 	r := qCtx.R()
 	if r != nil {
 		if err := p.addElems(r); err != nil {
-			return fmt.Errorf("nftable: %w", err)
+			p.l.Info(
+				fmt.Errorf("nftable: %w", err).Error(),
+				zap.Inline(qCtx),
+			)
+			return nil
 		}
 	}
 	return nil
