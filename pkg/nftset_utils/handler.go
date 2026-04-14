@@ -24,6 +24,7 @@ package nftset_utils
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/netip"
 	"sync"
 	"time"
@@ -121,7 +122,7 @@ func (h *NftSetHandler) AddElems(es ...netip.Prefix) error {
 		if set.Interval {
 			start := e.Masked().Addr()
 			elems = append(elems, nftables.SetElement{Key: start.AsSlice(), IntervalEnd: false})
-			
+
 			end := netipx.PrefixLastIP(e).Next() // may be invalid if end is overflowed
 			if end.IsValid() {
 				elems = append(elems, nftables.SetElement{Key: end.AsSlice(), IntervalEnd: true})
@@ -135,7 +136,20 @@ func (h *NftSetHandler) AddElems(es ...netip.Prefix) error {
 	if err != nil {
 		return err
 	}
-	return h.lastingConn.Flush()
+
+	err = h.lastingConn.Flush()
+	if err == nil {
+		return nil
+	}
+
+	// Ignore and only ignore ErrExist
+	errs := errors.Unwrap(err).(interface{ Unwrap() []error }).Unwrap()
+	for _, e := range errs {
+		if !errors.Is(e, fs.ErrExist) {
+			return err
+		}
+	}
+	return nil
 }
 
 func (h *NftSetHandler) Close() error {
