@@ -95,7 +95,7 @@ func (r *Redirect) Exec(ctx context.Context, qCtx *query_context.Context, next s
 
 	orgQName := q.Question[0].Name
 	redirectTarget, ok := r.m.Match(orgQName)
-	if !ok {
+	if !ok || strings.EqualFold(orgQName, redirectTarget) {
 		return next.ExecNext(ctx, qCtx)
 	}
 
