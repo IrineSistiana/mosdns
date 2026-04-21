@@ -39,6 +39,7 @@ import (
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/rcode"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/resp_ip"
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/string_exp"
+	_ "github.com/IrineSistiana/mosdns/v5/plugin/matcher/svcb_iphint"
 
 	// executable
 	_ "github.com/IrineSistiana/mosdns/v5/plugin/executable/arbitrary"
