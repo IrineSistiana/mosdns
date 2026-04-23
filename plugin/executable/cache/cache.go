@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -184,6 +185,46 @@ func (c *Cache) RegMetricsTo(r prometheus.Registerer) error {
 		}
 	}
 	return nil
+}
+
+func (c *Cache) GetIPByQName(qn string) []net.IP {
+	var ips []net.IP
+
+	m := dns.Msg{}
+	m.Opcode = dns.OpcodeQuery
+	m.Question = make([]dns.Question, 1)
+	m.Question[0].Qclass = dns.ClassINET
+
+	m.Question[0].Name = qn
+
+	for _, qt := range []uint16{dns.TypeA, dns.TypeAAAA} {
+		m.Question[0].Qtype = qt
+		for _, ad := range []bool{false, true} {
+			m.AuthenticatedData = ad
+			for _, cd := range []bool{false, true} {
+				m.CheckingDisabled = cd
+
+				msgKey := getMsgKey(&m)
+				if len(msgKey) == 0 {
+					continue
+				}
+				cr, _ := getRespFromCache(msgKey, c.backend, true, 0)
+				if cr == nil {
+					continue
+				}
+				for _, rr := range cr.Answer {
+					switch rr := rr.(type) {
+					case *dns.A:
+						ips = append(ips, rr.A)
+					case *dns.AAAA:
+						ips = append(ips, rr.AAAA)
+					}
+				}
+			}
+		}
+	}
+
+	return ips
 }
 
 func (c *Cache) Exec(ctx context.Context, qCtx *query_context.Context, next sequence.ChainWalker) error {
