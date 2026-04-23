@@ -43,16 +43,27 @@ func init() {
 var _ sequence.RecursiveExecutable = (*Redirect)(nil)
 
 type Args struct {
+	CName *bool    `yaml:"cname"`
+	TTL   uint32   `yaml:"ttl"`
 	Rules []string `yaml:"rules"`
 	Files []string `yaml:"files"`
 }
 
+func (args *Args) init() *Args {
+	if args.TTL == 0 {
+		args.TTL = 1
+	}
+	return args
+}
+
 type Redirect struct {
+	*Args
+
 	m *domain.MixMatcher[string]
 }
 
 func Init(bp *coremain.BP, args any) (any, error) {
-	r, err := NewRedirect(args.(*Args))
+	r, err := NewRedirect(args.(*Args).init())
 	if err != nil {
 		return nil, err
 	}
@@ -84,17 +95,17 @@ func NewRedirect(args *Args) (*Redirect, error) {
 			return nil, fmt.Errorf("failed to load file #%d %s, %w", i, file, err)
 		}
 	}
-	return &Redirect{m: m}, nil
+	return &Redirect{args, m}, nil
 }
 
-func (r *Redirect) Exec(ctx context.Context, qCtx *query_context.Context, next sequence.ChainWalker) error {
+func (p *Redirect) Exec(ctx context.Context, qCtx *query_context.Context, next sequence.ChainWalker) error {
 	q := qCtx.Q()
 	if len(q.Question) != 1 || q.Question[0].Qclass != dns.ClassINET {
 		return next.ExecNext(ctx, qCtx)
 	}
 
 	orgQName := q.Question[0].Name
-	redirectTarget, ok := r.m.Match(orgQName)
+	redirectTarget, ok := p.m.Match(orgQName)
 	if !ok {
 		return next.ExecNext(ctx, qCtx)
 	}
@@ -103,15 +114,21 @@ func (r *Redirect) Exec(ctx context.Context, qCtx *query_context.Context, next s
 	defer func() {
 		q.Question[0].Name = orgQName
 	}()
-	err := next.ExecNext(ctx, qCtx)
-	if r := qCtx.R(); r != nil {
-		// Restore original query name.
-		for i := range r.Question {
-			if r.Question[i].Name == redirectTarget {
-				r.Question[i].Name = orgQName
-			}
-		}
 
+	err := next.ExecNext(ctx, qCtx)
+	r := qCtx.R()
+	if r == nil {
+		return err
+	}
+
+	// Restore original query name.
+	for i := range r.Question {
+		if r.Question[i].Name == redirectTarget {
+			r.Question[i].Name = orgQName
+		}
+	}
+
+	if p.CName == nil || (p.CName != nil && *p.CName) {
 		// Insert a CNAME record.
 		newAns := make([]dns.RR, 1, len(r.Answer)+1)
 		newAns[0] = &dns.CNAME{
@@ -119,12 +136,17 @@ func (r *Redirect) Exec(ctx context.Context, qCtx *query_context.Context, next s
 				Name:   orgQName,
 				Rrtype: dns.TypeCNAME,
 				Class:  dns.ClassINET,
-				Ttl:    1,
+				Ttl:    p.TTL,
 			},
 			Target: redirectTarget,
 		}
 		newAns = append(newAns, r.Answer...)
 		r.Answer = newAns
+	} else {
+		// Change RR name
+		for i, _ := range r.Answer {
+			r.Answer[i].Header().Name = orgQName
+		}
 	}
 	return err
 }
