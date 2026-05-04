@@ -22,6 +22,7 @@ package black_hole
 import (
 	"context"
 	"fmt"
+	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/IrineSistiana/mosdns/v5/plugin/executable/sequence"
 	"github.com/miekg/dns"
@@ -29,13 +30,27 @@ import (
 	"strings"
 )
 
-const PluginType = "black_hole"
+const (
+	PluginType  = "black_hole"
+	PluginTypeR = "resp_ip"
+)
 
 func init() {
+	coremain.RegNewPluginFunc(PluginType, Init, func() any { return new(Args) })
+	coremain.RegNewPluginFunc(PluginTypeR, Init, func() any { return new(Args) })
 	sequence.MustRegExecQuickSetup(PluginType, QuickSetup)
+	sequence.MustRegExecQuickSetup(PluginTypeR, QuickSetup)
 }
 
 var _ sequence.Executable = (*BlackHole)(nil)
+
+type Args struct {
+	IPs []string `yaml:"ips"`
+}
+
+func Init(bp *coremain.BP, args any) (any, error) {
+	return NewBlackHole(args.(*Args).IPs)
+}
 
 type BlackHole struct {
 	ipv4 []netip.Addr
