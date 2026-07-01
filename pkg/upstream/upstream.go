@@ -87,6 +87,9 @@ type Opt struct {
 	// BindToDevice sets the socket SO_BINDTODEVICE option in unix system.
 	BindToDevice string
 
+	// EnableTCPFastOpen enables TCP Fast Open for TCP based upstreams in unix system.
+	EnableTCPFastOpen bool
+
 	// IdleTimeout specifies the idle timeout for long-connections.
 	// Default: TCP, DoT: 10s , DoH, DoH3, Quic: 30s.
 	IdleTimeout time.Duration
@@ -163,6 +166,7 @@ func NewUpstream(addr string, opt Opt) (_ Upstream, err error) {
 		Control: getSocketControlFunc(socketOpts{
 			so_mark:        opt.SoMark,
 			bind_to_device: opt.BindToDevice,
+			tcp_fast_open:  opt.EnableTCPFastOpen,
 		}),
 	}
 

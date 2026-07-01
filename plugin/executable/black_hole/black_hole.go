@@ -27,6 +27,8 @@ import (
 	"github.com/miekg/dns"
 	"net/netip"
 	"strings"
+	"math/rand"
+	"sync"
 )
 
 const PluginType = "black_hole"
@@ -40,6 +42,7 @@ var _ sequence.Executable = (*BlackHole)(nil)
 type BlackHole struct {
 	ipv4 []netip.Addr
 	ipv6 []netip.Addr
+	shuffleMutex sync.Mutex
 }
 
 // QuickSetup format: [ipv4|ipv6] ...
@@ -65,9 +68,21 @@ func NewBlackHole(ips []string) (*BlackHole, error) {
 	return b, nil
 }
 
+func (b *BlackHole) shuffleIPs() {
+	b.shuffleMutex.Lock()
+	defer b.shuffleMutex.Unlock()
+	rand.Shuffle(len(b.ipv4), func(i, j int) {
+		b.ipv4[i], b.ipv4[j] = b.ipv4[j], b.ipv4[i]
+	})
+	rand.Shuffle(len(b.ipv6), func(i, j int) {
+		b.ipv6[i], b.ipv6[j] = b.ipv6[j], b.ipv6[i]
+	})
+}
+
 // Exec implements sequence.Executable. It set a response with given ips if
 // query has corresponding qtypes.
 func (b *BlackHole) Exec(_ context.Context, qCtx *query_context.Context) error {
+	b.shuffleIPs()
 	if r := b.Response(qCtx.Q()); r != nil {
 		qCtx.SetResponse(r)
 	}

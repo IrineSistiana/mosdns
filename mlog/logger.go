@@ -21,9 +21,11 @@ package mlog
 
 import (
 	"fmt"
+	"os"
+	"time"
+
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"os"
 )
 
 type LogConfig struct {
@@ -64,10 +66,18 @@ func NewLogger(lc LogConfig) (*zap.Logger, error) {
 		out = stderr
 	}
 
-	if lc.Production {
-		return zap.New(zapcore.NewCore(zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()), out, lvl)), nil
+	encoderConfig := zap.NewDevelopmentEncoderConfig()
+	encoderConfig.EncodeTime = func(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
+		enc.AppendString(t.Format("2006-01-02 15:04:05"))
 	}
-	return zap.New(zapcore.NewCore(zapcore.NewConsoleEncoder(zap.NewDevelopmentEncoderConfig()), out, lvl)), nil
+
+	core := zapcore.NewCore(
+		zapcore.NewConsoleEncoder(encoderConfig),
+		out,
+		lvl,
+	)
+
+	return zap.New(core), nil
 }
 
 // L is a global logger.

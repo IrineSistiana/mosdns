@@ -56,11 +56,12 @@ type Args struct {
 	Concurrent int              `yaml:"concurrent"`
 
 	// Global options.
-	Socks5       string `yaml:"socks5"`
-	SoMark       int    `yaml:"so_mark"`
-	BindToDevice string `yaml:"bind_to_device"`
-	Bootstrap    string `yaml:"bootstrap"`
-	BootstrapVer int    `yaml:"bootstrap_version"`
+	Socks5            string `yaml:"socks5"`
+	SoMark            int    `yaml:"so_mark"`
+	BindToDevice      string `yaml:"bind_to_device"`
+	EnableTCPFastOpen bool   `yaml:"enable_tfo"`
+	Bootstrap         string `yaml:"bootstrap"`
+	BootstrapVer      int    `yaml:"bootstrap_version"`
 }
 
 type UpstreamConfig struct {
@@ -76,11 +77,12 @@ type UpstreamConfig struct {
 	EnableHTTP3        bool `yaml:"enable_http3"`
 	InsecureSkipVerify bool `yaml:"insecure_skip_verify"`
 
-	Socks5       string `yaml:"socks5"`
-	SoMark       int    `yaml:"so_mark"`
-	BindToDevice string `yaml:"bind_to_device"`
-	Bootstrap    string `yaml:"bootstrap"`
-	BootstrapVer int    `yaml:"bootstrap_version"`
+	Socks5            string `yaml:"socks5"`
+	SoMark            int    `yaml:"so_mark"`
+	BindToDevice      string `yaml:"bind_to_device"`
+	EnableTCPFastOpen bool   `yaml:"enable_tfo"`
+	Bootstrap         string `yaml:"bootstrap"`
+	BootstrapVer      int    `yaml:"bootstrap_version"`
 }
 
 func Init(bp *coremain.BP, args any) (any, error) {
@@ -131,6 +133,9 @@ func NewForward(args *Args, opt Opts) (*Forward, error) {
 		utils.SetDefaultString(&c.Socks5, args.Socks5)
 		utils.SetDefaultUnsignNum(&c.SoMark, args.SoMark)
 		utils.SetDefaultString(&c.BindToDevice, args.BindToDevice)
+		if args.EnableTCPFastOpen {
+			c.EnableTCPFastOpen = true
+		}
 		utils.SetDefaultString(&c.Bootstrap, args.Bootstrap)
 		utils.SetDefaultUnsignNum(&c.BootstrapVer, args.BootstrapVer)
 	}
@@ -143,15 +148,16 @@ func NewForward(args *Args, opt Opts) (*Forward, error) {
 
 		uw := newWrapper(i, c, opt.MetricsTag)
 		uOpt := upstream.Opt{
-			DialAddr:       c.DialAddr,
-			Socks5:         c.Socks5,
-			SoMark:         c.SoMark,
-			BindToDevice:   c.BindToDevice,
-			IdleTimeout:    time.Duration(c.IdleTimeout) * time.Second,
-			EnablePipeline: c.EnablePipeline,
-			EnableHTTP3:    c.EnableHTTP3,
-			Bootstrap:      c.Bootstrap,
-			BootstrapVer:   c.BootstrapVer,
+			DialAddr:          c.DialAddr,
+			Socks5:            c.Socks5,
+			SoMark:            c.SoMark,
+			BindToDevice:      c.BindToDevice,
+			EnableTCPFastOpen: c.EnableTCPFastOpen,
+			IdleTimeout:       time.Duration(c.IdleTimeout) * time.Second,
+			EnablePipeline:    c.EnablePipeline,
+			EnableHTTP3:       c.EnableHTTP3,
+			Bootstrap:         c.Bootstrap,
+			BootstrapVer:      c.BootstrapVer,
 			TLSConfig: &tls.Config{
 				InsecureSkipVerify: c.InsecureSkipVerify,
 				ClientSessionCache: tls.NewLRUClientSessionCache(4),

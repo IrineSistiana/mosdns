@@ -29,6 +29,7 @@ import (
 type socketOpts struct {
 	so_mark        int
 	bind_to_device string
+	tcp_fast_open  bool
 }
 
 func parseDialAddr(urlHost, dialAddr string, defaultPort uint16) (string, uint16, error) {

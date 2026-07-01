@@ -22,12 +22,25 @@ package data_provider
 import (
 	"github.com/IrineSistiana/mosdns/v5/pkg/matcher/domain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/matcher/netlist"
+	"github.com/oschwald/geoip2-golang"
 )
 
 type DomainMatcherProvider interface {
 	GetDomainMatcher() domain.Matcher[struct{}]
 }
 
+type GeositeMatcherProvider interface {
+	GetGeositeMatcher(code string) (domain.Matcher[struct{}], bool)
+}
+
 type IPMatcherProvider interface {
 	GetIPMatcher() netlist.Matcher
+}
+
+type GeoIPMatcherProvider interface {
+	GetGeoIPMatcher(code string) (netlist.Matcher, bool)
+}
+
+type MmdbMatcherProvider interface {
+	GetMmdbMatcher() *geoip2.Reader
 }

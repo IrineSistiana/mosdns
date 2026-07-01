@@ -29,9 +29,17 @@ import (
 )
 
 func getSocketControlFunc(opts socketOpts) func(string, string, syscall.RawConn) error {
-	return func(_, _ string, c syscall.RawConn) error {
+	return func(network, _ string, c syscall.RawConn) error {
 		var sysCallErr error
 		if err := c.Control(func(fd uintptr) {
+			if opts.tcp_fast_open && isTCPNetwork(network) {
+				sysCallErr = unix.SetsockoptInt(int(fd), unix.IPPROTO_TCP, unix.TCP_FASTOPEN_CONNECT, 1)
+				if sysCallErr != nil {
+					sysCallErr = os.NewSyscallError("failed to set TCP_FASTOPEN_CONNECT", sysCallErr)
+					return
+				}
+			}
+
 			// SO_MARK
 			if opts.so_mark > 0 {
 				sysCallErr = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_MARK, opts.so_mark)
@@ -54,5 +62,14 @@ func getSocketControlFunc(opts socketOpts) func(string, string, syscall.RawConn)
 			return err
 		}
 		return sysCallErr
+	}
+}
+
+func isTCPNetwork(network string) bool {
+	switch network {
+	case "tcp", "tcp4", "tcp6":
+		return true
+	default:
+		return false
 	}
 }

@@ -46,11 +46,12 @@ type Args struct {
 		Exec string `yaml:"exec"`
 		Path string `yaml:"path"`
 	} `yaml:"entries"`
-	Listen      string `yaml:"listen"`
-	SrcIPHeader string `yaml:"src_ip_header"`
-	Cert        string `yaml:"cert"`
-	Key         string `yaml:"key"`
-	IdleTimeout int    `yaml:"idle_timeout"`
+	Listen            string `yaml:"listen"`
+	SrcIPHeader       string `yaml:"src_ip_header"`
+	Cert              string `yaml:"cert"`
+	Key               string `yaml:"key"`
+	IdleTimeout       int    `yaml:"idle_timeout"`
+	EnableTCPFastOpen bool   `yaml:"enable_tfo"`
 }
 
 func (a *Args) init() {
@@ -87,8 +88,9 @@ func StartServer(bp *coremain.BP, args *Args) (*HttpServer, error) {
 	}
 
 	socketOpt := server_utils.ListenerSocketOpts{
-		SO_REUSEPORT: true,
-		SO_RCVBUF:    64 * 1024,
+		SO_REUSEPORT:  true,
+		SO_RCVBUF:     64 * 1024,
+		TCP_FAST_OPEN: args.EnableTCPFastOpen,
 	}
 	lc := net.ListenConfig{Control: server_utils.ListenerControl(socketOpt)}
 

@@ -9,7 +9,8 @@ func NopControlFunc(network, address string, c syscall.RawConn) error {
 }
 
 type ListenerSocketOpts struct {
-	SO_REUSEPORT bool
-	SO_RCVBUF    int
-	SO_SNDBUF    int
+	SO_REUSEPORT  bool
+	SO_RCVBUF     int
+	SO_SNDBUF     int
+	TCP_FAST_OPEN bool
 }
