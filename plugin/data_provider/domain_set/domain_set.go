@@ -43,9 +43,23 @@ func Init(bp *coremain.BP, args any) (any, error) {
 }
 
 type Args struct {
-	Exps  []string `yaml:"exps"`
-	Sets  []string `yaml:"sets"`
-	Files []string `yaml:"files"`
+	Exps    []string        `yaml:"exps"`
+	Sets    []string        `yaml:"sets"`
+	Files   []string        `yaml:"files"`
+	GeoSite []GeoSiteSource `yaml:"geosite"`
+}
+
+// GeoSiteSource specifies the domain-list-community GeoSite tags to load from
+// one dlc.dat (or other GeoSite-format) file.
+//
+// Example:
+//
+//	geosite:
+//	  - file: /path/to/dlc.dat
+//	    tags: [cn, category-ads-all]
+type GeoSiteSource struct {
+	File string   `yaml:"file"`
+	Tags []string `yaml:"tags"`
 }
 
 var _ data_provider.DomainMatcherProvider = (*DomainSet)(nil)
@@ -64,6 +78,9 @@ func NewDomainSet(bp *coremain.BP, args *Args) (*DomainSet, error) {
 
 	m := domain.NewDomainMixMatcher()
 	if err := LoadExpsAndFiles(args.Exps, args.Files, m); err != nil {
+		return nil, err
+	}
+	if err := LoadGeoSiteSources(args.GeoSite, m); err != nil {
 		return nil, err
 	}
 	if m.Len() > 0 {
