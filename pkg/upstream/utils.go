@@ -94,7 +94,7 @@ func tryTrimIpv6Brackets(s string) string {
 		return s
 	}
 	if s[0] == '[' && s[len(s)-1] == ']' {
-		return s[1 : len(s)-2]
+		return s[1 : len(s)-1]
 	}
 	return s
 }
