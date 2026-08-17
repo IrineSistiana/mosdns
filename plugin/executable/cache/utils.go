@@ -20,12 +20,13 @@
 package cache
 
 import (
+	"encoding/binary"
 	"hash/maphash"
 	"time"
 
 	"github.com/IrineSistiana/mosdns/v5/pkg/cache"
 	"github.com/IrineSistiana/mosdns/v5/pkg/dnsutils"
-	"github.com/IrineSistiana/mosdns/v5/pkg/utils"
+	"github.com/IrineSistiana/mosdns/v5/pkg/query_context"
 	"github.com/miekg/dns"
 	"golang.org/x/exp/constraints"
 )
@@ -34,44 +35,59 @@ type key string
 
 var seed = maphash.MakeSeed()
 
+const cacheKeyVersion = 1
+
 func (k key) Sum() uint64 {
 	return maphash.String(seed, string(k))
 }
 
-// getMsgKey returns a string key for the query msg, or an empty
-// string if query should not be cached.
-func getMsgKey(q *dns.Msg) string {
+// getMsgKey returns a key for the query that is effective at the cache's
+// current position in the sequence. It returns an empty string if the query
+// should not be cached.
+//
+// The key includes the wire representation of the upstream query, minus its
+// transaction ID. This accounts for the complete question, query flags, and
+// EDNS options inserted by plugins before cache (notably ECS). Client EDNS is
+// included separately because query_context keeps it outside Q(); this is
+// required to distinguish the client DO bit and options that may be forwarded
+// by a plugin placed after cache.
+func getMsgKey(qCtx *query_context.Context) string {
+	q := qCtx.Q()
 	if q.Response || q.Opcode != dns.OpcodeQuery || len(q.Question) != 1 {
 		return ""
 	}
 
-	const (
-		adBit = 1 << iota
-		cdBit
-		doBit
-	)
+	keyQuery := q.Copy()
+	keyQuery.Id = 0
+	keyQuery.Compress = false
+	queryWire, err := keyQuery.Pack()
+	if err != nil {
+		return ""
+	}
 
-	question := q.Question[0]
-	buf := make([]byte, 1+2+1+len(question.Name)) // bits + qtype + qname length + qname
-	b := byte(0)
-	// RFC 6840 5.7: The AD bit in a query as a signal
-	// indicating that the requester understands and is interested in the
-	// value of the AD bit in the response.
-	if q.AuthenticatedData {
-		b = b | adBit
+	var clientOptWire []byte
+	if clientOpt := qCtx.ClientOpt(); clientOpt != nil {
+		// Pack the OPT inside a temporary DNS message instead of relying on an
+		// option's String method. The DNS wire format is lossless for every
+		// EDNS0 implementation supported by miekg/dns.
+		m := &dns.Msg{Extra: []dns.RR{dns.Copy(clientOpt)}}
+		clientOptWire, err = m.Pack()
+		if err != nil {
+			return ""
+		}
 	}
-	if q.CheckingDisabled {
-		b = b | cdBit
-	}
-	if opt := q.IsEdns0(); opt != nil && opt.Do() {
-		b = b | doBit
-	}
-	buf[0] = b
-	buf[1] = byte(question.Qtype << 8)
-	buf[2] = byte(question.Qtype)
-	buf[3] = byte(len(question.Name))
-	copy(buf[4:], question.Name)
-	return utils.BytesToStringUnsafe(buf)
+
+	// Length-prefixing makes the two wire messages unambiguous. Converting a
+	// byte slice to string copies it, so the key remains valid after return.
+	buf := make([]byte, 1+4+len(queryWire)+4+len(clientOptWire))
+	buf[0] = cacheKeyVersion
+	binary.BigEndian.PutUint32(buf[1:], uint32(len(queryWire)))
+	offset := 5
+	offset += copy(buf[offset:], queryWire)
+	binary.BigEndian.PutUint32(buf[offset:], uint32(len(clientOptWire)))
+	offset += 4
+	copy(buf[offset:], clientOptWire)
+	return string(buf)
 }
 
 type item struct {
@@ -122,6 +138,19 @@ func copyNoOpt(m *dns.Msg) *dns.Msg {
 	return m2
 }
 
+// copyRespForCache keeps the response body separate from the context's EDNS
+// handling, but saves the upstream OPT as the final OPT record. On a cache
+// hit Context.SetResponse will move it back to UpstreamOpt, allowing wrappers
+// such as ecs_handler and forward_edns0opt to reproduce their response-side
+// EDNS processing.
+func copyRespForCache(m *dns.Msg, upstreamOpt *dns.OPT) *dns.Msg {
+	m2 := copyNoOpt(m)
+	if upstreamOpt != nil {
+		m2.Extra = append(m2.Extra, dns.Copy(upstreamOpt))
+	}
+	return m2
+}
+
 func min[T constraints.Ordered](a, b T) T {
 	if a < b {
 		return a
@@ -163,7 +192,7 @@ func getRespFromCache(msgKey string, backend *cache.Cache[key, *item], lazyCache
 
 // saveRespToCache saves r to cache backend. It returns false if r
 // should not be cached and was skipped.
-func saveRespToCache(msgKey string, r *dns.Msg, backend *cache.Cache[key, *item], lazyCacheTtl int) bool {
+func saveRespToCache(msgKey string, r *dns.Msg, upstreamOpt *dns.OPT, backend *cache.Cache[key, *item], lazyCacheTtl int) bool {
 	if r.Truncated != false {
 		return false
 	}
@@ -198,7 +227,7 @@ func saveRespToCache(msgKey string, r *dns.Msg, backend *cache.Cache[key, *item]
 
 	now := time.Now()
 	v := &item{
-		resp:           copyNoOpt(r),
+		resp:           copyRespForCache(r, upstreamOpt),
 		storedTime:     now,
 		expirationTime: now.Add(msgTtl),
 	}

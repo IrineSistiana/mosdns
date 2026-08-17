@@ -61,7 +61,7 @@ const (
 	expiredMsgTtl            = 5
 
 	minimumChangesToDump   = 1024
-	dumpHeader             = "mosdns_cache_v2"
+	dumpHeader             = "mosdns_cache_v3"
 	dumpBlockSize          = 128
 	dumpMaximumBlockLength = 1 << 20 // 1M block. 8kb pre entry. Should be enough.
 )
@@ -188,9 +188,7 @@ func (c *Cache) RegMetricsTo(r prometheus.Registerer) error {
 
 func (c *Cache) Exec(ctx context.Context, qCtx *query_context.Context, next sequence.ChainWalker) error {
 	c.queryTotal.Inc()
-	q := qCtx.Q()
-
-	msgKey := getMsgKey(q)
+	msgKey := getMsgKey(qCtx)
 	if len(msgKey) == 0 { // skip cache
 		return next.ExecNext(ctx, qCtx)
 	}
@@ -202,14 +200,14 @@ func (c *Cache) Exec(ctx context.Context, qCtx *query_context.Context, next sequ
 	}
 	if cachedResp != nil { // cache hit
 		c.hitTotal.Inc()
-		cachedResp.Id = q.Id // change msg id
+		cachedResp.Id = qCtx.Q().Id // change msg id
 		qCtx.SetResponse(cachedResp)
 	}
 
 	err := next.ExecNext(ctx, qCtx)
 
 	if r := qCtx.R(); r != nil && cachedResp != r { // pointer compare. r is not cachedResp
-		saveRespToCache(msgKey, r, c.backend, c.args.LazyCacheTTL)
+		saveRespToCache(msgKey, r, qCtx.UpstreamOpt(), c.backend, c.args.LazyCacheTTL)
 		c.updatedKey.Add(1)
 	}
 	return err
@@ -234,7 +232,7 @@ func (c *Cache) doLazyUpdate(msgKey string, qCtx *query_context.Context, next se
 
 		r := qCtx.R()
 		if r != nil {
-			saveRespToCache(msgKey, r, c.backend, c.args.LazyCacheTTL)
+			saveRespToCache(msgKey, r, qCtx.UpstreamOpt(), c.backend, c.args.LazyCacheTTL)
 			c.updatedKey.Add(1)
 		}
 		c.logger.Debug("lazy cache updated", qCtx.InfoField())
